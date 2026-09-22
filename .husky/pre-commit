@@ -1,1 +1,14 @@
+#!/usr/bin/env sh
+
+# Current branch nikaalo
+branch="$(git rev-parse --abbrev-ref HEAD)"
+
+# Agar main branch hai toh commit abort kar do
+if [ "$branch" = "main" ]; then
+  echo "\n❌ ERROR: Direct commit to 'main' branch is prohibited!"
+  echo "👉 Please create a feature branch: git checkout -b feat/your-feature-name\n"
+  exit 1
+fi
+
+# Baaki staged files ko lint/format karo
 npx lint-staged

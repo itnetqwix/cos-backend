@@ -1,0 +1,34 @@
+export const SYSTEM_CONSTANTS = {
+  APP_NAME: 'Contest Operating System Backend',
+  API_VERSION: '1.0.0',
+  DEFAULT_PORT: 5000,
+  API_PREFIX: '/api/v1',
+  BCRYPT_SALT_ROUNDS: 10,
+  JWT_EXPIRES_IN: '7d',
+  DEFAULT_PAGE: 1,
+  DEFAULT_PAGE_LIMIT: 20,
+  MAX_PAGE_LIMIT: 100,
+} as const;
+
+export const HTTP_STATUS = {
+  OK: 200,
+  CREATED: 201,
+  ACCEPTED: 202,
+  NO_CONTENT: 204,
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  CONFLICT: 409,
+  UNPROCESSABLE_ENTITY: 422,
+  INTERNAL_SERVER_ERROR: 500,
+} as const;
+
+export const ROLES = {
+  SUPER_ADMIN: 'SUPER_ADMIN',
+  BRAND_ADMIN: 'BRAND_ADMIN',
+  CREATOR: 'CREATOR',
+  VIEWER: 'VIEWER',
+} as const;
+
+export type SystemRole = (typeof ROLES)[keyof typeof ROLES];

@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+branch="$(git rev-parse --abbrev-ref HEAD)"
+valid_branch_regex="^(feat|fix|hotfix|chore|refactor)\/[a-z0-9._-]+$"
+
+if [ "$branch" = "main" ]; then
+  echo "\n❌ ERROR: Direct push to main branch is blocked!\n"
+  exit 1
+fi
+
+if ! echo "$branch" | grep -Eq "$valid_branch_regex"; then
+  echo "\n❌ ERROR: Invalid branch name: $branch"
+  echo "��� Valid formats: feat/task-name, fix/bug-name, chore/config-name\n"
+  exit 1
+fi
+
+
