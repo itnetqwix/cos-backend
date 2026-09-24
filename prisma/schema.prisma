@@ -15,13 +15,22 @@ enum Role {
 }
 
 model Organization {
-  id        String   @id @default(uuid())
-  name      String
-  slug      String   @unique
-  branding  Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  users     User[]
+  id         String     @id @default(uuid())
+  name       String
+  slug       String     @unique
+  branding   Json?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  users      User[]
+  categories Category[]
+  contests   Contest[]
+
+  // M04-P01-T01: do not add status / suspended columns here.
+  // Frontend TenantBrandConfig.status (ACTIVE | SUSPENDED) is a local
+  // prototype. Source does not name an Organization status column.
+  // Master plan: exact Organization.suspended field name is NOT SPECIFIED.
+  // Suspend / reinstate persistence is M10, not M04. No suspend API exists
+  // in this module, so a column would invent tenant-suspension semantics.
 
   @@map("organizations")
 }
@@ -37,5 +46,65 @@ model User {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
+  // handle and avatarUrl are domain-model PLANNED fields.
+  // Persistence (nullability, uniqueness, @-prefix format) is NOT SPECIFIED
+  // for this schema until a later decision (M02-P01-T05). Do not add without
+  // an explicit roadmap task.
+
   @@map("users")
+}
+
+// M05-P01-T01. Master-plan transitions only:
+// DRAFT → SCHEDULED → ACTIVE → JUDGING → COMPLETED → ARCHIVED.
+// CANCELLED is drawn in the pre-M05 domain diagram and listed in the old
+// planned snippet, but master plan says CANCELLED triggers are NOT SPECIFIED.
+// Suspension is also NOT SPECIFIED as a status. Neither value is persisted.
+enum ContestStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  JUDGING
+  COMPLETED
+  ARCHIVED
+}
+
+// M05-P01-T02. One category belongs to one organization.
+// Slug is unique per organization, not globally.
+model Category {
+  id             String       @id @default(uuid())
+  name           String
+  slug           String
+  description    String?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contests       Contest[]
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, slug])
+  @@map("categories")
+}
+
+// M05-P01-T03 / T04. No Submission relation: that model is M06.
+// categoryId is optional. autoAdvanceDelayMs default is 1800.
+// Evaluation-criteria columns are NOT SPECIFIED and are not added.
+// Prize distribution breakdown is NOT SPECIFIED; only prizeSummary is stored.
+model Contest {
+  id                 String        @id @default(uuid())
+  organizationId     String
+  organization       Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  categoryId         String?
+  category           Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  title              String
+  description        String        @db.Text
+  status             ContestStatus @default(DRAFT)
+  startDate          DateTime
+  endDate            DateTime
+  prizeSummary       String?
+  rules              Json?
+  autoAdvanceDelayMs Int           @default(1800)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([organizationId, status])
+  @@map("contests")
 }

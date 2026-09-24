@@ -1,0 +1,348 @@
+import { z } from 'zod';
+import { FastifySchema } from 'fastify';
+import { swaggerErrorEnvelope, swaggerSuccessEnvelope } from './auth.schema.js';
+
+/**
+ * Contest HTTP contracts (M05-P03-T01).
+ *
+ * Persisted fields match the Prisma Contest model. Not accepted:
+ * submission/upload fields, prize distribution breakdown, media constraints,
+ * banner/thumbnail, tagline, votingCloseDate, entries, votes, or a status
+ * on create (create always stores DRAFT).
+ *
+ * `rules` is a JSON string or a string array (domain model: JSON / string array).
+ * Evaluation criteria are NOT SPECIFIED as a column. Unknown keys, including
+ * `criteria` / `scoringCriteria`, are rejected.
+ *
+ * `endDate` must be later than `startDate` so the documented submission window
+ * (`startDate <= now <= endDate`) can exist.
+ */
+
+export const CONTEST_STATUSES = [
+  'DRAFT',
+  'SCHEDULED',
+  'ACTIVE',
+  'JUDGING',
+  'COMPLETED',
+  'ARCHIVED',
+] as const;
+
+export const contestStatusSchema = z.enum(CONTEST_STATUSES);
+
+const isoDateTimeSchema = z.string().refine((value) => {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed);
+}, 'Must be an ISO 8601 date-time');
+
+const rulesSchema = z.union([z.string(), z.array(z.string())]);
+
+const categorySlugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1, 'Category slug is required')
+  .max(50, 'Category slug cannot exceed 50 characters')
+  .regex(
+    /^[a-z0-9-]+$/,
+    'Category slug can only contain lowercase alphanumeric characters and hyphens',
+  );
+
+export const categoryWriteSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Category name is required'),
+    slug: categorySlugSchema.optional(),
+    description: z.string().optional(),
+  })
+  .strict();
+
+export const createContestSchema = z
+  .object({
+    organizationId: z.string().uuid('organizationId must be a valid UUID'),
+    categoryId: z.string().uuid('categoryId must be a valid UUID').optional(),
+    category: categoryWriteSchema.optional(),
+    title: z.string().trim().min(1, 'Title is required'),
+    description: z.string().trim().min(1, 'Description is required'),
+    startDate: isoDateTimeSchema,
+    endDate: isoDateTimeSchema,
+    prizeSummary: z.string().nullable().optional(),
+    rules: rulesSchema.nullable().optional(),
+    autoAdvanceDelayMs: z.number().int().positive().optional(),
+  })
+  .strict()
+  .refine((value) => Date.parse(value.endDate) > Date.parse(value.startDate), {
+    message: 'endDate must be after startDate',
+    path: ['endDate'],
+  })
+  .refine((value) => !(value.categoryId && value.category), {
+    message: 'Provide either categoryId or category, not both',
+    path: ['category'],
+  });
+
+export type CreateContestInput = z.infer<typeof createContestSchema>;
+
+export const updateContestSchema = z
+  .object({
+    title: z.string().trim().min(1, 'Title is required').optional(),
+    description: z.string().trim().min(1, 'Description is required').optional(),
+    startDate: isoDateTimeSchema.optional(),
+    endDate: isoDateTimeSchema.optional(),
+    prizeSummary: z.string().nullable().optional(),
+    rules: rulesSchema.nullable().optional(),
+    autoAdvanceDelayMs: z.number().int().positive().optional(),
+    status: contestStatusSchema.optional(),
+    categoryId: z.string().uuid('categoryId must be a valid UUID').nullable().optional(),
+    category: categoryWriteSchema.nullable().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one field is required',
+  })
+  .refine((value) => !(value.categoryId && value.category), {
+    message: 'Provide either categoryId or category, not both',
+    path: ['category'],
+  });
+
+export type UpdateContestInput = z.infer<typeof updateContestSchema>;
+
+export const contestIdParamSchema = z.object({
+  id: z.string().uuid('Contest ID must be a valid UUID format'),
+});
+
+export type ContestIdParamInput = z.infer<typeof contestIdParamSchema>;
+
+export const listContestsQuerySchema = z
+  .object({
+    tenantId: z.string().uuid('tenantId must be a valid UUID').optional(),
+    status: contestStatusSchema.optional(),
+    category: categorySlugSchema.optional(),
+  })
+  .strict();
+
+export type ListContestsQueryInput = z.infer<typeof listContestsQuerySchema>;
+
+const categoryViewSchema = {
+  type: 'object',
+  nullable: true,
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    name: { type: 'string' },
+    slug: { type: 'string' },
+    description: { type: 'string', nullable: true },
+  },
+};
+
+const organizationSummarySchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    name: { type: 'string' },
+    slug: { type: 'string' },
+  },
+};
+
+const contestViewSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    organizationId: { type: 'string', format: 'uuid' },
+    organization: organizationSummarySchema,
+    categoryId: { type: 'string', format: 'uuid', nullable: true },
+    category: categoryViewSchema,
+    title: { type: 'string' },
+    description: { type: 'string' },
+    status: { type: 'string', enum: [...CONTEST_STATUSES] },
+    startDate: { type: 'string', format: 'date-time' },
+    endDate: { type: 'string', format: 'date-time' },
+    prizeSummary: { type: 'string', nullable: true },
+    rules: {
+      anyOf: [
+        { type: 'string' },
+        { type: 'array', items: { type: 'string' } },
+        { type: 'null' },
+      ],
+    },
+    autoAdvanceDelayMs: { type: 'integer', example: 1800 },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+const contestWriteBody = {
+  type: 'object',
+  properties: {
+    organizationId: { type: 'string', format: 'uuid' },
+    categoryId: { type: 'string', format: 'uuid' },
+    category: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        slug: { type: 'string' },
+        description: { type: 'string' },
+      },
+    },
+    title: { type: 'string' },
+    description: { type: 'string' },
+    startDate: { type: 'string', format: 'date-time' },
+    endDate: { type: 'string', format: 'date-time' },
+    prizeSummary: { type: 'string', nullable: true },
+    rules: {},
+    autoAdvanceDelayMs: { type: 'integer' },
+  },
+};
+
+/**
+ * GET /contests and GET /contests/:id use the same roles as POST.
+ * api-map does not name a role for the reads. CREATOR/VIEWER visibility,
+ * including whether drafts are public, is NOT SPECIFIED. Granting those
+ * roles or leaving the list public would publish unpublished configuration.
+ * Ch 11.3 primary users are administrators and organizations.
+ */
+export const listContestsSwaggerSchema: FastifySchema = {
+  tags: ['Contests'],
+  summary: 'List contests',
+  description:
+    'Lists contests for BRAND_ADMIN (own organization only) or SUPER_ADMIN (optional tenantId filter). Query filters: tenantId (organization id), status, category (slug). CREATOR and VIEWER are forbidden. Unauthenticated requests are 401.',
+  security: [{ bearerAuth: [] }],
+  querystring: {
+    type: 'object',
+    properties: {
+      tenantId: { type: 'string', format: 'uuid' },
+      status: { type: 'string', enum: [...CONTEST_STATUSES] },
+      category: { type: 'string' },
+    },
+  },
+  response: {
+    200: {
+      description: 'Contests retrieved',
+      ...swaggerSuccessEnvelope(
+        { type: 'array', items: contestViewSchema },
+        'Contests retrieved successfully',
+      ),
+    },
+    400: {
+      description: 'Invalid query',
+      ...swaggerErrorEnvelope('Validation error'),
+    },
+    401: {
+      description: 'Missing or invalid token',
+      ...swaggerErrorEnvelope('Unauthorized'),
+    },
+    403: {
+      description: 'Wrong role or wrong organization',
+      ...swaggerErrorEnvelope('Forbidden'),
+    },
+  },
+};
+
+export const createContestSwaggerSchema: FastifySchema = {
+  tags: ['Contests'],
+  summary: 'Create a contest',
+  description:
+    'Creates a DRAFT contest. Auth: BRAND_ADMIN (organizationId must equal JWT organizationId) or SUPER_ADMIN. Status cannot be set on create. endDate must be after startDate. autoAdvanceDelayMs defaults to 1800.',
+  security: [{ bearerAuth: [] }],
+  body: {
+    ...contestWriteBody,
+    required: ['organizationId', 'title', 'description', 'startDate', 'endDate'],
+  },
+  response: {
+    201: {
+      description: 'Contest created',
+      ...swaggerSuccessEnvelope(contestViewSchema, 'Contest created successfully'),
+    },
+    400: {
+      description: 'Invalid payload',
+      ...swaggerErrorEnvelope('Validation error'),
+    },
+    401: {
+      description: 'Missing or invalid token',
+      ...swaggerErrorEnvelope('Unauthorized'),
+    },
+    403: {
+      description: 'Wrong role or wrong organization',
+      ...swaggerErrorEnvelope('Forbidden'),
+    },
+    404: {
+      description: 'Organization or category not found',
+      ...swaggerErrorEnvelope('Organization not found'),
+    },
+  },
+};
+
+export const getContestSwaggerSchema: FastifySchema = {
+  tags: ['Contests'],
+  summary: 'Get a contest',
+  description:
+    'Returns one contest. BRAND_ADMIN may read only contests in their organization (other organizations are 403). SUPER_ADMIN may read any contest. Missing id is 404.',
+  security: [{ bearerAuth: [] }],
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+    },
+  },
+  response: {
+    200: {
+      description: 'Contest retrieved',
+      ...swaggerSuccessEnvelope(contestViewSchema, 'Contest retrieved successfully'),
+    },
+    400: {
+      description: 'Invalid id',
+      ...swaggerErrorEnvelope('Validation error'),
+    },
+    401: {
+      description: 'Missing or invalid token',
+      ...swaggerErrorEnvelope('Unauthorized'),
+    },
+    403: {
+      description: 'Wrong role or wrong organization',
+      ...swaggerErrorEnvelope('Forbidden'),
+    },
+    404: {
+      description: 'Contest not found',
+      ...swaggerErrorEnvelope('Contest not found'),
+    },
+  },
+};
+
+export const updateContestSwaggerSchema: FastifySchema = {
+  tags: ['Contests'],
+  summary: 'Update contest metadata or status',
+  description:
+    'Patches metadata and/or moves status one documented step. BRAND_ADMIN is limited to their organization. Settings, category, and rules are rejected once status is ACTIVE (BR-CONT-04). COMPLETED and ARCHIVED reject metadata changes (BR-CONT-05). COMPLETED may move to ARCHIVED. ARCHIVED is terminal.',
+  security: [{ bearerAuth: [] }],
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+    },
+  },
+  body: contestWriteBody,
+  response: {
+    200: {
+      description: 'Contest updated',
+      ...swaggerSuccessEnvelope(contestViewSchema, 'Contest updated successfully'),
+    },
+    400: {
+      description: 'Invalid payload',
+      ...swaggerErrorEnvelope('Validation error'),
+    },
+    401: {
+      description: 'Missing or invalid token',
+      ...swaggerErrorEnvelope('Unauthorized'),
+    },
+    403: {
+      description: 'Wrong role or wrong organization',
+      ...swaggerErrorEnvelope('Forbidden'),
+    },
+    404: {
+      description: 'Contest not found',
+      ...swaggerErrorEnvelope('Contest not found'),
+    },
+    409: {
+      description: 'Illegal transition or settings lock',
+      ...swaggerErrorEnvelope('Invalid contest status transition'),
+    },
+  },
+};

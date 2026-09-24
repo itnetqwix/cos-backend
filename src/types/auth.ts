@@ -1,6 +1,15 @@
 import { Role } from '@prisma/client';
 import { SanitizedUser } from './user.js';
 
+/**
+ * Access-token claims issued by AuthService (M02-P01) and verified by
+ * `fastify.authenticate` / `authenticate` (M03-P01-T01).
+ * Documented set: `id`, `email`, `role`, `organizationId`.
+ * `role` is Prisma `Role` (`SUPER_ADMIN`, `BRAND_ADMIN`, `CREATOR`, `VIEWER`).
+ * Refresh-token claims, extra profile fields (`handle`, `avatarUrl`),
+ * cookie transport, and frontend prototype aliases (`ORGANIZATION_ADMIN`,
+ * `PLATFORM_ADMIN`) are NOT SPECIFIED on the JWT.
+ */
 export interface JWTPayload {
   id: string;
   email: string;
@@ -25,6 +34,7 @@ export interface AuthResponseData {
   };
 }
 
+/** Matches `registerCreatorSchema`. No `handle` (dropped M02-P01-T06). */
 export interface RegisterCreatorDTO {
   email: string;
   password: string;

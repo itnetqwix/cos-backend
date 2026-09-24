@@ -55,7 +55,7 @@ export const listUsersSwaggerSchema: FastifySchema = {
   tags: ['Users'],
   summary: 'List users with pagination & search',
   description:
-    'Retrieves a paginated collection of users. Requires authentication and administrative privileges.',
+    'Retrieves a paginated collection of users. Requires Bearer JWT and role SUPER_ADMIN. BRAND_ADMIN organization-scoped listing is NOT SPECIFIED and is not allowed on this endpoint. Self-profile is GET /auth/me.',
   security: [{ bearerAuth: [] }],
   querystring: {
     type: 'object',
@@ -91,7 +91,8 @@ export const listUsersSwaggerSchema: FastifySchema = {
 export const getUserByIdSwaggerSchema: FastifySchema = {
   tags: ['Users'],
   summary: 'Get user profile by unique ID',
-  description: 'Retrieves public user profile and linked organization metadata by ID.',
+  description:
+    'Retrieves a user profile by ID. Requires Bearer JWT and role SUPER_ADMIN. Authenticated creators/admins load their own profile via GET /auth/me. BRAND_ADMIN scoped lookup is NOT SPECIFIED and is not allowed here.',
   security: [{ bearerAuth: [] }],
   params: {
     type: 'object',
@@ -111,7 +112,11 @@ export const getUserByIdSwaggerSchema: FastifySchema = {
     },
     401: {
       description: 'Unauthorized',
-      ...swaggerErrorEnvelope('Unauthorized'),
+      ...swaggerErrorEnvelope('Unauthorized: Authentication required or token invalid'),
+    },
+    403: {
+      description: 'Forbidden',
+      ...swaggerErrorEnvelope('Forbidden: Insufficient permissions'),
     },
     404: {
       description: 'Not Found',

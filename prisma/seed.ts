@@ -9,7 +9,7 @@ const ORGANIZATIONS = [
     name: 'Ripskis Entertainment',
     slug: 'ripskis',
     branding: {
-      themeColor: '#FF5722',
+      primaryColor: '#FF5722',
       logoUrl: 'https://ripskis.com/logo.png',
     },
   },
@@ -17,7 +17,7 @@ const ORGANIZATIONS = [
     name: 'Nike Global',
     slug: 'nike',
     branding: {
-      themeColor: '#000000',
+      primaryColor: '#000000',
       logoUrl: 'https://nike.com/logo.png',
     },
   },

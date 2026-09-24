@@ -31,7 +31,7 @@ describe('Contest Operating System (COS) - User Management & Querying Module', (
       assert.equal(body.success, false);
     });
 
-    it('returns 200 with paginated user collection when authenticated', async () => {
+    it('returns 200 with paginated user collection when SUPER_ADMIN', async () => {
       const mockUsers = [
         {
           id: 'u-1',
@@ -103,9 +103,9 @@ describe('Contest Operating System (COS) - User Management & Querying Module', (
       };
 
       const token = app.jwt.sign({
-        id: mockUser.id,
-        email: mockUser.email,
-        role: mockUser.role,
+        id: 'u-1',
+        email: 'admin@test.com',
+        role: Role.SUPER_ADMIN,
         organizationId: null,
       });
 

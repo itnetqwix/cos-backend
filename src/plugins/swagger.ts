@@ -41,6 +41,14 @@ const swaggerPluginAsync: FastifyPluginAsync = async (fastify: FastifyInstance) 
           name: 'System',
           description: 'Health checks and service metadata',
         },
+        {
+          name: 'Organizations',
+          description: 'Public tenant branding reads and authenticated branding updates',
+        },
+        {
+          name: 'Contests',
+          description: 'Contest configuration and documented lifecycle transitions',
+        },
       ],
       components: {
         schemas: {
