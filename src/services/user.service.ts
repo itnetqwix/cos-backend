@@ -1,5 +1,6 @@
 import { UserRepository } from '../repositories/user.repository.js';
 import { NotFoundError } from '../utils/response.js';
+import { sanitizeUser } from '../utils/sanitize-user.js';
 import { parsePaginationParams, buildPaginatedResult } from '../utils/pagination.js';
 import { ListUsersQueryInput } from '../schemas/user.schema.js';
 
@@ -12,7 +13,7 @@ export class UserService {
     if (!user) {
       throw new NotFoundError('User profile not found');
     }
-    return user;
+    return sanitizeUser(user);
   }
 
   /**
@@ -28,6 +29,11 @@ export class UserService {
       search: query.search,
     });
 
-    return buildPaginatedResult(users, totalCount, page, limit);
+    return buildPaginatedResult(
+      users.map((user) => sanitizeUser(user)),
+      totalCount,
+      page,
+      limit,
+    );
   }
 }

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { UserRepository } from '../repositories/user.repository.js';
 import { hashPassword, comparePassword } from '../utils/crypto.js';
 import { ConflictError, NotFoundError, UnauthorizedError } from '../utils/response.js';
+import { sanitizeUser } from '../utils/sanitize-user.js';
 import {
   RegisterCreatorInput,
   RegisterBrandInput,
@@ -11,6 +12,15 @@ import {
 export class AuthService {
   /**
    * Register a new Creator user.
+   *
+   * Verified M02-P01-T01:
+   * - Password is bcrypt-hashed via `hashPassword` (salt rounds =
+   *   `SYSTEM_CONSTANTS.BCRYPT_SALT_ROUNDS` = 10) before persist.
+   * - User is created as CREATOR by `UserRepository.createCreator`
+   *   (select omits `passwordHash`).
+   * - JWT claims are exactly `{ id, email, role, organizationId }`.
+   * Password policy beyond Zod min length 6, email verification, and
+   * `handle` persistence are NOT SPECIFIED (see M02-P01-T05/T06).
    */
   static async registerCreator(input: RegisterCreatorInput, fastify: FastifyInstance) {
     const { email, password, name } = input;
@@ -31,7 +41,7 @@ export class AuthService {
       name,
     });
 
-    // Sign JWT access token
+    // Sign JWT access token (claims: id, email, role, organizationId)
     const token = fastify.jwt.sign({
       id: user.id,
       email: user.email,
@@ -40,13 +50,22 @@ export class AuthService {
     });
 
     return {
-      user,
+      user: sanitizeUser(user),
       token,
     };
   }
 
   /**
    * Register a Brand organization along with the initial Brand Admin user.
+   *
+   * Verified M02-P01-T02:
+   * - Duplicate email → 409 before writes.
+   * - Duplicate organization slug → 409 before writes.
+   * - Org + BRAND_ADMIN user persist in one `prisma.$transaction`
+   *   (`UserRepository.createBrandWithOrganization`).
+   * - JWT claims `{ id, email, role, organizationId }` with the new org id.
+   * Concurrent unique-constraint races (Prisma P2002 → 409 mapping):
+   * NOT SPECIFIED (sequential pre-checks only).
    */
   static async registerBrand(input: RegisterBrandInput, fastify: FastifyInstance) {
     const { email, password, name, organizationName, slug } = input;
@@ -75,7 +94,7 @@ export class AuthService {
       slug,
     });
 
-    // Sign JWT access token
+    // Sign JWT access token (claims: id, email, role, organizationId = new org)
     const token = fastify.jwt.sign({
       id: result.user.id,
       email: result.user.email,
@@ -84,7 +103,7 @@ export class AuthService {
     });
 
     return {
-      user: result.user,
+      user: sanitizeUser(result.user),
       organization: result.organization,
       token,
     };
@@ -92,6 +111,15 @@ export class AuthService {
 
   /**
    * Authenticate user with email and password.
+   *
+   * Verified M02-P01-T03:
+   * - Unknown email and wrong password both throw UnauthorizedError
+   *   with the same message (`Invalid email or password`).
+   * - Password is checked with `comparePassword` (bcrypt).
+   * - Response user is sanitized (no `passwordHash`).
+   * - JWT claims `{ id, email, role, organizationId }`.
+   * Refresh tokens, remember-me, lockout, and cookie sessions:
+   * NOT SPECIFIED.
    */
   static async login(input: LoginInput, fastify: FastifyInstance) {
     const { email, password } = input;
@@ -113,26 +141,22 @@ export class AuthService {
       organizationId: user.organizationId,
     });
 
-    // Sanitize user object (exclude sensitive passwordHash)
-    const sanitizedUser = {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      organizationId: user.organizationId,
-      organization: user.organization,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-    };
-
     return {
-      user: sanitizedUser,
+      user: sanitizeUser(user),
       token,
     };
   }
 
   /**
    * Fetch current authenticated user profile.
+   *
+   * Verified M02-P01-T04:
+   * - Route is guarded by `fastify.authenticate` (Bearer JWT).
+   * - Loads the user by `request.user.id` from JWT claims.
+   * - `UserRepository.findById` select omits `passwordHash`.
+   * - Missing user → NotFoundError 404.
+   * Session lifetime beyond JWT `expiresIn` (`7d` constant), refresh,
+   * and cookie transport: NOT SPECIFIED.
    */
   static async getCurrentUser(userId: string) {
     const user = await UserRepository.findById(userId);
@@ -140,6 +164,6 @@ export class AuthService {
       throw new NotFoundError('User profile not found');
     }
 
-    return user;
+    return sanitizeUser(user);
   }
 }

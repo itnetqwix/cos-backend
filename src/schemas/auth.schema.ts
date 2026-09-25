@@ -5,6 +5,15 @@ import { FastifySchema } from 'fastify';
 // 1. Zod Validation Schemas & Inferred Types
 // -------------------------------------------------------------
 
+/**
+ * Creator register body (M02-P01-T06).
+ * Accepted keys: `email`, `password`, `name` only.
+ * `handle` / `avatarUrl` are NOT part of this contract (dropped explicitly:
+ * FE creator form still collects `username`, but persistence is PLANNED /
+ * NOT SPECIFIED — see M02-P01-T05). Extra keys are stripped by Zod, not stored.
+ * Password min length 6 is the existing Zod constraint; source password
+ * policy is NOT SPECIFIED and is not changed here.
+ */
 export const registerCreatorSchema = z.object({
   email: z.string().trim().email('Invalid email address format').toLowerCase(),
   password: z.string().min(6, 'Password must be at least 6 characters long'),
@@ -90,7 +99,7 @@ export const SwaggerUserSchema = {
           type: 'object',
           nullable: true,
           example: {
-            themeColor: '#FF5722',
+            primaryColor: '#FF5722',
             logoUrl: 'https://ripskis.com/logo.png',
           },
         },
@@ -133,7 +142,7 @@ export const SwaggerOrganizationSchema = {
       type: 'object',
       nullable: true,
       example: {
-        themeColor: '#FF5722',
+        primaryColor: '#FF5722',
         logoUrl: 'https://ripskis.com/logo.png',
       },
     },
@@ -198,7 +207,7 @@ export const registerCreatorSwaggerSchema: FastifySchema = {
   tags: ['Authentication'],
   summary: 'Register a new Creator account',
   description:
-    'Creates a creator user with role CREATOR, hashes password with bcrypt (10 rounds), and issues a JWT token.',
+    'Creates a creator user with role CREATOR, hashes password with bcrypt (10 rounds), and issues a JWT token. Request body is email, password, and name only. handle and avatarUrl are not accepted (M02-P01-T06; persistence PLANNED / NOT SPECIFIED).',
   body: {
     type: 'object',
     required: ['email', 'password', 'name'],
@@ -231,6 +240,11 @@ export const registerCreatorSwaggerSchema: FastifySchema = {
     409: {
       description: 'Conflict - Email already registered',
       ...swaggerErrorEnvelope('User with this email already exists'),
+    },
+    429: {
+      description:
+        'Too many requests. Per-IP engineering default for this route (M12-P01-T01). Not a business-rule threshold.',
+      ...swaggerErrorEnvelope('Too many requests'),
     },
   },
 };
@@ -285,6 +299,11 @@ export const registerBrandSwaggerSchema: FastifySchema = {
       description: 'Conflict - Slug or email already exists',
       ...swaggerErrorEnvelope('Organization with this slug already exists'),
     },
+    429: {
+      description:
+        'Too many requests. Per-IP engineering default for this route (M12-P01-T01). Not a business-rule threshold.',
+      ...swaggerErrorEnvelope('Too many requests'),
+    },
   },
 };
 
@@ -322,6 +341,11 @@ export const loginSwaggerSchema: FastifySchema = {
     401: {
       description: 'Unauthorized - Invalid email or password',
       ...swaggerErrorEnvelope('Invalid email or password'),
+    },
+    429: {
+      description:
+        'Too many requests. Per-IP engineering default for this route (M12-P01-T01). Not a business-rule threshold.',
+      ...swaggerErrorEnvelope('Too many requests'),
     },
   },
 };

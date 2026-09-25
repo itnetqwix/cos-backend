@@ -110,10 +110,14 @@ On validation or server errors:
 
 ## System Endpoints (`/api/v1`)
 
+Frozen by **M01-P01-T04**. Public. Standard `sendSuccess` envelope. Health does not probe the database (NOT SPECIFIED). Root `name` is `SYSTEM_CONSTANTS.APP_NAME` (`Contest Operating System Backend`).
+
 ### 1. Health Check
 - **Method**: `GET`
 - **Path**: `/api/v1/health`
+- **Response**: `{ success: true, message: "Contest Operating System API is healthy", data: { status: "healthy", timestamp }, errors: null }`
 
 ### 2. Root Info
 - **Method**: `GET`
-- **Path**: `/api/v1/`
+- **Path**: `/api/v1/` (also `/api/v1`)
+- **Response**: `{ success: true, message: "Hello World from Contest Operating System API!", data: { version: "1.0.0", name: "Contest Operating System Backend" }, errors: null }`

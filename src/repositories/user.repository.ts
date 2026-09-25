@@ -16,6 +16,7 @@ export class UserRepository {
 
   /**
    * Find a user by their ID without sensitive data.
+   * Select omits `passwordHash` (M02-P01-T04 / T03 sanitization).
    */
   static async findById(id: string) {
     return prisma.user.findUnique({
@@ -80,6 +81,11 @@ export class UserRepository {
 
   /**
    * Atomically create an Organization and associated BRAND_ADMIN user in a transaction.
+   *
+   * Verified M02-P01-T02: both writes run inside `prisma.$transaction`.
+   * If either write fails, the other rolls back. Sequential slug/email
+   * uniqueness is enforced by AuthService pre-checks; mapping Prisma P2002
+   * unique races to HTTP 409 is NOT SPECIFIED.
    */
   static async createBrandWithOrganization(data: {
     email: string;

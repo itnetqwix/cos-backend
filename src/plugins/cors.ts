@@ -3,6 +3,8 @@ import fp from 'fastify-plugin';
 import cors from '@fastify/cors';
 
 const corsPluginAsync: FastifyPluginAsync = async (fastify: FastifyInstance) => {
+  // CORS_ORIGIN is not an env.ts key and is not read here (M01-P01-T02).
+  // Allowed-origin list: NOT SPECIFIED — current behavior is hardcoded origin '*'.
   await fastify.register(cors, {
     origin: '*',
     credentials: true,

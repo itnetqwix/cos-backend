@@ -1,4 +1,11 @@
-import { Role } from '@prisma/client';
+/**
+ * M13-P02-T04. Local sample data for Ripskis.
+ * Upserts the Ripskis organization and, when that org has no ACTIVE contest,
+ * creates one. Also upserts a super admin, a second sample org, and brand
+ * admin / creator users. Writes to DATABASE_URL. Do not point this at a
+ * production database. It is not a migration.
+ */
+import { ContestStatus, Role } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import { prisma } from '../src/config/database.js';
 
@@ -9,7 +16,7 @@ const ORGANIZATIONS = [
     name: 'Ripskis Entertainment',
     slug: 'ripskis',
     branding: {
-      themeColor: '#FF5722',
+      primaryColor: '#FF5722',
       logoUrl: 'https://ripskis.com/logo.png',
     },
   },
@@ -17,7 +24,7 @@ const ORGANIZATIONS = [
     name: 'Nike Global',
     slug: 'nike',
     branding: {
-      themeColor: '#000000',
+      primaryColor: '#000000',
       logoUrl: 'https://nike.com/logo.png',
     },
   },
@@ -86,6 +93,28 @@ async function main() {
       },
     });
     console.log(`  ↳ Creator: ${creator.email}`);
+
+    // Seed Sample ACTIVE Contest for Ripskis
+    if (org.slug === 'ripskis') {
+      const existingContest = await prisma.contest.findFirst({
+        where: { organizationId: org.id, status: ContestStatus.ACTIVE },
+      });
+      if (!existingContest) {
+        const contest = await prisma.contest.create({
+          data: {
+            organizationId: org.id,
+            title: 'Ripskis Summer Kickoff 2026',
+            description: 'Showcase your best summer action sports edits! 30-60s vertical clips judged by the community.',
+            status: ContestStatus.ACTIVE,
+            startDate: new Date('2026-06-01T00:00:00.000Z'),
+            endDate: new Date('2026-10-31T23:59:59.999Z'),
+            prizeSummary: '$5,000 Total Prize Pool',
+            autoAdvanceDelayMs: 1800,
+          },
+        });
+        console.log(`  ↳ Sample Active Contest: ${contest.title} (${contest.id})`);
+      }
+    }
   }
 
   console.log('🎉 Seeding completed successfully!');

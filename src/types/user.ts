@@ -5,6 +5,10 @@ import {
   PaginationResult,
 } from '../utils/pagination.js';
 
+/**
+ * Auth/API user payload. `handle` and `avatarUrl` are not included:
+ * domain-model PLANNED fields; persistence is NOT SPECIFIED (M02-P01-T05).
+ */
 export interface SanitizedUser {
   id: string;
   email: string;

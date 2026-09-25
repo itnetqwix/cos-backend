@@ -93,13 +93,9 @@ npm install
 ```
 
 ### 2. Environment Setup
-Copy `.env.example` to `.env` and verify database credentials:
-```env
-PORT=5000
-NODE_ENV=development
-DATABASE_URL=postgresql://neondb_owner:npg_T6DszU2mjFJn@ep-royal-surf-aeef3x8u-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
-JWT_SECRET=super-secret-contestos-jwt-key-2026
-```
+Copy `.env.example` to `.env` and replace placeholders with local values. `.env` is gitignored — do not commit secrets.
+
+Supported keys are only those in `src/config/env.ts` / `.env.example`: `PORT`, `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, `LOG_LEVEL`. `CORS_ORIGIN` is not an env key.
 
 ### 3. Database Migration & Seeding
 ```bash
