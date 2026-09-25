@@ -1,7 +1,7 @@
-import { Role } from '@prisma/client';
+import { OrganizationStatus, Role } from '@prisma/client';
 import { OrganizationRepository } from '../repositories/organization.repository.js';
 import { OrganizationBrandingInput } from '../schemas/organization.schema.js';
-import { ForbiddenError, NotFoundError } from '../utils/response.js';
+import { ConflictError, ForbiddenError, NotFoundError } from '../utils/response.js';
 
 /**
  * Actor taken from JWT claims `{ id, email, role, organizationId }`.
@@ -37,6 +37,48 @@ export class OrganizationService {
     return organization;
   }
 
+  /** SUPER_ADMIN tenant list (M10-P01-T01). The route enforces the role. */
+  static async listOrganizations() {
+    return OrganizationRepository.findAll();
+  }
+
+  /**
+   * M10-P01-T02. SUPER_ADMIN only (checked here as well as on the route).
+   * Suspending an already suspended organization is 409, so the original
+   * suspendedAt and reason are not overwritten.
+   */
+  static async suspendOrganization(
+    actor: OrganizationBrandingActor,
+    organizationId: string,
+    reason: string,
+  ) {
+    assertSuperAdmin(actor);
+    const existing = await OrganizationRepository.findById(organizationId);
+    if (!existing) {
+      throw new NotFoundError('Organization not found');
+    }
+    if (existing.status === OrganizationStatus.SUSPENDED) {
+      throw new ConflictError('Organization is already suspended');
+    }
+    return OrganizationRepository.suspend(organizationId, reason, new Date());
+  }
+
+  /** M10-P01-T03. Reinstating an ACTIVE organization is 409. */
+  static async reinstateOrganization(
+    actor: OrganizationBrandingActor,
+    organizationId: string,
+  ) {
+    assertSuperAdmin(actor);
+    const existing = await OrganizationRepository.findById(organizationId);
+    if (!existing) {
+      throw new NotFoundError('Organization not found');
+    }
+    if (existing.status !== OrganizationStatus.SUSPENDED) {
+      throw new ConflictError('Organization is not suspended');
+    }
+    return OrganizationRepository.reinstate(organizationId);
+  }
+
   static async updateBranding(
     actor: OrganizationBrandingActor,
     organizationId: string,
@@ -54,6 +96,14 @@ export class OrganizationService {
     }
 
     return OrganizationRepository.updateBranding(organizationId, branding);
+  }
+}
+
+function assertSuperAdmin(actor: OrganizationBrandingActor): void {
+  if (actor.role !== Role.SUPER_ADMIN) {
+    throw new ForbiddenError(
+      `Forbidden: User role '${actor.role}' does not have permission to access this resource`,
+    );
   }
 }
 

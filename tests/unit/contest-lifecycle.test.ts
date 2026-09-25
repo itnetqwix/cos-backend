@@ -50,7 +50,7 @@ describe('M05-P01 contest schema', () => {
     assert.match(schema, /rules\s+Json\?/);
     assert.match(schema, /@@index\(\[organizationId, status\]\)/);
     assert.match(schema, /@@map\("contests"\)/);
-    assert.doesNotMatch(schema, /model Submission/);
+    assert.match(schema, /submissions\s+Submission\[\]/);
   });
 });
 

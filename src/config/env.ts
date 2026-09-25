@@ -23,8 +23,13 @@
  * JWT expiry is `SYSTEM_CONSTANTS.JWT_EXPIRES_IN` (`7d`), not an env var.
  * Secret rotation / minimum entropy: NOT SPECIFIED (see later M12 JWT review).
  *
- * `.env.example` (M01-P01-T05) lists placeholders for the five keys above only.
- * It does not include `CORS_ORIGIN` or AWS/S3 keys. Do not commit real secrets.
+ * `.env.example` lists placeholders for these keys plus the M06 AWS/S3 keys.
+ * It does not include `CORS_ORIGIN`. Do not commit real secrets.
+ *
+ * AWS keys (M06-P02-T01) are optional at parse time (empty-string defaults)
+ * so unit tests and local boot still succeed without credentials.
+ * `S3StorageAdapter` refuses to sign when region/bucket are empty.
+ * There is no local-filesystem fallback.
  */
 import dotenv from 'dotenv';
 import { z } from 'zod';
@@ -40,6 +45,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().default(DEFAULT_NEON_DATABASE_URL),
   JWT_SECRET: z.string().default('super-secret-contestos-jwt-key-2026'),
   LOG_LEVEL: z.string().default('info'),
+  AWS_REGION: z.string().default(''),
+  AWS_S3_BUCKET: z.string().default(''),
+  AWS_ACCESS_KEY_ID: z.string().default(''),
+  AWS_SECRET_ACCESS_KEY: z.string().default(''),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

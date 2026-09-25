@@ -23,7 +23,7 @@ describe('Unit Tests: .env.example template (M01-P01-T05)', () => {
   });
 
   it('does not document unsupported keys', () => {
-    const blocked = ['CORS_ORIGIN', 'JWT_EXPIRES_IN', 'AWS_REGION', 'AWS_S3_BUCKET', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'];
+    const blocked = ['CORS_ORIGIN', 'JWT_EXPIRES_IN'];
     for (const key of blocked) {
       assert.equal(EXAMPLE_KEYS.includes(key), false, `${key} must not appear as an assignment`);
     }
@@ -34,6 +34,11 @@ describe('Unit Tests: .env.example template (M01-P01-T05)', () => {
     assert.match(ENV_EXAMPLE, /NODE_ENV=development/);
     assert.match(ENV_EXAMPLE, /LOG_LEVEL=info/);
     assert.match(ENV_EXAMPLE, /JWT_SECRET="your-super-secret-key"/);
+    assert.match(ENV_EXAMPLE, /AWS_REGION="us-east-1"/);
+    assert.match(ENV_EXAMPLE, /AWS_S3_BUCKET="your-cos-video-bucket"/);
+    assert.match(ENV_EXAMPLE, /AWS_ACCESS_KEY_ID="your-access-key-id"/);
+    assert.match(ENV_EXAMPLE, /AWS_SECRET_ACCESS_KEY="your-secret-access-key"/);
+    assert.equal(ENV_EXAMPLE.includes('AKIA'), false);
     assert.match(ENV_EXAMPLE, /localhost:5432/);
     assert.equal(ENV_EXAMPLE.includes('neon.tech'), false);
     assert.equal(ENV_EXAMPLE.includes('npg_'), false);

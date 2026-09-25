@@ -58,6 +58,27 @@ export const organizationIdParamSchema = z.object({
 
 export type OrganizationIdParamInput = z.infer<typeof organizationIdParamSchema>;
 
+/**
+ * M10 lists no query parameters for the tenant list, so any key is a 400.
+ * Pagination, search, filter, and sort are NOT SPECIFIED.
+ */
+export const superAdminOrganizationsQuerySchema = z.object({}).strict();
+
+/**
+ * Suspend body (M10-P01-T02). Reason is required free text: no reason
+ * taxonomy exists (progress Amendment 2026-09-25). Max length is NOT SPECIFIED.
+ */
+export const suspendOrganizationSchema = z
+  .object({
+    reason: z.string().trim().min(1, 'Suspension reason is required'),
+  })
+  .strict();
+
+export type SuspendOrganizationInput = z.infer<typeof suspendOrganizationSchema>;
+
+/** Reinstate takes no fields (M10-P01-T03). */
+export const reinstateOrganizationSchema = z.object({}).strict();
+
 const brandingPropertySchema = {
   type: 'object',
   additionalProperties: true,
@@ -89,8 +110,43 @@ const organizationBrandingViewSchema = {
     name: { type: 'string', example: 'Ripskis Entertainment' },
     slug: { type: 'string', example: 'ripskis' },
     branding: brandingPropertySchema,
+    status: { type: 'string', enum: ['ACTIVE', 'SUSPENDED'], example: 'ACTIVE' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+const organizationAdminViewSchema = {
+  type: 'object',
+  properties: {
+    ...organizationBrandingViewSchema.properties,
+    suspendedAt: { type: 'string', format: 'date-time', nullable: true, example: null },
+    suspensionReason: { type: 'string', nullable: true, example: null },
+  },
+};
+
+const organizationIdParamsSwagger = {
+  type: 'object',
+  required: ['id'],
+  properties: {
+    id: {
+      type: 'string',
+      format: 'uuid',
+      example: 'e7a18492-91f2-4c22-9fa4-a4f61e890123',
+    },
+  },
+};
+
+const superAdminAuthErrors = {
+  401: {
+    description: 'Unauthorized',
+    ...swaggerErrorEnvelope('Unauthorized: Authentication required or token invalid'),
+  },
+  403: {
+    description: 'Forbidden (role is not SUPER_ADMIN)',
+    ...swaggerErrorEnvelope(
+      "Forbidden: User role 'BRAND_ADMIN' does not have permission to access this resource",
+    ),
   },
 };
 
@@ -133,6 +189,112 @@ export const getOrganizationBrandingSwaggerSchema: FastifySchema = {
     404: {
       description: 'Organization not found',
       ...swaggerErrorEnvelope('Organization not found'),
+    },
+  },
+};
+
+/**
+ * SUPER_ADMIN tenant list (M10-P01-T01).
+ * Route guard: authenticate + authorizeRoles(SUPER_ADMIN). BRAND_ADMIN,
+ * CREATOR, and VIEWER → 403. Missing/invalid token → 401.
+ * Items use the branding view, so users and credentials are never serialized.
+ */
+export const listSuperAdminOrganizationsSwaggerSchema: FastifySchema = {
+  tags: ['Super Admin'],
+  summary: 'List all organizations',
+  description:
+    'Cross-tenant list of every organization. Requires Bearer JWT and role SUPER_ADMIN. Returns id, name, slug, branding, status, suspendedAt, suspensionReason, createdAt, and updatedAt for each organization, newest first. No query parameters; any query key is rejected with 400. No pagination.',
+  security: [{ bearerAuth: [] }],
+  response: {
+    200: {
+      description: 'Organizations retrieved',
+      ...swaggerSuccessEnvelope(
+        { type: 'array', items: organizationAdminViewSchema },
+        'Organizations retrieved successfully',
+      ),
+    },
+    400: {
+      description: 'Unknown query parameter',
+      ...swaggerErrorEnvelope('Validation error'),
+    },
+    ...superAdminAuthErrors,
+  },
+};
+
+/**
+ * M10-P01-T02. authenticate + authorizeRoles(SUPER_ADMIN). No tenant scope
+ * applies to SUPER_ADMIN. Missing organization → 404. Already suspended → 409.
+ */
+export const suspendOrganizationSwaggerSchema: FastifySchema = {
+  tags: ['Super Admin'],
+  summary: 'Suspend an organization',
+  description:
+    'Sets status SUSPENDED, suspendedAt to the current time, and suspensionReason to the required free-text reason. Requires Bearer JWT and role SUPER_ADMIN. An organization that is already suspended returns 409. No audit log row is written (not required by the M10 plan).',
+  security: [{ bearerAuth: [] }],
+  params: organizationIdParamsSwagger,
+  body: {
+    type: 'object',
+    required: ['reason'],
+    additionalProperties: false,
+    properties: {
+      reason: { type: 'string', example: 'Unresolved copyright complaints' },
+    },
+  },
+  response: {
+    200: {
+      description: 'Organization suspended',
+      ...swaggerSuccessEnvelope(
+        organizationAdminViewSchema,
+        'Organization suspended successfully',
+      ),
+    },
+    400: {
+      description: 'Invalid id or missing reason',
+      ...swaggerErrorEnvelope('Suspension reason is required'),
+    },
+    ...superAdminAuthErrors,
+    404: {
+      description: 'Organization not found',
+      ...swaggerErrorEnvelope('Organization not found'),
+    },
+    409: {
+      description: 'Organization already suspended',
+      ...swaggerErrorEnvelope('Organization is already suspended'),
+    },
+  },
+};
+
+/**
+ * M10-P01-T03. Sets ACTIVE and clears suspendedAt and suspensionReason.
+ * Organization that is not suspended → 409.
+ */
+export const reinstateOrganizationSwaggerSchema: FastifySchema = {
+  tags: ['Super Admin'],
+  summary: 'Reinstate a suspended organization',
+  description:
+    'Sets status ACTIVE and clears suspendedAt and suspensionReason. Requires Bearer JWT and role SUPER_ADMIN. No request body is needed; an empty object is accepted and any field is rejected with 400. An organization that is not suspended returns 409.',
+  security: [{ bearerAuth: [] }],
+  params: organizationIdParamsSwagger,
+  response: {
+    200: {
+      description: 'Organization reinstated',
+      ...swaggerSuccessEnvelope(
+        organizationAdminViewSchema,
+        'Organization reinstated successfully',
+      ),
+    },
+    400: {
+      description: 'Invalid id or unknown body field',
+      ...swaggerErrorEnvelope('Validation error'),
+    },
+    ...superAdminAuthErrors,
+    404: {
+      description: 'Organization not found',
+      ...swaggerErrorEnvelope('Organization not found'),
+    },
+    409: {
+      description: 'Organization is not suspended',
+      ...swaggerErrorEnvelope('Organization is not suspended'),
     },
   },
 };

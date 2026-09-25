@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { UserRepository } from '../repositories/user.repository.js';
 import { hashPassword, comparePassword } from '../utils/crypto.js';
 import { ConflictError, NotFoundError, UnauthorizedError } from '../utils/response.js';
+import { sanitizeUser } from '../utils/sanitize-user.js';
 import {
   RegisterCreatorInput,
   RegisterBrandInput,
@@ -49,7 +50,7 @@ export class AuthService {
     });
 
     return {
-      user,
+      user: sanitizeUser(user),
       token,
     };
   }
@@ -102,7 +103,7 @@ export class AuthService {
     });
 
     return {
-      user: result.user,
+      user: sanitizeUser(result.user),
       organization: result.organization,
       token,
     };
@@ -140,20 +141,8 @@ export class AuthService {
       organizationId: user.organizationId,
     });
 
-    // Sanitize user object (exclude sensitive passwordHash)
-    const sanitizedUser = {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      organizationId: user.organizationId,
-      organization: user.organization,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-    };
-
     return {
-      user: sanitizedUser,
+      user: sanitizeUser(user),
       token,
     };
   }
@@ -175,6 +164,6 @@ export class AuthService {
       throw new NotFoundError('User profile not found');
     }
 
-    return user;
+    return sanitizeUser(user);
   }
 }

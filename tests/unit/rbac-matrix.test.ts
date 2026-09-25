@@ -7,12 +7,14 @@ import { FastifyInstance } from 'fastify';
 import { Role } from '@prisma/client';
 import { buildApp } from '../../src/app.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
+import { OrganizationRepository } from '../../src/repositories/organization.repository.js';
 
 /**
  * M03-P03-T01: independent expected matrix (not derived from route source).
  *
- * Key M03 APIs only. M04 organization branding and M05 contests are
- * implemented and covered by their own tests. Planned M06–M10 routes stay absent.
+ * Key M03 APIs only. M04 organization branding, M05 contests, M06
+ * submissions, M07 moderation, and M08 judging are implemented and covered
+ * by their own tests. M09 leaderboard and M10 super-admin routes stay absent.
  * Fine-grained permission table: NOT SPECIFIED (not invented here).
  */
 
@@ -64,14 +66,31 @@ const API_MATRIX: Record<string, Record<'UNAUTH' | Role, MatrixOutcome>> = {
     BRAND_ADMIN: 403,
     SUPER_ADMIN: 200,
   },
+  'GET /api/v1/super-admin/organizations': {
+    UNAUTH: 401,
+    VIEWER: 403,
+    CREATOR: 403,
+    BRAND_ADMIN: 403,
+    SUPER_ADMIN: 200,
+  },
 };
 
-const PLANNED_ABSENT_PATHS = [
-  '/api/v1/admin/moderation/queue',
-  '/api/v1/super-admin/organizations',
-  '/api/v1/submissions/presign',
-  '/api/v1/submissions/me',
-] as const;
+const SUPER_ADMIN_POST_MATRIX: Record<string, Record<'UNAUTH' | Role, 200 | 401 | 403>> = {
+  [`/api/v1/super-admin/organizations/${USER_ID}/suspend`]: {
+    UNAUTH: 401,
+    VIEWER: 403,
+    CREATOR: 403,
+    BRAND_ADMIN: 403,
+    SUPER_ADMIN: 200,
+  },
+  [`/api/v1/super-admin/organizations/${USER_ID}/reinstate`]: {
+    UNAUTH: 401,
+    VIEWER: 403,
+    CREATOR: 403,
+    BRAND_ADMIN: 403,
+    SUPER_ADMIN: 200,
+  },
+};
 
 function assertFrozenErrorEnvelope(
   body: Record<string, unknown>,
@@ -143,8 +162,11 @@ describe('M03-P03-T01 backend role × API allow/deny matrix', () => {
 
     const originalFindById = UserRepository.findById;
     const originalFindMany = UserRepository.findMany;
+    const originalFindAllOrgs = OrganizationRepository.findAll;
 
     if (role !== 'UNAUTH') {
+      OrganizationRepository.findAll = (async () =>
+        []) as unknown as typeof OrganizationRepository.findAll;
       UserRepository.findById = (async () =>
         mockUser(role)) as unknown as typeof UserRepository.findById;
       UserRepository.findMany = (async () => ({
@@ -159,6 +181,7 @@ describe('M03-P03-T01 backend role × API allow/deny matrix', () => {
     } finally {
       UserRepository.findById = originalFindById;
       UserRepository.findMany = originalFindMany;
+      OrganizationRepository.findAll = originalFindAllOrgs;
     }
   }
 
@@ -227,19 +250,116 @@ describe('M03-P03-T01 backend role × API allow/deny matrix', () => {
     assertFrozenErrorEnvelope(JSON.parse(res.payload), /Forbidden/);
   });
 
-  it('registers M05 contest routes and still omits M06–M10 APIs', async () => {
+  for (const [url, outcomes] of Object.entries(SUPER_ADMIN_POST_MATRIX)) {
+    for (const actor of ['UNAUTH', ...ALL_ROLES] as const) {
+      it(`POST ${url}: ${actor} → ${outcomes[actor]}`, async () => {
+        const isSuspend = url.endsWith('/suspend');
+        const orgId = url.split('/')[5];
+        const originals = {
+          findById: OrganizationRepository.findById,
+          suspend: OrganizationRepository.suspend,
+          reinstate: OrganizationRepository.reinstate,
+        };
+        const view = {
+          id: orgId,
+          name: 'Matrix Org',
+          slug: 'matrix-org',
+          branding: null,
+          status: isSuspend ? 'ACTIVE' : 'SUSPENDED',
+          suspendedAt: null,
+          suspensionReason: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        OrganizationRepository.findById = (async () =>
+          view) as unknown as typeof OrganizationRepository.findById;
+        OrganizationRepository.suspend = (async () => ({
+          ...view,
+          status: 'SUSPENDED',
+          suspendedAt: new Date(),
+          suspensionReason: 'matrix',
+        })) as unknown as typeof OrganizationRepository.suspend;
+        OrganizationRepository.reinstate = (async () => ({
+          ...view,
+          status: 'ACTIVE',
+        })) as unknown as typeof OrganizationRepository.reinstate;
+
+        try {
+          const headers =
+            actor === 'UNAUTH' ? {} : { authorization: `Bearer ${tokenFor(actor)}` };
+          const res = await app.inject({
+            method: 'POST',
+            url,
+            headers,
+            payload: isSuspend ? { reason: 'matrix' } : {},
+          });
+          assert.equal(res.statusCode, outcomes[actor]);
+          const body = JSON.parse(res.payload);
+          if (outcomes[actor] === 401) assertFrozenErrorEnvelope(body, /Unauthorized/);
+          else if (outcomes[actor] === 403) assertFrozenErrorEnvelope(body, /Forbidden/);
+          else assertFrozenSuccessEnvelope(body);
+        } finally {
+          Object.assign(OrganizationRepository, originals);
+        }
+      });
+    }
+  }
+
+  it('registers M05–M10 routes with SUPER_ADMIN-only super-admin guards', async () => {
     const routesSrc = readFileSync(path.join(SRC_ROOT, 'routes/index.ts'), 'utf8');
     assert.match(routesSrc, /\/contests/);
     assert.match(routesSrc, /\/organizations\/:slug\/branding/);
     assert.match(routesSrc, /\/organizations\/:id\/branding/);
-    assert.doesNotMatch(routesSrc, /\/submissions/);
-    assert.doesNotMatch(routesSrc, /\/admin\/moderation/);
-    assert.doesNotMatch(routesSrc, /\/super-admin/);
-
-    for (const url of PLANNED_ABSENT_PATHS) {
-      const res = await app.inject({ method: 'GET', url });
-      assert.equal(res.statusCode, 404, `${url} must not exist yet (M06+ not started)`);
+    assert.match(routesSrc, /\/submissions\/presign/);
+    assert.match(routesSrc, /\/submissions\/complete/);
+    assert.match(routesSrc, /\/submissions\/me/);
+    assert.match(routesSrc, /\/admin\/moderation\/queue/);
+    assert.match(routesSrc, /\/admin\/moderation\/audit-logs/);
+    assert.match(routesSrc, /\/admin\/submissions\/:id\/approve/);
+    assert.match(routesSrc, /\/admin\/submissions\/:id\/reject/);
+    assert.doesNotMatch(routesSrc, /fastify\.(post|get|put|patch|delete)\(\s*'\/submissions\/upload'/);
+    assert.doesNotMatch(routesSrc, /\/admin\/submissions\/:id\/flag/);
+    assert.match(
+      routesSrc,
+      /superAdminGuards = \[fastify\.authenticate, authorizeRoles\(Role\.SUPER_ADMIN\)\]/,
+    );
+    for (const path of [
+      "'/super-admin/organizations',",
+      "'/super-admin/organizations/:id/suspend',",
+      "'/super-admin/organizations/:id/reinstate',",
+    ]) {
+      const block = routesSrc.slice(routesSrc.indexOf(path), routesSrc.indexOf(path) + 250);
+      assert.match(block, /onRequest: superAdminGuards/, path);
     }
+    assert.match(routesSrc, /\/contests\/:id\/queue/);
+    assert.match(routesSrc, /\/contests\/:id\/videos\/:videoId\/rate/);
+    assert.match(routesSrc, /\/contests\/:id\/leaderboard/);
+
+    const moderationQueue = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/moderation/queue',
+    });
+    assert.equal(moderationQueue.statusCode, 401);
+
+    const swagger = app.swagger() as {
+      paths: Record<string, Record<string, { tags?: string[]; security?: unknown[] }>>;
+    };
+    for (const [path, method] of [
+      ['/api/v1/super-admin/organizations', 'get'],
+      ['/api/v1/super-admin/organizations/{id}/suspend', 'post'],
+      ['/api/v1/super-admin/organizations/{id}/reinstate', 'post'],
+    ] as const) {
+      const op = swagger.paths[path]?.[method];
+      assert.ok(op, `Swagger documents ${method.toUpperCase()} ${path}`);
+      assert.deepEqual(op.tags, ['Super Admin']);
+      assert.deepEqual(op.security, [{ bearerAuth: [] }]);
+    }
+
+    const legacyUpload = await app.inject({
+      method: 'POST',
+      url: '/api/v1/submissions/upload',
+    });
+    assert.equal(legacyUpload.statusCode, 404);
   });
 
   it('BRAND_ADMIN org-scoped GET /users remains NOT SPECIFIED and is denied', async () => {

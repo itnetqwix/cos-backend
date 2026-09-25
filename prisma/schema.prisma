@@ -14,23 +14,27 @@ enum Role {
   VIEWER
 }
 
-model Organization {
-  id         String     @id @default(uuid())
-  name       String
-  slug       String     @unique
-  branding   Json?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-  users      User[]
-  categories Category[]
-  contests   Contest[]
+// M10 approved decision (progress Amendment 2026-09-25). Written only by
+// SUPER_ADMIN suspend/reinstate. Suspension reason is free text; there is no
+// reason taxonomy, expiry, or appeal state.
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+}
 
-  // M04-P01-T01: do not add status / suspended columns here.
-  // Frontend TenantBrandConfig.status (ACTIVE | SUSPENDED) is a local
-  // prototype. Source does not name an Organization status column.
-  // Master plan: exact Organization.suspended field name is NOT SPECIFIED.
-  // Suspend / reinstate persistence is M10, not M04. No suspend API exists
-  // in this module, so a column would invent tenant-suspension semantics.
+model Organization {
+  id               String             @id @default(uuid())
+  name             String
+  slug             String             @unique
+  branding         Json?
+  status           OrganizationStatus @default(ACTIVE)
+  suspendedAt      DateTime?
+  suspensionReason String?            @db.Text
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  users            User[]
+  categories       Category[]
+  contests         Contest[]
 
   @@map("organizations")
 }
@@ -43,8 +47,12 @@ model User {
   role           Role          @default(CREATOR)
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  submissions           Submission[]  @relation("CreatedByUser")
+  moderatedSubmissions  Submission[]  @relation("ModeratedByUser")
+  auditLogs             AuditLog[]
+  ratings               Rating[]
 
   // handle and avatarUrl are domain-model PLANNED fields.
   // Persistence (nullability, uniqueness, @-prefix format) is NOT SPECIFIED
@@ -84,7 +92,7 @@ model Category {
   @@map("categories")
 }
 
-// M05-P01-T03 / T04. No Submission relation: that model is M06.
+// M05-P01-T03 / T04. Submission relation added in M06-P01.
 // categoryId is optional. autoAdvanceDelayMs default is 1800.
 // Evaluation-criteria columns are NOT SPECIFIED and are not added.
 // Prize distribution breakdown is NOT SPECIFIED; only prizeSummary is stored.
@@ -104,7 +112,106 @@ model Contest {
   autoAdvanceDelayMs Int           @default(1800)
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
+  submissions        Submission[]
 
   @@index([organizationId, status])
   @@map("contests")
+}
+
+// M06-P01-T01. Initial ingest state is PENDING_REVIEW (BR-VID-01).
+// APPROVED / REJECTED / FLAGGED are written by ModerationService (M07).
+enum SubmissionStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  FLAGGED
+}
+
+// M06-P01-T02 / T03 plus M07 moderation decision columns.
+// objectKey is unique so complete can retry the same reserved key.
+// thumbnailUrl is optional: thumbnail generation is NOT SPECIFIED.
+// rejectionReason, moderatedById, and moderatedAt are written only by moderation.
+// Community score and totalVotes are updated by JudgingService (M08).
+model Submission {
+  id              String           @id @default(uuid())
+  contestId       String
+  contest         Contest          @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  creatorId       String
+  creator         User             @relation("CreatedByUser", fields: [creatorId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?          @db.Text
+  videoUrl        String
+  objectKey       String           @unique
+  thumbnailUrl    String?
+  durationSeconds Int
+  status          SubmissionStatus @default(PENDING_REVIEW)
+  rejectionReason String?          @db.Text
+  moderatedById   String?
+  moderatedBy     User?            @relation("ModeratedByUser", fields: [moderatedById], references: [id], onDelete: SetNull)
+  moderatedAt     DateTime?
+  tags            String[]
+  communityScore  Float            @default(0)
+  totalVotes      Int              @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  ratings         Rating[]
+  auditLogs       AuditLog[]
+
+  @@index([contestId, status])
+  @@index([creatorId])
+  @@map("submissions")
+}
+
+// M07-P01-T01. Documented actions from the planned data model.
+// ISSUE_WARNING and SUSPEND_CREATOR are stored enum values only.
+// M07 does not expose warning or suspension endpoints (those workflows
+// are not specified as moderation routes).
+enum AuditAction {
+  APPROVE
+  REJECT
+  FLAG
+  ISSUE_WARNING
+  SUSPEND_CREATOR
+}
+
+// M07-P01-T01. Append-only. Retention / purge is NOT SPECIFIED.
+// metadata holds previousStatus and newStatus for the decision.
+// reasonCode, when the client sends one, is stored in metadata and is
+// not a closed taxonomy (source chapters do not enumerate categories).
+model AuditLog {
+  id           String      @id @default(uuid())
+  submissionId String?
+  submission   Submission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  actorId      String
+  actor        User        @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  action       AuditAction
+  reason       String?     @db.Text
+  metadata     Json?
+  createdAt    DateTime    @default(now())
+
+  @@index([actorId])
+  @@index([submissionId])
+  @@map("audit_logs")
+}
+
+// M08-P01-T01 / T02.
+// userId is nullable: visitors may rate without creator registration.
+// voterFingerprint is nullable. The fingerprint algorithm is NOT SPECIFIED,
+// so this column stores a client-supplied value and does not hash it.
+// Indexes are not unique. A duplicate-vote window is NOT SPECIFIED, so
+// more than one rating per viewer or fingerprint is allowed.
+// rating is an integer 1–5, enforced in Zod and JudgingService.
+model Rating {
+  id               String     @id @default(uuid())
+  submissionId     String
+  submission       Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  userId           String?
+  user             User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  voterFingerprint String?
+  rating           Int
+  createdAt        DateTime   @default(now())
+
+  @@index([submissionId])
+  @@index([voterFingerprint, submissionId])
+  @@map("ratings")
 }

@@ -68,3 +68,29 @@ export function authorizeRoles(...allowedRoles: Role[]) {
 
 /** Pre-M03 name. Canonical export is `authorizeRoles`. */
 export const requireRoles = authorizeRoles;
+
+/**
+ * Optional Bearer check for public judging (M08-P03-T03).
+ *
+ * No Authorization header: continue as an anonymous visitor.
+ * Header present: verify the JWT. Invalid or expired tokens are 401.
+ * This hook does not check roles. JudgingService allows anonymous voters
+ * and authenticated VIEWER only.
+ */
+export async function authenticateOptional(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const header = request.headers.authorization;
+  if (!header) {
+    return;
+  }
+
+  try {
+    await request.jwtVerify();
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : 'Authentication required or token invalid';
+    sendError(reply, `Unauthorized: ${message}`, HTTP_STATUS.UNAUTHORIZED);
+  }
+}

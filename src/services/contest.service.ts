@@ -1,4 +1,4 @@
-import { Prisma, Role } from '@prisma/client';
+import { OrganizationStatus, Prisma, Role } from '@prisma/client';
 import { CategoryRepository } from '../repositories/category.repository.js';
 import {
   ContestRepository,
@@ -150,6 +150,18 @@ async function resolveCategoryId(
   }
 }
 
+const SUSPENDED_ORGANIZATION_MESSAGE =
+  'Organization is suspended: contest changes are blocked until it is reinstated';
+
+/** M10-P03-T02: a SUSPENDED organization blocks contest writes. Reads are unaffected. */
+function assertOrganizationNotSuspended(organization: {
+  status?: OrganizationStatus;
+}): void {
+  if (organization.status === OrganizationStatus.SUSPENDED) {
+    throw new ConflictError(SUSPENDED_ORGANIZATION_MESSAGE);
+  }
+}
+
 function changesConfiguration(input: UpdateContestInput): boolean {
   return CONFIGURATION_KEYS.some((key) => input[key] !== undefined);
 }
@@ -185,6 +197,7 @@ export class ContestService {
     if (!organization) {
       throw new NotFoundError('Organization not found');
     }
+    assertOrganizationNotSuspended(organization);
 
     const startDate = new Date(input.startDate);
     const endDate = new Date(input.endDate);
@@ -223,6 +236,11 @@ export class ContestService {
 
   static async update(actor: ContestActor, id: string, input: UpdateContestInput) {
     const existing = await ContestService.getById(actor, id);
+
+    const organization = await OrganizationRepository.findById(existing.organizationId);
+    if (organization) {
+      assertOrganizationNotSuspended(organization);
+    }
 
     if (changesConfiguration(input)) {
       assertContestConfigurationMutable(existing.status);

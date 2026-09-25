@@ -8,6 +8,8 @@ import { prismaPlugin } from './plugins/prisma.js';
 import { swaggerPlugin } from './plugins/swagger.js';
 import { globalErrorHandler } from './middleware/error.middleware.js';
 import { routes } from './routes/index.js';
+import { S3StorageAdapter } from './services/s3-storage.adapter.js';
+import { getStorageService, setStorageService } from './services/storage.service.js';
 
 /**
  * Fastify Application Factory.
@@ -55,7 +57,20 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(jwtPlugin);
   await app.register(swaggerPlugin);
 
-  // 3. Register master API routes under /api/v1 prefix (after swagger)
+  // 3. S3 adapter when AWS env is present. Tests inject a fake StorageService.
+  // Missing AWS config does not fail boot and does not fall back to disk.
+  let storageAlreadySet = false;
+  try {
+    getStorageService();
+    storageAlreadySet = true;
+  } catch {
+    storageAlreadySet = false;
+  }
+  if (!storageAlreadySet && env.AWS_REGION && env.AWS_S3_BUCKET) {
+    setStorageService(S3StorageAdapter.fromEnv());
+  }
+
+  // 4. Register master API routes under /api/v1 prefix (after swagger)
   await app.register(routes, { prefix: SYSTEM_CONSTANTS.API_PREFIX });
 
   return app;

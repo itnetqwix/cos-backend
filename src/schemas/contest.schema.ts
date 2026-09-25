@@ -265,6 +265,12 @@ export const createContestSwaggerSchema: FastifySchema = {
       description: 'Organization or category not found',
       ...swaggerErrorEnvelope('Organization not found'),
     },
+    409: {
+      description: 'Organization is suspended (M10)',
+      ...swaggerErrorEnvelope(
+        'Organization is suspended: contest changes are blocked until it is reinstated',
+      ),
+    },
   },
 };
 
@@ -341,7 +347,7 @@ export const updateContestSwaggerSchema: FastifySchema = {
       ...swaggerErrorEnvelope('Contest not found'),
     },
     409: {
-      description: 'Illegal transition or settings lock',
+      description: 'Illegal transition, settings lock, or suspended organization (M10)',
       ...swaggerErrorEnvelope('Invalid contest status transition'),
     },
   },

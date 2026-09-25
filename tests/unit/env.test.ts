@@ -5,7 +5,17 @@ import { env } from '../../src/config/env.js';
 import { SYSTEM_CONSTANTS } from '../../src/config/constants.js';
 
 describe('Unit Tests: Environment schema (M01-P01-T02)', () => {
-  const ENV_KEYS = ['DATABASE_URL', 'JWT_SECRET', 'LOG_LEVEL', 'NODE_ENV', 'PORT'];
+  const ENV_KEYS = [
+    'AWS_ACCESS_KEY_ID',
+    'AWS_REGION',
+    'AWS_S3_BUCKET',
+    'AWS_SECRET_ACCESS_KEY',
+    'DATABASE_URL',
+    'JWT_SECRET',
+    'LOG_LEVEL',
+    'NODE_ENV',
+    'PORT',
+  ];
 
   it('exports only the keys currently defined in env.ts', () => {
     assert.deepEqual(Object.keys(env).sort(), ENV_KEYS);
@@ -13,6 +23,13 @@ describe('Unit Tests: Environment schema (M01-P01-T02)', () => {
 
   it('does not define or export CORS_ORIGIN', () => {
     assert.equal('CORS_ORIGIN' in env, false);
+  });
+
+  it('exports optional AWS S3 keys as strings', () => {
+    assert.equal(typeof env.AWS_REGION, 'string');
+    assert.equal(typeof env.AWS_S3_BUCKET, 'string');
+    assert.equal(typeof env.AWS_ACCESS_KEY_ID, 'string');
+    assert.equal(typeof env.AWS_SECRET_ACCESS_KEY, 'string');
   });
 
   it('types PORT as a number and documents default 5000', () => {

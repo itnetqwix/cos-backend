@@ -49,6 +49,25 @@ const swaggerPluginAsync: FastifyPluginAsync = async (fastify: FastifyInstance) 
           name: 'Contests',
           description: 'Contest configuration and documented lifecycle transitions',
         },
+        {
+          name: 'Submissions',
+          description:
+            'Creator S3 presigned upload and submission metadata. Video bytes never enter Fastify.',
+        },
+        {
+          name: 'Moderation',
+          description:
+            'Pending-review queue, approve/reject decisions, and append-only audit logs',
+        },
+        {
+          name: 'Judging',
+          description:
+            'Public approved queue and optional-auth 1–5 ratings. Leaderboard ranking is not part of this tag.',
+        },
+        {
+          name: 'Super Admin',
+          description: 'SUPER_ADMIN cross-tenant organization list',
+        },
       ],
       components: {
         schemas: {

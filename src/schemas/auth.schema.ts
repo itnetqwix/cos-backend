@@ -241,6 +241,11 @@ export const registerCreatorSwaggerSchema: FastifySchema = {
       description: 'Conflict - Email already registered',
       ...swaggerErrorEnvelope('User with this email already exists'),
     },
+    429: {
+      description:
+        'Too many requests. Per-IP engineering default for this route (M12-P01-T01). Not a business-rule threshold.',
+      ...swaggerErrorEnvelope('Too many requests'),
+    },
   },
 };
 
@@ -294,6 +299,11 @@ export const registerBrandSwaggerSchema: FastifySchema = {
       description: 'Conflict - Slug or email already exists',
       ...swaggerErrorEnvelope('Organization with this slug already exists'),
     },
+    429: {
+      description:
+        'Too many requests. Per-IP engineering default for this route (M12-P01-T01). Not a business-rule threshold.',
+      ...swaggerErrorEnvelope('Too many requests'),
+    },
   },
 };
 
@@ -331,6 +341,11 @@ export const loginSwaggerSchema: FastifySchema = {
     401: {
       description: 'Unauthorized - Invalid email or password',
       ...swaggerErrorEnvelope('Invalid email or password'),
+    },
+    429: {
+      description:
+        'Too many requests. Per-IP engineering default for this route (M12-P01-T01). Not a business-rule threshold.',
+      ...swaggerErrorEnvelope('Too many requests'),
     },
   },
 };
