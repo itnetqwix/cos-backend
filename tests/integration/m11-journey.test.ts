@@ -98,25 +98,34 @@ describe('M11 cross-module journey', { concurrency: false }, () => {
       const password = 'password123';
       const slug = `m11-${suffix}`.slice(0, 50);
 
-      const brandRes = await app.inject({
-        method: 'POST',
-        url: '/api/v1/auth/register/brand',
-        payload: {
-          email: `m11-brand-${suffix}@contestos.test`,
-          password,
-          name: 'M11 Brand Admin',
-          organizationName: `M11 Org ${suffix}`,
+      const organization = await prisma.organization.create({
+        data: {
+          name: `M11 Org ${suffix}`,
           slug,
         },
       });
-      assert.equal(brandRes.statusCode, 201);
-      const brandBody = JSON.parse(brandRes.payload);
+      const organizationId = organization.id;
+      orgIds.push(organizationId);
+      const brandUser = await prisma.user.create({
+        data: {
+          email: `m11-brand-${suffix}@contestos.test`,
+          passwordHash: await hashPassword(password),
+          name: 'M11 Brand Admin',
+          role: Role.BRAND_ADMIN,
+          organizationId,
+        },
+      });
+      userIds.push(brandUser.id);
+      const brandLogin = await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/login',
+        payload: { email: brandUser.email, password },
+      });
+      assert.equal(brandLogin.statusCode, 200);
+      const brandBody = JSON.parse(brandLogin.payload);
       assertEnvelope(brandBody, true);
       assert.equal(brandBody.data.user.role, Role.BRAND_ADMIN);
       const brandToken = brandBody.data.token as string;
-      const organizationId = brandBody.data.organization.id as string;
-      userIds.push(brandBody.data.user.id);
-      orgIds.push(organizationId);
       const brandAuth = { authorization: `Bearer ${brandToken}` };
 
       const themeRes = await app.inject({
@@ -179,20 +188,26 @@ describe('M11 cross-module journey', { concurrency: false }, () => {
       assert.equal(JSON.parse(active.payload).data.status, 'ACTIVE');
       assert.equal(JSON.parse(active.payload).data.autoAdvanceDelayMs, 1800);
 
-      const creatorRes = await app.inject({
-        method: 'POST',
-        url: '/api/v1/auth/register/creator',
-        payload: {
+      const creatorUser = await prisma.user.create({
+        data: {
           email: `m11-creator-${suffix}@contestos.test`,
-          password,
+          passwordHash: await hashPassword(password),
           name: 'M11 Creator',
+          role: Role.CREATOR,
+          organizationId,
         },
       });
-      assert.equal(creatorRes.statusCode, 201);
-      const creatorBody = JSON.parse(creatorRes.payload);
+      userIds.push(creatorUser.id);
+      const creatorLogin = await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/login',
+        payload: { email: creatorUser.email, password },
+      });
+      assert.equal(creatorLogin.statusCode, 200);
+      const creatorBody = JSON.parse(creatorLogin.payload);
       assertEnvelope(creatorBody, true);
       assert.equal(creatorBody.data.user.role, Role.CREATOR);
-      userIds.push(creatorBody.data.user.id);
+      assert.equal(creatorBody.data.user.organizationId, organizationId);
       const creatorAuth = { authorization: `Bearer ${creatorBody.data.token}` };
 
       const discovery = await app.inject({

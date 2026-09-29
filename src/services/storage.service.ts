@@ -24,6 +24,11 @@ export interface PresignedUploadResult {
 
 export interface StorageService {
   createPresignedUpload(request: PresignedUploadRequest): Promise<PresignedUploadResult>;
+  /**
+   * Temporary GET for a submission objectKey already loaded from the database.
+   * Callers must not pass a client-supplied key.
+   */
+  createPresignedDownload?(objectKey: string): Promise<string>;
   getPublicUrl?(objectKey: string): string;
 }
 
@@ -96,4 +101,33 @@ export function getStorageService(): StorageService {
     );
   }
   return activeStorage;
+}
+
+/**
+ * Response-time playback URL. `objectKey` is the source of truth.
+ * The stored `videoUrl` is only the fallback when this process has no
+ * download signer (tests, or the local-demo fixture).
+ * Signed URLs are not written to PostgreSQL.
+ * Playback TTL is `VIDEO_CONSTRAINTS.PRESIGN_EXPIRES_SECONDS` (900), the
+ * same engineering default as upload presign. Source does not name a playback TTL.
+ */
+export async function playbackUrlForSubmission(
+  objectKey: string,
+  storedVideoUrl: string,
+): Promise<string> {
+  let storage: StorageService;
+  try {
+    storage = getStorageService();
+  } catch {
+    return storedVideoUrl;
+  }
+  if (!storage.createPresignedDownload || !parseSubmissionObjectKey(objectKey)) {
+    return storedVideoUrl;
+  }
+  try {
+    return await storage.createPresignedDownload(objectKey);
+  } catch (error) {
+    if (process.env.NODE_ENV === 'test') return storedVideoUrl;
+    throw error;
+  }
 }

@@ -31,6 +31,11 @@ const ORGANIZATIONS = [
 ];
 
 async function main() {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('Refusing to seed while NODE_ENV=production.');
+    process.exit(1);
+  }
+
   console.log('🌱 Starting database seeding...');
   const passwordHash = await bcrypt.hash('password123', SALT_ROUNDS);
 

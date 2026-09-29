@@ -7,6 +7,7 @@ import {
   submissionIdParamSchema,
 } from '../schemas/submission.schema.js';
 import { SubmissionService } from '../services/submission.service.js';
+import { playbackUrlForSubmission } from '../services/storage.service.js';
 import { sendSuccess } from '../utils/response.js';
 
 function actorFromRequest(request: FastifyRequest) {
@@ -22,14 +23,14 @@ function iso(value: Date | string | null): string | null {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-export function toSubmissionView(submission: SubmissionRecord) {
+export async function toSubmissionView(submission: SubmissionRecord) {
   return {
     id: submission.id,
     contestId: submission.contestId,
     creatorId: submission.creatorId,
     title: submission.title,
     description: submission.description,
-    videoUrl: submission.videoUrl,
+    videoUrl: await playbackUrlForSubmission(submission.objectKey, submission.videoUrl),
     objectKey: submission.objectKey,
     thumbnailUrl: submission.thumbnailUrl,
     durationSeconds: submission.durationSeconds,
@@ -68,14 +69,14 @@ export class SubmissionController {
     if (!created) {
       return sendSuccess(
         reply,
-        toSubmissionView(submission),
+        await toSubmissionView(submission),
         'Submission already registered',
         HTTP_STATUS.OK,
       );
     }
     return sendSuccess(
       reply,
-      toSubmissionView(submission),
+      await toSubmissionView(submission),
       'Submission created successfully',
       HTTP_STATUS.CREATED,
     );
@@ -88,7 +89,7 @@ export class SubmissionController {
     const submissions = await SubmissionService.listMine(actorFromRequest(request));
     return sendSuccess(
       reply,
-      submissions.map(toSubmissionView),
+      await Promise.all(submissions.map((submission) => toSubmissionView(submission))),
       'Submissions retrieved successfully',
       HTTP_STATUS.OK,
     );
@@ -102,7 +103,7 @@ export class SubmissionController {
     const submission = await SubmissionService.getById(actorFromRequest(request), id);
     return sendSuccess(
       reply,
-      toSubmissionView(submission),
+      await toSubmissionView(submission),
       'Submission retrieved successfully',
       HTTP_STATUS.OK,
     );

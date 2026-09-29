@@ -34,7 +34,7 @@ export const HTTP_STATUS = {
  *
  * Each of these routes keeps its own per-IP counter (the plugin store is
  * per route):
- * `POST /auth/login`, `POST /auth/register/creator`, `POST /auth/register/brand`.
+ * `POST /auth/login`, `POST /auth/register/creator`.
  * `GET /auth/me` is not limited. The hook is `onRequest`, so a blocked call
  * does not reach bcrypt.
  *

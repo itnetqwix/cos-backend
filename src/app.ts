@@ -57,8 +57,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(jwtPlugin);
   await app.register(swaggerPlugin);
 
-  // 3. S3 adapter when AWS env is present. Tests inject a fake StorageService.
-  // Missing AWS config does not fail boot and does not fall back to disk.
+  // 3. Storage adapter. Tests inject a fake StorageService before buildApp.
+  // Production provider is S3. Missing AWS config does not fall back to disk.
   let storageAlreadySet = false;
   try {
     getStorageService();

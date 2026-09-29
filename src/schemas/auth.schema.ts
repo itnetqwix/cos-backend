@@ -207,7 +207,7 @@ export const registerCreatorSwaggerSchema: FastifySchema = {
   tags: ['Authentication'],
   summary: 'Register a new Creator account',
   description:
-    'Creates a creator user with role CREATOR, hashes password with bcrypt (10 rounds), and issues a JWT token. Request body is email, password, and name only. handle and avatarUrl are not accepted (M02-P01-T06; persistence PLANNED / NOT SPECIFIED).',
+    'Creates a creator user with role CREATOR, hashes password with bcrypt (10 rounds), assigns the deployment organization, and issues a JWT token. Request body is email, password, and name only. The client does not send an organization, brand, or domain. handle and avatarUrl are not accepted (M02-P01-T06; persistence PLANNED / NOT SPECIFIED).',
   body: {
     type: 'object',
     required: ['email', 'password', 'name'],

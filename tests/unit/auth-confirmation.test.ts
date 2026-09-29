@@ -8,6 +8,7 @@ import { FastifyInstance } from 'fastify';
 import { Role } from '@prisma/client';
 import { buildApp } from '../../src/app.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
+import { OrganizationRepository } from '../../src/repositories/organization.repository.js';
 import { AuthService } from '../../src/services/auth.service.js';
 import { ConflictError, UnauthorizedError, NotFoundError } from '../../src/utils/response.js';
 import { SYSTEM_CONSTANTS } from '../../src/config/constants.js';
@@ -29,15 +30,27 @@ function assertJwtClaims(
 
 describe('M02-P01 auth confirmation', () => {
   let app: FastifyInstance;
+  let originalFindBySlug: typeof OrganizationRepository.findBySlug;
 
   before(async () => {
     process.env.NODE_ENV = 'test';
     process.env.JWT_SECRET = 'test-secret-key-1234567890-cos-auth';
+    originalFindBySlug = OrganizationRepository.findBySlug;
+    OrganizationRepository.findBySlug = (async () => ({
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Woofskis Demo',
+      slug: 'woofskis-demo',
+      branding: null,
+      status: 'ACTIVE',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })) as typeof OrganizationRepository.findBySlug;
     app = await buildApp();
     await app.ready();
   });
 
   after(async () => {
+    OrganizationRepository.findBySlug = originalFindBySlug;
     await app.close();
   });
 
@@ -465,108 +478,19 @@ describe('M02-P01 auth confirmation', () => {
       }
     });
 
-    it('POST /api/v1/auth/register/brand returns 201 with org, BRAND_ADMIN user, and JWT organizationId', async () => {
-      const mockOrg = {
-        id: 'org-http-t02',
-        name: 'HTTP Brand',
-        slug: 'http-brand',
-        branding: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      const mockUser = {
-        id: 'admin-http-t02',
-        email: 't02-http@brand.com',
-        name: 'HTTP Admin',
-        role: Role.BRAND_ADMIN,
-        organizationId: mockOrg.id,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const originalFindByEmail = UserRepository.findByEmail;
-      const originalFindBySlug = UserRepository.findOrganizationBySlug;
-      const originalCreateBrand = UserRepository.createBrandWithOrganization;
-
-      UserRepository.findByEmail = (async () =>
-        null) as unknown as typeof UserRepository.findByEmail;
-      UserRepository.findOrganizationBySlug = (async () =>
-        null) as unknown as typeof UserRepository.findOrganizationBySlug;
-      UserRepository.createBrandWithOrganization = (async () => ({
-        user: mockUser,
-        organization: mockOrg,
-      })) as unknown as typeof UserRepository.createBrandWithOrganization;
-
-      try {
-        const res = await app.inject({
-          method: 'POST',
-          url: '/api/v1/auth/register/brand',
-          payload: {
-            email: 't02-http@brand.com',
-            password: 'password123',
-            name: 'HTTP Admin',
-            organizationName: 'HTTP Brand',
-            slug: 'http-brand',
-          },
-        });
-
-        assert.equal(res.statusCode, 201);
-        const body = JSON.parse(res.payload);
-        assert.deepEqual(Object.keys(body).sort(), ENVELOPE_KEYS);
-        assert.equal(body.success, true);
-        assert.equal(body.message, 'Brand organization and admin created successfully');
-        assert.equal(body.data.organization.slug, 'http-brand');
-        assert.equal(body.data.user.role, Role.BRAND_ADMIN);
-        assert.equal(body.data.user.organizationId, mockOrg.id);
-        assert.equal(body.data.user.passwordHash, undefined);
-
-        const decoded = app.jwt.verify<JWTPayload>(body.data.token);
-        assertJwtClaims(decoded, {
-          id: mockUser.id,
-          email: mockUser.email,
-          role: Role.BRAND_ADMIN,
-          organizationId: mockOrg.id,
-        });
-      } finally {
-        UserRepository.findByEmail = originalFindByEmail;
-        UserRepository.findOrganizationBySlug = originalFindBySlug;
-        UserRepository.createBrandWithOrganization = originalCreateBrand;
-      }
-    });
-
-    it('POST /api/v1/auth/register/brand returns 409 for duplicate slug', async () => {
-      const originalFindByEmail = UserRepository.findByEmail;
-      const originalFindBySlug = UserRepository.findOrganizationBySlug;
-
-      UserRepository.findByEmail = (async () =>
-        null) as unknown as typeof UserRepository.findByEmail;
-      UserRepository.findOrganizationBySlug = (async () => ({
-        id: 'existing-org',
-        slug: 'taken-slug',
-      })) as unknown as typeof UserRepository.findOrganizationBySlug;
-
-      try {
-        const res = await app.inject({
-          method: 'POST',
-          url: '/api/v1/auth/register/brand',
-          payload: {
-            email: 'fresh@brand.com',
-            password: 'password123',
-            name: 'Fresh Admin',
-            organizationName: 'Taken Org',
-            slug: 'taken-slug',
-          },
-        });
-
-        assert.equal(res.statusCode, 409);
-        const body = JSON.parse(res.payload);
-        assert.equal(body.success, false);
-        assert.equal(body.data, null);
-        assert.equal(body.message, 'Organization with this slug already exists');
-      } finally {
-        UserRepository.findByEmail = originalFindByEmail;
-        UserRepository.findOrganizationBySlug = originalFindBySlug;
-      }
+    it('POST /api/v1/auth/register/brand is not a customer-facing route', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/register/brand',
+        payload: {
+          email: 't02-http@brand.com',
+          password: 'password123',
+          name: 'HTTP Admin',
+          organizationName: 'HTTP Brand',
+          slug: 'http-brand',
+        },
+      });
+      assert.equal(res.statusCode, 404);
     });
   });
 
@@ -983,7 +907,12 @@ describe('M02-P01 auth confirmation', () => {
         assert.equal(body.data.user.handle, undefined);
         assert.equal(body.data.user.avatarUrl, undefined);
         assert.ok(persisted);
-        assert.deepEqual(Object.keys(persisted).sort(), ['email', 'name', 'passwordHash']);
+        assert.deepEqual(Object.keys(persisted).sort(), [
+          'email',
+          'name',
+          'organizationId',
+          'passwordHash',
+        ]);
         assert.equal('handle' in persisted, false);
       } finally {
         UserRepository.findByEmail = originalFindByEmail;

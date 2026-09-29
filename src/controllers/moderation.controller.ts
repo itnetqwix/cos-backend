@@ -11,6 +11,7 @@ import {
   submissionIdParamSchema,
 } from '../schemas/moderation.schema.js';
 import { ModerationService } from '../services/moderation.service.js';
+import { playbackUrlForSubmission } from '../services/storage.service.js';
 import { sendSuccess } from '../utils/response.js';
 
 function actorFromRequest(request: FastifyRequest) {
@@ -26,7 +27,7 @@ function iso(value: Date | string | null): string | null {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-export function toModerationSubmissionView(
+export async function toModerationSubmissionView(
   submission: SubmissionRecord | ModerationQueueRecord,
 ) {
   return {
@@ -35,7 +36,7 @@ export function toModerationSubmissionView(
     creatorId: submission.creatorId,
     title: submission.title,
     description: submission.description,
-    videoUrl: submission.videoUrl,
+    videoUrl: await playbackUrlForSubmission(submission.objectKey, submission.videoUrl),
     objectKey: submission.objectKey,
     thumbnailUrl: submission.thumbnailUrl,
     durationSeconds: submission.durationSeconds,
@@ -84,7 +85,9 @@ export class ModerationController {
     const submissions = await ModerationService.listQueue(actorFromRequest(request));
     return sendSuccess(
       reply,
-      submissions.map(toModerationSubmissionView),
+      await Promise.all(
+        submissions.map((submission) => toModerationSubmissionView(submission)),
+      ),
       'Moderation queue retrieved successfully',
       HTTP_STATUS.OK,
     );
@@ -103,7 +106,7 @@ export class ModerationController {
     );
     return sendSuccess(
       reply,
-      toModerationSubmissionView(submission),
+      await toModerationSubmissionView(submission),
       'Submission approved',
       HTTP_STATUS.OK,
     );
@@ -123,7 +126,7 @@ export class ModerationController {
     );
     return sendSuccess(
       reply,
-      toModerationSubmissionView(submission),
+      await toModerationSubmissionView(submission),
       'Submission rejected',
       HTTP_STATUS.OK,
     );

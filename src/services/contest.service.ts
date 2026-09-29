@@ -22,6 +22,7 @@ import {
   assertContestTransition,
 } from './contest-lifecycle.js';
 import { z } from 'zod';
+import { resolveDeploymentOrganization } from './deployment-organization.js';
 
 /**
  * Contest administration (M05-P02).
@@ -283,5 +284,17 @@ export class ContestService {
     }
 
     return ContestRepository.update(id, data);
+  }
+
+  /**
+   * Public read of ACTIVE contests for the deployment organization.
+   * No actor and no client-supplied organization id.
+   */
+  static async listDeploymentActive() {
+    const organization = await resolveDeploymentOrganization();
+    return ContestRepository.list({
+      organizationId: organization.id,
+      status: 'ACTIVE',
+    });
   }
 }

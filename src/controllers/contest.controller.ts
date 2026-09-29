@@ -1,6 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { ContestRecord } from '../repositories/contest.repository.js';
 import { ContestService } from '../services/contest.service.js';
+import { z } from 'zod';
 import {
   contestIdParamSchema,
   createContestSchema,
@@ -52,6 +53,23 @@ export class ContestController {
       reply,
       contests.map(toContestView),
       'Contests retrieved successfully',
+      HTTP_STATUS.OK,
+    );
+  }
+
+  /**
+   * GET /api/v1/contests/active
+   * Public. Deployment organization only.
+   */
+  static async listDeploymentActive(request: FastifyRequest, reply: FastifyReply) {
+    z.object({})
+      .strict()
+      .parse(request.query ?? {});
+    const contests = await ContestService.listDeploymentActive();
+    return sendSuccess(
+      reply,
+      contests.map(toContestView),
+      'Active contests retrieved successfully',
       HTTP_STATUS.OK,
     );
   }

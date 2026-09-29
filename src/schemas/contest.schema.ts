@@ -234,6 +234,34 @@ export const listContestsSwaggerSchema: FastifySchema = {
   },
 };
 
+export const listDeploymentActiveContestsSwaggerSchema: FastifySchema = {
+  tags: ['Contests'],
+  summary: 'List ACTIVE contests for this deployment',
+  description:
+    'Public. No authentication. Returns ACTIVE contests for the deployment organization resolved from DEPLOYMENT_ORGANIZATION_SLUG. The client cannot pass an organization, brand, domain, or tenant. Other organizations are not included.',
+  querystring: {
+    type: 'object',
+    additionalProperties: false,
+  },
+  response: {
+    200: {
+      description: 'Active contests for this deployment',
+      ...swaggerSuccessEnvelope(
+        { type: 'array', items: contestViewSchema },
+        'Active contests retrieved successfully',
+      ),
+    },
+    400: {
+      description: 'Unexpected query',
+      ...swaggerErrorEnvelope('Validation error'),
+    },
+    404: {
+      description: 'Deployment organization is not provisioned',
+      ...swaggerErrorEnvelope('Not found'),
+    },
+  },
+};
+
 export const createContestSwaggerSchema: FastifySchema = {
   tags: ['Contests'],
   summary: 'Create a contest',

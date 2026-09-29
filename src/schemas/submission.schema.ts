@@ -121,7 +121,7 @@ const creatorOnlyDescription =
 export const presignSubmissionSwaggerSchema: FastifySchema = {
   tags: ['Submissions'],
   summary: 'Create a presigned S3 upload URL',
-  description: `${creatorOnlyDescription} Contest must be ACTIVE. Allowed types: video/mp4, video/webm. Max 100MB and 60 seconds (client-reported duration). Fastify never receives video bytes. The legacy binary ingest path is not implemented.`,
+  description: `${creatorOnlyDescription} Contest must be ACTIVE and belong to the creator organization. A foreign contest is 403 and is not presigned. Allowed types: video/mp4, video/webm. Max 100MB and 60 seconds (client-reported duration). Fastify never receives video bytes. The legacy binary ingest path is not implemented.`,
   security: [{ bearerAuth: [] }],
   body: {
     type: 'object',
@@ -169,7 +169,7 @@ export const presignSubmissionSwaggerSchema: FastifySchema = {
 export const completeSubmissionSwaggerSchema: FastifySchema = {
   tags: ['Submissions'],
   summary: 'Finalize a submission after the S3 PUT',
-  description: `${creatorOnlyDescription} Persists PENDING_REVIEW. objectKey must be the backend-issued key from presign. Status, videoUrl, and storage path are not client-chosen. Retrying the same objectKey is idempotent for the owning creator.`,
+  description: `${creatorOnlyDescription} Persists PENDING_REVIEW only when the contest belongs to the creator organization. A foreign contest is 403 and creates no row. objectKey must be the backend-issued key from presign. Status, videoUrl, and storage path are not client-chosen. Retrying the same objectKey is idempotent for the owning creator.`,
   security: [{ bearerAuth: [] }],
   body: {
     type: 'object',

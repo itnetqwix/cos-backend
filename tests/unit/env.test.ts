@@ -11,10 +11,12 @@ describe('Unit Tests: Environment schema (M01-P01-T02)', () => {
     'AWS_S3_BUCKET',
     'AWS_SECRET_ACCESS_KEY',
     'DATABASE_URL',
+    'DEPLOYMENT_ORGANIZATION_SLUG',
     'JWT_SECRET',
     'LOG_LEVEL',
     'NODE_ENV',
     'PORT',
+    'STORAGE_PROVIDER',
   ];
 
   it('exports only the keys currently defined in env.ts', () => {
@@ -23,6 +25,13 @@ describe('Unit Tests: Environment schema (M01-P01-T02)', () => {
 
   it('does not define or export CORS_ORIGIN', () => {
     assert.equal('CORS_ORIGIN' in env, false);
+  });
+
+  it('keeps S3 as the default storage provider', () => {
+    const envSrc = readFileSync(new URL('../../src/config/env.ts', import.meta.url), 'utf8');
+    assert.match(envSrc, /STORAGE_PROVIDER: z\.enum\(\['s3'\]\)\.default\('s3'\)/);
+    assert.equal(env.STORAGE_PROVIDER, 's3');
+    assert.match(envSrc, /DEPLOYMENT_ORGANIZATION_SLUG: z\.string\(\)\.trim\(\)\.min\(1\)\.default\('ripskis'\)/);
   });
 
   it('exports optional AWS S3 keys as strings', () => {

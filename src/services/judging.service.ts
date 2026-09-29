@@ -11,6 +11,7 @@ import {
   SubmissionRepository,
 } from '../repositories/submission.repository.js';
 import { computeCommunityScore, CommunityScoreResult } from './community-score.js';
+import { playbackUrlForSubmission } from './storage.service.js';
 import {
   ConflictError,
   ForbiddenError,
@@ -145,11 +146,17 @@ export class JudgingService {
     }
     assertVotingContest(contest.status);
     const rows = await SubmissionRepository.listApprovedForContest(contestId);
+    const items = await Promise.all(
+      rows.map(async (row) => ({
+        ...toQueueItem(row),
+        videoUrl: await playbackUrlForSubmission(row.objectKey, row.videoUrl),
+      })),
+    );
     return {
       contestId: contest.id,
       status: contest.status,
       autoAdvanceDelayMs: contest.autoAdvanceDelayMs,
-      items: rows.map(toQueueItem),
+      items,
     };
   }
 
