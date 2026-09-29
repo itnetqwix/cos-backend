@@ -14,7 +14,6 @@ import { HTTP_STATUS } from '../config/constants.js';
 function actorFromRequest(request: FastifyRequest) {
   return {
     role: request.user.role,
-    organizationId: request.user.organizationId,
   };
 }
 
@@ -25,8 +24,6 @@ function iso(value: Date | string): string {
 export function toContestView(contest: ContestRecord) {
   return {
     id: contest.id,
-    organizationId: contest.organizationId,
-    organization: contest.organization,
     categoryId: contest.categoryId,
     category: contest.category,
     title: contest.title,
@@ -65,7 +62,7 @@ export class ContestController {
     z.object({})
       .strict()
       .parse(request.query ?? {});
-    const contests = await ContestService.listDeploymentActive();
+    const contests = await ContestService.listActive();
     return sendSuccess(
       reply,
       contests.map(toContestView),

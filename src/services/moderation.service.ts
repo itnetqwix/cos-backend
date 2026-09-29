@@ -48,7 +48,6 @@ import {
 export interface ModerationActor {
   id: string;
   role: Role;
-  organizationId: string | null;
 }
 
 export interface ModerationDecision {
@@ -56,7 +55,7 @@ export interface ModerationDecision {
   audit: AuditLogRecord;
 }
 
-const MODERATOR_ROLES = new Set<Role>([Role.BRAND_ADMIN, Role.SUPER_ADMIN]);
+const MODERATOR_ROLES = new Set<Role>([Role.ADMIN]);
 
 const CLOSED_CONTEST_STATUSES = new Set<ContestStatus>([
   ContestStatus.COMPLETED,
@@ -82,30 +81,8 @@ function assertModerator(actor: ModerationActor): void {
   }
 }
 
-function assertTenant(actor: ModerationActor, organizationId: string): void {
+function assertModeratorOnly(actor: ModerationActor): void {
   assertModerator(actor);
-  if (actor.role === Role.SUPER_ADMIN) {
-    return;
-  }
-  if (!actor.organizationId) {
-    throw new ForbiddenError('Forbidden: Brand admin is not scoped to an organization');
-  }
-  if (actor.organizationId !== organizationId) {
-    throw new ForbiddenError(
-      'Forbidden: Submission does not belong to the authenticated organization',
-    );
-  }
-}
-
-function organizationFilter(actor: ModerationActor): string | undefined {
-  assertModerator(actor);
-  if (actor.role === Role.SUPER_ADMIN) {
-    return undefined;
-  }
-  if (!actor.organizationId) {
-    throw new ForbiddenError('Forbidden: Brand admin is not scoped to an organization');
-  }
-  return actor.organizationId;
 }
 
 function assertModeratable(submission: SubmissionRecord): void {
@@ -131,7 +108,7 @@ async function decide(
   if (!existing) {
     throw new NotFoundError('Submission not found');
   }
-  assertTenant(actor, existing.contest.organizationId);
+  assertModeratorOnly(actor);
   assertModeratable(existing);
 
   const moderatedAt = new Date();
@@ -170,11 +147,13 @@ async function decide(
 
 export class ModerationService {
   static async listQueue(actor: ModerationActor): Promise<ModerationQueueRecord[]> {
-    return SubmissionRepository.listPendingReview(organizationFilter(actor));
+    assertModeratorOnly(actor);
+    return SubmissionRepository.listPendingReview();
   }
 
   static async listAuditLogs(actor: ModerationActor): Promise<AuditLogRecord[]> {
-    return AuditLogRepository.list(organizationFilter(actor));
+    assertModeratorOnly(actor);
+    return AuditLogRepository.list();
   }
 
   static async approve(actor: ModerationActor, submissionId: string, note?: string) {

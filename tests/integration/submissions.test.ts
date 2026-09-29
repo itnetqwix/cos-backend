@@ -14,8 +14,6 @@ import {
 import { buildSubmissionObjectKey, setStorageService } from '../../src/services/storage.service.js';
 
 const ENVELOPE_KEYS = ['data', 'errors', 'message', 'success'];
-const ORG_A = 'e7a18492-91f2-4c22-9fa4-a4f61e890123';
-const ORG_B = 'b2c3d4e5-f6a7-4890-bcde-f12345678901';
 const CREATOR_A = 'aaaaaaaa-aaaa-4aaa-8aaa-0000000000aa';
 const CREATOR_B = 'aaaaaaaa-aaaa-4aaa-8aaa-0000000000bb';
 const MISSING_CONTEST = '11111111-1111-4111-8111-111111111111';
@@ -34,18 +32,12 @@ function createMemory(): Memory {
   return { contests: new Map(), submissions: new Map(), seq: 1 };
 }
 
-function contestRow(id: string, organizationId: string, status: ContestStatus): ContestRecord {
+function contestRow(id: string, status: ContestStatus): ContestRecord {
   const now = new Date('2026-10-01T00:00:00.000Z');
   return {
     id,
-    organizationId,
     categoryId: null,
     category: null,
-    organization: {
-      id: organizationId,
-      name: organizationId === ORG_A ? 'Ripskis Entertainment' : 'Other Org',
-      slug: organizationId === ORG_A ? 'ripskis' : 'other',
-    },
     title: status === ContestStatus.ACTIVE ? 'Active Slam' : 'Inactive Slam',
     description: 'Short comedy entries.',
     status,
@@ -125,7 +117,6 @@ describe('M06 submission APIs', { concurrency: false }, () => {
               id: contest.id,
               title: contest.title,
               status: contest.status,
-              organizationId: contest.organizationId,
               category: contest.category
                 ? { id: contest.category.id, name: contest.category.name, slug: contest.category.slug }
                 : null,
@@ -134,7 +125,6 @@ describe('M06 submission APIs', { concurrency: false }, () => {
               id: data.contestId,
               title: 'Unknown',
               status: ContestStatus.ACTIVE,
-              organizationId: ORG_A,
               category: null,
             },
       };
@@ -169,12 +159,11 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     await app.close();
   });
 
-  function token(role: Role, id = CREATOR_A, organizationId: string | null = null): string {
+  function token(role: Role, id = CREATOR_A): string {
     return app.jwt.sign({
       id,
       email: `${role.toLowerCase()}@contestos.com`,
       role,
-      organizationId,
     });
   }
 
@@ -184,8 +173,8 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     assert.equal(Object.prototype.hasOwnProperty.call(body, 'timestamp'), false);
   }
 
-  function seedActive(organizationId = ORG_A): ContestRecord {
-    const row = contestRow(uuid(memory.seq++), organizationId, ContestStatus.ACTIVE);
+  function seedActive(): ContestRecord {
+    const row = contestRow(uuid(memory.seq++), ContestStatus.ACTIVE);
     memory.contests.set(row.id, row);
     return row;
   }
@@ -194,7 +183,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     memory = createMemory();
     signedKeys = [];
     const contest = seedActive();
-    const auth = { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A, ORG_A)}` };
+    const auth = { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A)}` };
 
     const presign = await app.inject({
       method: 'POST',
@@ -213,7 +202,10 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     assert.equal(presignBody.data.method, 'PUT');
     assert.match(presignBody.data.uploadUrl, /X-Amz-Signature=mock/);
     assert.equal(presignBody.data.headers['Content-Type'], 'video/mp4');
-    assert.match(presignBody.data.objectKey, new RegExp(`org/${ORG_A}/contests/${contest.id}/creators/${CREATOR_A}/`));
+    assert.match(
+      presignBody.data.objectKey,
+      new RegExp(`^contests/${contest.id}/creators/${CREATOR_A}/`),
+    );
     assert.equal(signedKeys.length, 1);
 
     const complete = await app.inject({
@@ -271,11 +263,11 @@ describe('M06 submission APIs', { concurrency: false }, () => {
 
   it('M06-P05-T02 rejects non-ACTIVE contests and unknown contests', async () => {
     memory = createMemory();
-    const draft = contestRow(uuid(memory.seq++), ORG_A, ContestStatus.DRAFT);
-    const judging = contestRow(uuid(memory.seq++), ORG_A, ContestStatus.JUDGING);
+    const draft = contestRow(uuid(memory.seq++), ContestStatus.DRAFT);
+    const judging = contestRow(uuid(memory.seq++), ContestStatus.JUDGING);
     memory.contests.set(draft.id, draft);
     memory.contests.set(judging.id, judging);
-    const auth = { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A, ORG_A)}` };
+    const auth = { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A)}` };
     const payload = {
       contestId: draft.id,
       contentType: 'video/webm',
@@ -313,7 +305,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
   it('M06-P05-T03 rejects invalid content-type and oversize at presign', async () => {
     memory = createMemory();
     const contest = seedActive();
-    const auth = { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A, ORG_A)}` };
+    const auth = { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A)}` };
 
     const type = await app.inject({
       method: 'POST',
@@ -372,12 +364,12 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     assert.equal(unauth.statusCode, 401);
     assertEnvelope(JSON.parse(unauth.payload), false);
 
-    for (const role of [Role.VIEWER, Role.BRAND_ADMIN, Role.SUPER_ADMIN]) {
+    for (const role of [Role.ADMIN]) {
       const denied = await app.inject({
         method: 'POST',
         url: '/api/v1/submissions/presign',
         headers: {
-          authorization: `Bearer ${token(role, CREATOR_B, role === Role.BRAND_ADMIN ? ORG_A : null)}`,
+          authorization: `Bearer ${token(role, CREATOR_B)}`,
         },
         payload: {
           contestId: contest.id,
@@ -390,7 +382,6 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     }
 
     const stolenKey = buildSubmissionObjectKey({
-      organizationId: ORG_B,
       contestId: contest.id,
       creatorId: CREATOR_B,
       contentType: 'video/mp4',
@@ -399,7 +390,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     const stolen = await app.inject({
       method: 'POST',
       url: '/api/v1/submissions/complete',
-      headers: { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A, ORG_A)}` },
+      headers: { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A)}` },
       payload: {
         contestId: contest.id,
         objectKey: stolenKey,
@@ -410,7 +401,6 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     assert.equal(stolen.statusCode, 403);
 
     const ownKey = buildSubmissionObjectKey({
-      organizationId: contest.organizationId,
       contestId: contest.id,
       creatorId: CREATOR_A,
       contentType: 'video/webm',
@@ -419,7 +409,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     const created = await app.inject({
       method: 'POST',
       url: '/api/v1/submissions/complete',
-      headers: { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A, ORG_A)}` },
+      headers: { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A)}` },
       payload: {
         contestId: contest.id,
         objectKey: ownKey,
@@ -437,62 +427,12 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     });
     assert.equal(other.statusCode, 404);
 
-    const brandPeek = await app.inject({
+    const adminPeek = await app.inject({
       method: 'GET',
       url: '/api/v1/submissions/me',
-      headers: { authorization: `Bearer ${token(Role.BRAND_ADMIN, CREATOR_B, ORG_A)}` },
+      headers: { authorization: `Bearer ${token(Role.ADMIN, CREATOR_B)}` },
     });
-    assert.equal(brandPeek.statusCode, 403);
-  });
-
-  it('rejects presign and complete for a contest in another organization', async () => {
-    memory = createMemory();
-    signedKeys = [];
-    const foreign = seedActive(ORG_B);
-    const auth = { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A, ORG_A)}` };
-    const before = memory.submissions.size;
-
-    const presign = await app.inject({
-      method: 'POST',
-      url: '/api/v1/submissions/presign',
-      headers: auth,
-      payload: {
-        contestId: foreign.id,
-        contentType: 'video/mp4',
-        fileSizeBytes: 1000,
-        durationSeconds: 10,
-      },
-    });
-    assert.equal(presign.statusCode, 403);
-    const presignBody = JSON.parse(presign.payload);
-    assertEnvelope(presignBody, false);
-    assert.equal(presignBody.message.includes(ORG_B), false);
-    assert.equal(presignBody.message.includes('Other Org'), false);
-    assert.equal(signedKeys.length, 0);
-
-    const objectKey = buildSubmissionObjectKey({
-      organizationId: ORG_B,
-      contestId: foreign.id,
-      creatorId: CREATOR_A,
-      contentType: 'video/mp4',
-      objectId: 'cccccccc-cccc-4ccc-8ccc-000000000077',
-    });
-    const complete = await app.inject({
-      method: 'POST',
-      url: '/api/v1/submissions/complete',
-      headers: auth,
-      payload: {
-        contestId: foreign.id,
-        objectKey,
-        title: 'Foreign clip',
-        durationSeconds: 10,
-      },
-    });
-    assert.equal(complete.statusCode, 403);
-    const completeBody = JSON.parse(complete.payload);
-    assertEnvelope(completeBody, false);
-    assert.equal(completeBody.message.includes(ORG_B), false);
-    assert.equal(memory.submissions.size, before);
+    assert.equal(adminPeek.statusCode, 403);
   });
 
   it('M06-P05-T04 Fastify has no video binary upload path', () => {

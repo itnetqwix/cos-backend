@@ -27,36 +27,24 @@ import {
  * Creator submission ingest (M06-P03-T02).
  *
  * POST presign / complete / GET me / GET :id are CREATOR only.
- * CREATOR JWT organizationId is the deployment organization.
- * The contest organization must match that id before a URL is signed or a row is stored.
  * Max submissions per creator per contest: NOT SPECIFIED (not enforced).
  * Date-window checks beyond status ACTIVE: NOT SPECIFIED (ACTIVE is the gate).
- * BRAND_ADMIN / VIEWER / SUPER_ADMIN cannot submit or read these routes.
+ * ADMIN cannot submit or read these creator routes.
  */
 
 export interface SubmissionActor {
   id: string;
   role: Role;
-  organizationId: string | null;
 }
 
 const CREATOR_ONLY_MESSAGE =
   'Forbidden: User role does not have permission to access this resource';
-
-const CONTEST_ORGANIZATION_MESSAGE =
-  'Forbidden: Contest does not belong to the authenticated organization';
 
 function assertCreator(actor: SubmissionActor): void {
   if (actor.role === Role.CREATOR) {
     return;
   }
   throw new ForbiddenError(CREATOR_ONLY_MESSAGE);
-}
-
-function assertCreatorOwnsContest(actor: SubmissionActor, organizationId: string): void {
-  if (!actor.organizationId || actor.organizationId !== organizationId) {
-    throw new ForbiddenError(CONTEST_ORGANIZATION_MESSAGE);
-  }
 }
 
 function assertVideoConstraints(input: {
@@ -108,7 +96,6 @@ export class SubmissionService {
     if (!contest) {
       throw new NotFoundError('Contest not found');
     }
-    assertCreatorOwnsContest(actor, contest.organizationId);
     if (contest.status !== 'ACTIVE') {
       throw new ValidationError(
         'Submissions are only accepted while the contest is ACTIVE',
@@ -116,7 +103,6 @@ export class SubmissionService {
     }
 
     const objectKey = buildSubmissionObjectKey({
-      organizationId: contest.organizationId,
       contestId: contest.id,
       creatorId: actor.id,
       contentType: input.contentType,
@@ -153,12 +139,6 @@ export class SubmissionService {
     const contest = await ContestRepository.findById(input.contestId);
     if (!contest) {
       throw new NotFoundError('Contest not found');
-    }
-    assertCreatorOwnsContest(actor, contest.organizationId);
-    if (parsed.organizationId !== contest.organizationId) {
-      throw new ForbiddenError(
-        'Forbidden: objectKey does not match the contest organization',
-      );
     }
     if (contest.status !== 'ACTIVE') {
       throw new ValidationError(

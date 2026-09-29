@@ -33,7 +33,6 @@ export interface StorageService {
 }
 
 export interface SubmissionObjectKeyParts {
-  organizationId: string;
   contestId: string;
   creatorId: string;
   objectId: string;
@@ -41,7 +40,11 @@ export interface SubmissionObjectKeyParts {
 }
 
 const OBJECT_KEY_PATTERN =
-  /^org\/([0-9a-f-]{36})\/contests\/([0-9a-f-]{36})\/creators\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(mp4|webm)$/i;
+  /^contests\/([0-9a-f-]{36})\/creators\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(mp4|webm)$/i;
+
+/** Keys issued before the single-product cutover. Playback still signs these. */
+const LEGACY_OBJECT_KEY_PATTERN =
+  /^org\/[0-9a-f-]{36}\/contests\/([0-9a-f-]{36})\/creators\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(mp4|webm)$/i;
 
 export function extensionForContentType(contentType: string): 'mp4' | 'webm' {
   if (contentType === 'video/mp4') return 'mp4';
@@ -50,12 +53,11 @@ export function extensionForContentType(contentType: string): 'mp4' | 'webm' {
 }
 
 /**
- * S3 key naming (M06 amendment).
- * Backend constructs the key. Clients cannot choose another organization's path.
- * Pattern: org/{organizationId}/contests/{contestId}/creators/{creatorId}/{uuid}.{ext}
+ * S3 key naming.
+ * Backend constructs the key. Clients cannot choose the path.
+ * Pattern: contests/{contestId}/creators/{creatorId}/{uuid}.{ext}
  */
 export function buildSubmissionObjectKey(parts: {
-  organizationId: string;
   contestId: string;
   creatorId: string;
   contentType: string;
@@ -63,20 +65,20 @@ export function buildSubmissionObjectKey(parts: {
 }): string {
   const extension = extensionForContentType(parts.contentType);
   const objectId = parts.objectId ?? randomUUID();
-  return `org/${parts.organizationId}/contests/${parts.contestId}/creators/${parts.creatorId}/${objectId}.${extension}`;
+  return `contests/${parts.contestId}/creators/${parts.creatorId}/${objectId}.${extension}`;
 }
 
 export function parseSubmissionObjectKey(
   objectKey: string,
 ): SubmissionObjectKeyParts | null {
-  const match = OBJECT_KEY_PATTERN.exec(objectKey);
+  const match =
+    OBJECT_KEY_PATTERN.exec(objectKey) ?? LEGACY_OBJECT_KEY_PATTERN.exec(objectKey);
   if (!match) return null;
   return {
-    organizationId: match[1],
-    contestId: match[2],
-    creatorId: match[3],
-    objectId: match[4],
-    extension: match[5].toLowerCase() as 'mp4' | 'webm',
+    contestId: match[1],
+    creatorId: match[2],
+    objectId: match[3],
+    extension: match[4].toLowerCase() as 'mp4' | 'webm',
   };
 }
 
@@ -106,7 +108,7 @@ export function getStorageService(): StorageService {
 /**
  * Response-time playback URL. `objectKey` is the source of truth.
  * The stored `videoUrl` is only the fallback when this process has no
- * download signer (tests, or the local-demo fixture).
+ * download signer.
  * Signed URLs are not written to PostgreSQL.
  * Playback TTL is `VIDEO_CONSTRAINTS.PRESIGN_EXPIRES_SECONDS` (900), the
  * same engineering default as upload presign. Source does not name a playback TTL.

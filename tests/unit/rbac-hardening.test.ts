@@ -12,7 +12,7 @@ import { ROLES } from '../../src/config/constants.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
 
 const ENVELOPE_KEYS = ['data', 'errors', 'message', 'success'];
-const JWT_CLAIM_KEYS = ['id', 'email', 'role', 'organizationId'] as const;
+const JWT_CLAIM_KEYS = ['id', 'email', 'role'] as const;
 const SRC_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../src');
 
 function readSrc(relativePath: string): string {
@@ -20,17 +20,15 @@ function readSrc(relativePath: string): string {
 }
 
 describe('M03-P01-T01 authenticate + authorizeRoles + JWT payload typing', () => {
-  it('JWTPayload documents exactly id, email, role, organizationId', () => {
+  it('JWTPayload documents exactly id, email, role', () => {
     const src = readSrc('types/auth.ts');
     const block = src.slice(src.indexOf('export interface JWTPayload'), src.indexOf('export interface AuthTokens'));
     assert.match(block, /id:\s*string/);
     assert.match(block, /email:\s*string/);
     assert.match(block, /role:\s*Role/);
-    assert.match(block, /organizationId:\s*string\s*\|\s*null/);
+    assert.doesNotMatch(block, /organizationId/);
     assert.doesNotMatch(block, /handle/);
     assert.doesNotMatch(block, /avatarUrl/);
-    assert.doesNotMatch(block, /ORGANIZATION_ADMIN/);
-    assert.doesNotMatch(block, /PLATFORM_ADMIN/);
   });
 
   it('FastifyJWT payload and user are typed as JWTPayload', () => {
@@ -58,10 +56,8 @@ describe('M03-P01-T01 authenticate + authorizeRoles + JWT payload typing', () =>
   });
 
   it('ROLES constants match the Prisma Role enum used in JWT claims', () => {
-    assert.equal(ROLES.SUPER_ADMIN, Role.SUPER_ADMIN);
-    assert.equal(ROLES.BRAND_ADMIN, Role.BRAND_ADMIN);
+    assert.equal(ROLES.ADMIN, Role.ADMIN);
     assert.equal(ROLES.CREATOR, Role.CREATOR);
-    assert.equal(ROLES.VIEWER, Role.VIEWER);
     assert.equal(typeof authorizeRoles, 'function');
     assert.equal(requireRoles, authorizeRoles);
   });
@@ -93,7 +89,6 @@ describe('M03-P01-T01 runtime JWT verify + authenticate (no role restriction on 
       id: 'jwt-t01-user',
       email: 't01-jwt@contestos.com',
       role: Role.CREATOR,
-      organizationId: null,
     };
 
     const token = app.jwt.sign(payload);
@@ -123,8 +118,6 @@ describe('M03-P01-T01 runtime JWT verify + authenticate (no role restriction on 
       email: 't01-me@contestos.com',
       name: 'T01 Me',
       role: Role.CREATOR,
-      organizationId: null,
-      organization: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -133,7 +126,6 @@ describe('M03-P01-T01 runtime JWT verify + authenticate (no role restriction on 
       id: mockUser.id,
       email: mockUser.email,
       role: mockUser.role,
-      organizationId: null,
     });
 
     const originalFindById = UserRepository.findById;
@@ -158,26 +150,21 @@ describe('M03-P01-T01 runtime JWT verify + authenticate (no role restriction on 
   });
 });
 
-describe('M03-P01-T02 GET /users* restricted to SUPER_ADMIN', () => {
-  it('registers authorizeRoles(Role.SUPER_ADMIN) on GET /users and GET /users/:id', () => {
+describe('M03-P01-T02 GET /users* restricted to ADMIN', () => {
+  it('registers authorizeRoles(Role.ADMIN) on GET /users and GET /users/:id', () => {
     const src = readSrc('routes/index.ts');
     assert.match(
       src,
-      /['"]\/users['"][\s\S]*onRequest:\s*\[fastify\.authenticate,\s*authorizeRoles\(Role\.SUPER_ADMIN\)\]/,
+      /['"]\/users['"][\s\S]*onRequest:\s*\[fastify\.authenticate,\s*authorizeRoles\(Role\.ADMIN\)\]/,
     );
     assert.match(
       src,
-      /['"]\/users\/:id['"][\s\S]*onRequest:\s*\[fastify\.authenticate,\s*authorizeRoles\(Role\.SUPER_ADMIN\)\]/,
+      /['"]\/users\/:id['"][\s\S]*onRequest:\s*\[fastify\.authenticate,\s*authorizeRoles\(Role\.ADMIN\)\]/,
     );
-    const usersStart = src.indexOf("'/users'");
-    const orgStart = src.indexOf("'/organizations/");
-    const usersBlock = src.slice(usersStart, orgStart === -1 ? undefined : orgStart);
-    assert.doesNotMatch(usersBlock, /authorizeRoles\(Role\.BRAND_ADMIN/);
-    assert.match(src, /BRAND_ADMIN org-scoped listing is\s+\/\/ NOT SPECIFIED/);
   });
 });
 
-describe('M03-P01-T02 runtime SUPER_ADMIN allow / other roles deny', () => {
+describe('M03-P01-T02 runtime ADMIN allow / other roles deny', () => {
   let app: FastifyInstance;
 
   before(async () => {
@@ -191,16 +178,15 @@ describe('M03-P01-T02 runtime SUPER_ADMIN allow / other roles deny', () => {
     await app.close();
   });
 
-  function tokenFor(role: Role, organizationId: string | null = null): string {
+  function tokenFor(role: Role): string {
     return app.jwt.sign({
       id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
       email: `${role.toLowerCase()}@contestos.com`,
       role,
-      organizationId,
     });
   }
 
-  it('GET /api/v1/users returns 200 for SUPER_ADMIN', async () => {
+  it('GET /api/v1/users returns 200 for ADMIN', async () => {
     const originalFindMany = UserRepository.findMany;
     UserRepository.findMany = (async () => ({
       users: [],
@@ -211,7 +197,7 @@ describe('M03-P01-T02 runtime SUPER_ADMIN allow / other roles deny', () => {
       const res = await app.inject({
         method: 'GET',
         url: '/api/v1/users',
-        headers: { authorization: `Bearer ${tokenFor(Role.SUPER_ADMIN)}` },
+        headers: { authorization: `Bearer ${tokenFor(Role.ADMIN)}` },
       });
       assert.equal(res.statusCode, 200);
       const body = JSON.parse(res.payload);
@@ -221,12 +207,12 @@ describe('M03-P01-T02 runtime SUPER_ADMIN allow / other roles deny', () => {
     }
   });
 
-  it('GET /api/v1/users returns 403 for BRAND_ADMIN (org-scoped list is not allowed)', async () => {
+  it('GET /api/v1/users returns 403 for CREATOR', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/api/v1/users',
       headers: {
-        authorization: `Bearer ${tokenFor(Role.BRAND_ADMIN, 'org-t02')}`,
+        authorization: `Bearer ${tokenFor(Role.CREATOR)}`,
       },
     });
     assert.equal(res.statusCode, 403);
@@ -295,12 +281,11 @@ describe('M03-P01-T03 runtime 403 envelope on GET /users*', () => {
     await app.close();
   });
 
-  it('GET /api/v1/users as BRAND_ADMIN returns 403 frozen envelope', async () => {
+  it('GET /api/v1/users as CREATOR returns 403 frozen envelope', async () => {
     const token = app.jwt.sign({
       id: 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
-      email: 'brand-t03@contestos.com',
-      role: Role.BRAND_ADMIN,
-      organizationId: 'org-t03',
+      email: 'creator-t03@contestos.com',
+      role: Role.CREATOR,
     });
 
     const res = await app.inject({
@@ -313,12 +298,11 @@ describe('M03-P01-T03 runtime 403 envelope on GET /users*', () => {
     assertFrozenErrorEnvelope(JSON.parse(res.payload), /Forbidden/);
   });
 
-  it('GET /api/v1/users/:id as VIEWER returns 403 frozen envelope', async () => {
+  it('GET /api/v1/users/:id as CREATOR returns 403 frozen envelope', async () => {
     const token = app.jwt.sign({
       id: 'cccccccc-dddd-4eee-8fff-000000000000',
-      email: 'viewer-t03@contestos.com',
-      role: Role.VIEWER,
-      organizationId: null,
+      email: 'creator-t03b@contestos.com',
+      role: Role.CREATOR,
     });
 
     const res = await app.inject({
@@ -353,11 +337,10 @@ describe('M03-P01-T04 role allow/deny matrix on GET /users*', () => {
       id: PROTECTED_USER_ID,
       email: `${role.toLowerCase()}@contestos.com`,
       role,
-      organizationId: role === Role.BRAND_ADMIN ? 'org-t04' : null,
     });
   }
 
-  const deniedRoles = [Role.BRAND_ADMIN, Role.CREATOR, Role.VIEWER] as const;
+  const deniedRoles = [Role.CREATOR] as const;
 
   it('GET /api/v1/users: missing Bearer → 401 frozen envelope', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/users' });
@@ -375,7 +358,7 @@ describe('M03-P01-T04 role allow/deny matrix on GET /users*', () => {
     assertFrozenErrorEnvelope(JSON.parse(res.payload), /Unauthorized/);
   });
 
-  it('GET /api/v1/users: SUPER_ADMIN allowed (200)', async () => {
+  it('GET /api/v1/users: ADMIN allowed (200)', async () => {
     const originalFindMany = UserRepository.findMany;
     UserRepository.findMany = (async () => ({
       users: [],
@@ -386,7 +369,7 @@ describe('M03-P01-T04 role allow/deny matrix on GET /users*', () => {
       const res = await app.inject({
         method: 'GET',
         url: '/api/v1/users',
-        headers: { authorization: `Bearer ${tokenFor(Role.SUPER_ADMIN)}` },
+        headers: { authorization: `Bearer ${tokenFor(Role.ADMIN)}` },
       });
       assert.equal(res.statusCode, 200);
       const body = JSON.parse(res.payload);
@@ -419,14 +402,12 @@ describe('M03-P01-T04 role allow/deny matrix on GET /users*', () => {
     assertFrozenErrorEnvelope(JSON.parse(res.payload), /Unauthorized/);
   });
 
-  it('GET /api/v1/users/:id: SUPER_ADMIN allowed (200)', async () => {
+  it('GET /api/v1/users/:id: ADMIN allowed (200)', async () => {
     const mockUser = {
       id: PROTECTED_USER_ID,
       email: 'listed@contestos.com',
       name: 'Listed User',
       role: Role.CREATOR,
-      organizationId: null,
-      organization: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -438,7 +419,7 @@ describe('M03-P01-T04 role allow/deny matrix on GET /users*', () => {
       const res = await app.inject({
         method: 'GET',
         url: `/api/v1/users/${PROTECTED_USER_ID}`,
-        headers: { authorization: `Bearer ${tokenFor(Role.SUPER_ADMIN)}` },
+        headers: { authorization: `Bearer ${tokenFor(Role.ADMIN)}` },
       });
       assert.equal(res.statusCode, 200);
       const body = JSON.parse(res.payload);
@@ -467,8 +448,6 @@ describe('M03-P01-T04 role allow/deny matrix on GET /users*', () => {
       email: 'creator@contestos.com',
       name: 'Creator',
       role: Role.CREATOR,
-      organizationId: null,
-      organization: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

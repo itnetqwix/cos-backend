@@ -8,7 +8,6 @@ const submissionInclude = {
       id: true,
       title: true,
       status: true,
-      organizationId: true,
       category: {
         select: {
           id: true,
@@ -49,7 +48,6 @@ const judgingInclude = {
     select: {
       id: true,
       status: true,
-      organizationId: true,
       category: {
         select: {
           id: true,
@@ -77,7 +75,6 @@ const leaderboardInclude = {
       id: true,
       title: true,
       status: true,
-      organizationId: true,
       category: {
         select: {
           id: true,
@@ -154,17 +151,12 @@ export class SubmissionRepository {
   }
 
   /**
-   * Pending-review queue (M07-P02-T01).
-   * organizationId undefined = all tenants (SUPER_ADMIN).
-   * Oldest first. This is display order, not a moderation SLA.
+   * Pending-review queue. Oldest first. This is display order, not a moderation SLA.
    */
-  static async listPendingReview(
-    organizationId?: string,
-  ): Promise<ModerationQueueRecord[]> {
+  static async listPendingReview(): Promise<ModerationQueueRecord[]> {
     return prisma.submission.findMany({
       where: {
         status: SubmissionStatus.PENDING_REVIEW,
-        ...(organizationId ? { contest: { organizationId } } : {}),
       },
       include: queueInclude,
       orderBy: { createdAt: 'asc' },

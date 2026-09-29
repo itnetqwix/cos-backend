@@ -43,25 +43,22 @@ describe('M12-P01-T03 JWT expiry and secret configuration', () => {
       id: 'user-jwt-review',
       email: 'jwt-review@contestos.com',
       role: 'CREATOR',
-      organizationId: null,
     });
     const decoded = app.jwt.decode(token) as {
       id: string;
       email: string;
       role: string;
-      organizationId: string | null;
       iat: number;
       exp: number;
     };
     assert.equal(decoded.id, 'user-jwt-review');
     assert.equal(decoded.email, 'jwt-review@contestos.com');
     assert.equal(decoded.role, 'CREATOR');
-    assert.equal(decoded.organizationId, null);
     assert.equal(decoded.exp - decoded.iat, 7 * 24 * 60 * 60);
     const claimKeys = Object.keys(decoded)
       .filter((key) => key !== 'iat' && key !== 'exp')
       .sort();
-    assert.deepEqual(claimKeys, ['email', 'id', 'organizationId', 'role']);
+    assert.deepEqual(claimKeys, ['email', 'id', 'role']);
     if (env.JWT_SECRET.length > 0) {
       assert.equal(token.includes(env.JWT_SECRET), false);
     }

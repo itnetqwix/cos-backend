@@ -26,33 +26,6 @@ export const registerCreatorSchema = z.object({
 
 export type RegisterCreatorInput = z.infer<typeof registerCreatorSchema>;
 
-export const registerBrandSchema = z.object({
-  email: z.string().trim().email('Invalid email address format').toLowerCase(),
-  password: z.string().min(6, 'Password must be at least 6 characters long'),
-  name: z
-    .string()
-    .trim()
-    .min(2, 'Name must be at least 2 characters long')
-    .max(100, 'Name cannot exceed 100 characters'),
-  organizationName: z
-    .string()
-    .trim()
-    .min(2, 'Organization name must be at least 2 characters long')
-    .max(100, 'Organization name cannot exceed 100 characters'),
-  slug: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .min(2, 'Slug must be at least 2 characters long')
-    .max(50, 'Slug cannot exceed 50 characters')
-    .regex(
-      /^[a-z0-9-]+$/,
-      'Slug can only contain lowercase alphanumeric characters and hyphens',
-    ),
-});
-
-export type RegisterBrandInput = z.infer<typeof registerBrandSchema>;
-
 export const loginSchema = z.object({
   email: z.string().trim().email('Invalid email address format').toLowerCase(),
   password: z.string().min(1, 'Password is required'),
@@ -80,71 +53,8 @@ export const SwaggerUserSchema = {
     name: { type: 'string', example: 'Alex Rivers' },
     role: {
       type: 'string',
-      enum: ['SUPER_ADMIN', 'BRAND_ADMIN', 'CREATOR', 'VIEWER'],
+      enum: ['ADMIN', 'CREATOR'],
       example: 'CREATOR',
-    },
-    organizationId: { type: 'string', nullable: true, example: null },
-    organization: {
-      type: 'object',
-      nullable: true,
-      properties: {
-        id: {
-          type: 'string',
-          format: 'uuid',
-          example: 'e7a18492-91f2-4c22-9fa4-a4f61e890123',
-        },
-        name: { type: 'string', example: 'Ripskis Entertainment' },
-        slug: { type: 'string', example: 'ripskis' },
-        branding: {
-          type: 'object',
-          nullable: true,
-          example: {
-            primaryColor: '#FF5722',
-            logoUrl: 'https://ripskis.com/logo.png',
-          },
-        },
-        createdAt: {
-          type: 'string',
-          format: 'date-time',
-          example: '2026-09-17T12:00:00.000Z',
-        },
-        updatedAt: {
-          type: 'string',
-          format: 'date-time',
-          example: '2026-09-17T12:00:00.000Z',
-        },
-      },
-    },
-    createdAt: {
-      type: 'string',
-      format: 'date-time',
-      example: '2026-09-17T12:00:00.000Z',
-    },
-    updatedAt: {
-      type: 'string',
-      format: 'date-time',
-      example: '2026-09-17T12:00:00.000Z',
-    },
-  },
-};
-
-export const SwaggerOrganizationSchema = {
-  type: 'object',
-  properties: {
-    id: {
-      type: 'string',
-      format: 'uuid',
-      example: 'e7a18492-91f2-4c22-9fa4-a4f61e890123',
-    },
-    name: { type: 'string', example: 'Ripskis Entertainment' },
-    slug: { type: 'string', example: 'ripskis' },
-    branding: {
-      type: 'object',
-      nullable: true,
-      example: {
-        primaryColor: '#FF5722',
-        logoUrl: 'https://ripskis.com/logo.png',
-      },
     },
     createdAt: {
       type: 'string',
@@ -207,7 +117,7 @@ export const registerCreatorSwaggerSchema: FastifySchema = {
   tags: ['Authentication'],
   summary: 'Register a new Creator account',
   description:
-    'Creates a creator user with role CREATOR, hashes password with bcrypt (10 rounds), assigns the deployment organization, and issues a JWT token. Request body is email, password, and name only. The client does not send an organization, brand, or domain. handle and avatarUrl are not accepted (M02-P01-T06; persistence PLANNED / NOT SPECIFIED).',
+    'Creates a creator user with role CREATOR, hashes password with bcrypt (10 rounds), and issues a JWT token. Request body is email, password, and name only. handle and avatarUrl are not accepted.',
   body: {
     type: 'object',
     required: ['email', 'password', 'name'],
@@ -240,64 +150,6 @@ export const registerCreatorSwaggerSchema: FastifySchema = {
     409: {
       description: 'Conflict - Email already registered',
       ...swaggerErrorEnvelope('User with this email already exists'),
-    },
-    429: {
-      description:
-        'Too many requests. Per-IP engineering default for this route (M12-P01-T01). Not a business-rule threshold.',
-      ...swaggerErrorEnvelope('Too many requests'),
-    },
-  },
-};
-
-export const registerBrandSwaggerSchema: FastifySchema = {
-  tags: ['Authentication'],
-  summary: 'Register a Brand organization & Brand Admin',
-  description:
-    'Atomically creates an Organization record and associated BRAND_ADMIN user inside a database transaction, returning organization profile, user profile, and JWT token.',
-  body: {
-    type: 'object',
-    required: ['email', 'password', 'name', 'organizationName', 'slug'],
-    properties: {
-      email: { type: 'string', format: 'email', example: 'admin@ripskis.com' },
-      password: { type: 'string', minLength: 6, example: 'BrandAdminSecure123!' },
-      name: { type: 'string', minLength: 2, maxLength: 100, example: 'Jordan Vance' },
-      organizationName: {
-        type: 'string',
-        minLength: 2,
-        maxLength: 100,
-        example: 'Ripskis Entertainment',
-      },
-      slug: {
-        type: 'string',
-        minLength: 2,
-        maxLength: 50,
-        pattern: '^[a-z0-9-]+$',
-        example: 'ripskis',
-      },
-    },
-  },
-  response: {
-    201: {
-      description: 'Brand organization and admin successfully created',
-      ...swaggerSuccessEnvelope(
-        {
-          type: 'object',
-          properties: {
-            user: SwaggerUserSchema,
-            organization: SwaggerOrganizationSchema,
-            token: SwaggerTokenProperty,
-          },
-        },
-        'Brand organization and admin created successfully',
-      ),
-    },
-    400: {
-      description: 'Bad Request - Validation error',
-      ...swaggerErrorEnvelope('Validation error'),
-    },
-    409: {
-      description: 'Conflict - Slug or email already exists',
-      ...swaggerErrorEnvelope('Organization with this slug already exists'),
     },
     429: {
       description:
@@ -354,7 +206,7 @@ export const getMeSwaggerSchema: FastifySchema = {
   tags: ['Authentication'],
   summary: 'Get current authenticated user profile',
   description:
-    'Guarded endpoint requiring a valid Bearer JWT. Returns current authenticated user session data and associated organization details.',
+    'Guarded endpoint requiring a valid Bearer JWT. Returns the authenticated user.',
   security: [{ bearerAuth: [] }],
   response: {
     200: {

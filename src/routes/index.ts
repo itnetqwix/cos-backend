@@ -4,7 +4,6 @@ import { AuthController } from '../controllers/auth.controller.js';
 import { ContestController } from '../controllers/contest.controller.js';
 import { ModerationController } from '../controllers/moderation.controller.js';
 import { SubmissionController } from '../controllers/submission.controller.js';
-import { OrganizationController } from '../controllers/organization.controller.js';
 import { UserController } from '../controllers/user.controller.js';
 import { authenticateOptional, authorizeRoles } from '../middleware/auth.middleware.js';
 import { JudgingController } from '../controllers/judging.controller.js';
@@ -38,13 +37,6 @@ import {
   listMySubmissionsSwaggerSchema,
   presignSubmissionSwaggerSchema,
 } from '../schemas/submission.schema.js';
-import {
-  getOrganizationBrandingSwaggerSchema,
-  listSuperAdminOrganizationsSwaggerSchema,
-  reinstateOrganizationSwaggerSchema,
-  suspendOrganizationSwaggerSchema,
-  updateOrganizationBrandingSwaggerSchema,
-} from '../schemas/organization.schema.js';
 import {
   listUsersSwaggerSchema,
   getUserByIdSwaggerSchema,
@@ -100,10 +92,7 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // 2. Authentication Endpoints (/api/v1/auth)
   // -------------------------------------------------------------
 
-  // M12-P01-T01: login and creator register each have their own per-IP
-  // counter. Thresholds are RATE_LIMIT_DEFAULTS (engineering defaults).
-  // Brand registration is not a customer-facing route on a single-organization
-  // deployment. The admin account is provisioned with the organization.
+  // Admin is provisioned. There is no public admin registration.
   fastify.post(
     '/auth/register/creator',
     {
@@ -132,18 +121,14 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     AuthController.getMe,
   );
 
-  // -------------------------------------------------------------
-  // 3. User Management Endpoints (/api/v1/users)
-  // M03-P01-T02: SUPER_ADMIN only. BRAND_ADMIN org-scoped listing is
-  // NOT SPECIFIED in source/knowledge and is not allowed here (no
-  // invented tenant user-list). Self-profile remains GET /auth/me.
+  // User listing is ADMIN only. Self-profile remains GET /auth/me.
   // -------------------------------------------------------------
 
   fastify.get(
     '/users',
     {
       schema: listUsersSwaggerSchema,
-      onRequest: [fastify.authenticate, authorizeRoles(Role.SUPER_ADMIN)],
+      onRequest: [fastify.authenticate, authorizeRoles(Role.ADMIN)],
     },
     UserController.listUsers,
   );
@@ -152,83 +137,17 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     '/users/:id',
     {
       schema: getUserByIdSwaggerSchema,
-      onRequest: [fastify.authenticate, authorizeRoles(Role.SUPER_ADMIN)],
+      onRequest: [fastify.authenticate, authorizeRoles(Role.ADMIN)],
     },
     UserController.getUserById,
   );
 
   // -------------------------------------------------------------
-  // 4. Organization branding (/api/v1/organizations)
-  // M04-P02. GET is public (no authenticate). PUT is
-  // BRAND_ADMIN (own organizationId only, enforced in OrganizationService)
-  // or SUPER_ADMIN (any organization).
-  // Suspension routes are not registered here (M10).
+  // Contests (/api/v1/contests)
+  // ADMIN manages contests. CREATOR is not granted these routes.
   // -------------------------------------------------------------
 
-  fastify.get(
-    '/organizations/:slug/branding',
-    { schema: getOrganizationBrandingSwaggerSchema },
-    OrganizationController.getBrandingBySlug,
-  );
-
-  fastify.put(
-    '/organizations/:id/branding',
-    {
-      schema: updateOrganizationBrandingSwaggerSchema,
-      onRequest: [
-        fastify.authenticate,
-        authorizeRoles(Role.BRAND_ADMIN, Role.SUPER_ADMIN),
-      ],
-    },
-    OrganizationController.updateBranding,
-  );
-
-  // -------------------------------------------------------------
-  // 4b. Super-admin tenant operations (/api/v1/super-admin/organizations)
-  // M10-P01. SUPER_ADMIN only on every route; BRAND_ADMIN is 403 even for
-  // its own organization. No audit row (not required by the M10 plan).
-  // -------------------------------------------------------------
-
-  const superAdminGuards = [fastify.authenticate, authorizeRoles(Role.SUPER_ADMIN)];
-
-  fastify.get(
-    '/super-admin/organizations',
-    {
-      schema: listSuperAdminOrganizationsSwaggerSchema,
-      onRequest: superAdminGuards,
-    },
-    OrganizationController.listForSuperAdmin,
-  );
-
-  fastify.post(
-    '/super-admin/organizations/:id/suspend',
-    {
-      schema: suspendOrganizationSwaggerSchema,
-      onRequest: superAdminGuards,
-    },
-    OrganizationController.suspend,
-  );
-
-  fastify.post(
-    '/super-admin/organizations/:id/reinstate',
-    {
-      schema: reinstateOrganizationSwaggerSchema,
-      onRequest: superAdminGuards,
-    },
-    OrganizationController.reinstate,
-  );
-
-  // -------------------------------------------------------------
-  // 5. Contests (/api/v1/contests)
-  // M05. BRAND_ADMIN is scoped to JWT organizationId in ContestService.
-  // SUPER_ADMIN is cross-tenant. CREATOR and VIEWER are not granted:
-  // their contest visibility is NOT SPECIFIED. Submission routes are section 6.
-  // -------------------------------------------------------------
-
-  const contestGuards = [
-    fastify.authenticate,
-    authorizeRoles(Role.BRAND_ADMIN, Role.SUPER_ADMIN),
-  ];
+  const contestGuards = [fastify.authenticate, authorizeRoles(Role.ADMIN)];
 
   fastify.get(
     '/contests',
@@ -321,16 +240,12 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
 
   // -------------------------------------------------------------
   // 7. Moderation (/api/v1/admin/...)
-  // M07. BRAND_ADMIN is scoped to JWT organizationId in ModerationService.
-  // SUPER_ADMIN is cross-tenant. CREATOR and VIEWER are not granted.
+  // ADMIN only. CREATOR is not granted.
   // No flag, bulk, warning, or suspension routes (not in the M07 API list).
   // Judging routes are section 8. No leaderboard route (M09).
   // -------------------------------------------------------------
 
-  const moderatorGuards = [
-    fastify.authenticate,
-    authorizeRoles(Role.BRAND_ADMIN, Role.SUPER_ADMIN),
-  ];
+  const moderatorGuards = [fastify.authenticate, authorizeRoles(Role.ADMIN)];
 
   fastify.get(
     '/admin/moderation/queue',
@@ -370,7 +285,7 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
 
   // -------------------------------------------------------------
   // 8. Judging (/api/v1/contests/:id/queue and .../rate)
-  // M08. Queue is public. Rate auth is optional (anonymous or VIEWER).
+  // M08. Queue is public. Rate auth is optional (anonymous guest).
   // Voting window is ACTIVE or JUDGING. No leaderboard route (M09).
   // -------------------------------------------------------------
 

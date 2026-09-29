@@ -4,7 +4,6 @@ import { FastifyInstance } from 'fastify';
 import { Role } from '@prisma/client';
 import { buildApp } from '../../src/app.js';
 import { prisma } from '../../src/config/database.js';
-import { env } from '../../src/config/env.js';
 import { JWTPayload } from '../../src/types/auth.js';
 
 const ENVELOPE_KEYS = ['success', 'message', 'data', 'errors'];
@@ -26,7 +25,6 @@ function assertNoPasswordHash(value: unknown): void {
 describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)', () => {
   let app: FastifyInstance;
   const createdUserIds: string[] = [];
-  const createdOrgIds: string[] = [];
 
   before(async () => {
     process.env.NODE_ENV = 'test';
@@ -40,9 +38,6 @@ describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)'
     if (createdUserIds.length > 0) {
       await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
     }
-    if (createdOrgIds.length > 0) {
-      await prisma.organization.deleteMany({ where: { id: { in: createdOrgIds } } });
-    }
     await app.close();
   });
 
@@ -52,14 +47,6 @@ describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)'
       const email = `m02p03-t01-creator-${suffix}@contestos.test`;
       const password = 'password123';
       const name = 'M02 P03 T01 Creator';
-      const deployment = await prisma.organization.upsert({
-        where: { slug: env.DEPLOYMENT_ORGANIZATION_SLUG },
-        update: {},
-        create: {
-          name: 'Woofskis Demo',
-          slug: env.DEPLOYMENT_ORGANIZATION_SLUG,
-        },
-      });
 
       const registerRes = await app.inject({
         method: 'POST',
@@ -76,7 +63,6 @@ describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)'
       assert.equal(registerBody.data.user.email, email);
       assert.equal(registerBody.data.user.name, name);
       assert.equal(registerBody.data.user.role, Role.CREATOR);
-      assert.equal(registerBody.data.user.organizationId, deployment.id);
       assert.equal(typeof registerBody.data.token, 'string');
       assert.ok(registerBody.data.token.length > 0);
       assertNoPasswordHash(registerBody);
@@ -86,7 +72,7 @@ describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)'
       assert.equal(registerClaims.id, registerBody.data.user.id);
       assert.equal(registerClaims.email, email);
       assert.equal(registerClaims.role, Role.CREATOR);
-      assert.equal(registerClaims.organizationId, deployment.id);
+      assert.equal('organizationId' in registerClaims, false);
 
       const persisted = await prisma.user.findUnique({
         where: { email },
@@ -95,13 +81,11 @@ describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)'
           email: true,
           name: true,
           role: true,
-          organizationId: true,
           passwordHash: true,
         },
       });
       assert.ok(persisted);
       assert.equal(persisted.role, Role.CREATOR);
-      assert.equal(persisted.organizationId, deployment.id);
       assert.ok(persisted.passwordHash.startsWith('$2'));
       assert.notEqual(persisted.passwordHash, password);
 
@@ -131,7 +115,6 @@ describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)'
       assert.equal(loginBody.data.user.id, persisted.id);
       assert.equal(loginBody.data.user.email, email);
       assert.equal(loginBody.data.user.role, Role.CREATOR);
-      assert.equal(loginBody.data.user.organizationId, deployment.id);
       assert.equal(typeof loginBody.data.token, 'string');
       assert.ok(loginBody.data.token.length > 0);
       assertNoPasswordHash(loginBody);
@@ -140,7 +123,7 @@ describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)'
       assert.equal(loginClaims.id, persisted.id);
       assert.equal(loginClaims.email, email);
       assert.equal(loginClaims.role, Role.CREATOR);
-      assert.equal(loginClaims.organizationId, deployment.id);
+      assert.equal('organizationId' in loginClaims, false);
 
       const unauthenticatedMe = await app.inject({
         method: 'GET',
@@ -167,7 +150,7 @@ describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)'
       assert.equal(meBody.data.email, email);
       assert.equal(meBody.data.name, name);
       assert.equal(meBody.data.role, Role.CREATOR);
-      assert.equal(meBody.data.organizationId, deployment.id);
+      assert.equal('organizationId' in meBody.data, false);
       assertNoPasswordHash(meBody);
     });
   });

@@ -36,21 +36,21 @@ describe('M05-P01 contest schema', () => {
     assert.equal((ContestStatus as Record<string, string>).CANCELLED, undefined);
   });
 
-  it('defines Category with organization scope and unique slug', () => {
+  it('defines Category with globally unique slug', () => {
     assert.match(schema, /model Category \{/);
-    assert.match(schema, /organizationId\s+String/);
-    assert.match(schema, /@@unique\(\[organizationId, slug\]\)/);
+    assert.match(schema, /slug\s+String\s+@unique/);
     assert.match(schema, /@@map\("categories"\)/);
+    assert.doesNotMatch(schema, /organizationId\s+String/);
   });
 
-  it('defines Contest fields and the organization/status index', () => {
+  it('defines Contest fields without organization scope', () => {
     assert.match(schema, /model Contest \{/);
     assert.match(schema, /autoAdvanceDelayMs\s+Int\s+@default\(1800\)/);
     assert.match(schema, /prizeSummary\s+String\?/);
     assert.match(schema, /rules\s+Json\?/);
-    assert.match(schema, /@@index\(\[organizationId, status\]\)/);
     assert.match(schema, /@@map\("contests"\)/);
     assert.match(schema, /submissions\s+Submission\[\]/);
+    assert.doesNotMatch(schema, /organizationId/);
   });
 });
 
@@ -109,7 +109,6 @@ describe('M05-P02 contest lifecycle', () => {
 
 describe('M05-P03 contest zod schemas', () => {
   const validCreate = {
-    organizationId: 'e7a18492-91f2-4c22-9fa4-a4f61e890123',
     title: 'Summer Comedy Slam',
     description: 'Short comedy entries.',
     startDate: '2026-10-01T00:00:00.000Z',

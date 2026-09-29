@@ -30,11 +30,9 @@ import {
  * Allowed set: ACTIVE, JUDGING.
  * Rejected set: DRAFT, SCHEDULED, COMPLETED, ARCHIVED.
  *
- * Auth (M08-P03-T03): a rating does not require a token. Visitors may vote
- * without creator registration. An authenticated VIEWER is stored on userId.
- * CREATOR, BRAND_ADMIN, and SUPER_ADMIN are not documented as voters and
- * receive 403 when a token identifies them. Invalid tokens are 401 in
- * authenticateOptional, before this service runs.
+ * Auth: a rating does not require a token. Guests vote without an account.
+ * An authenticated ADMIN or CREATOR is not a guest and receives 403.
+ * Invalid tokens are 401 in authenticateOptional, before this service runs.
  *
  * voterFingerprint is optional. The algorithm is NOT SPECIFIED, so the value
  * is stored as sent and is not required.
@@ -113,11 +111,9 @@ export function assertVotingContest(status: ContestStatus): void {
 
 function assertVoter(voter: JudgingVoter | null): void {
   if (!voter) return;
-  if (voter.role !== Role.VIEWER) {
-    throw new ForbiddenError(
-      `Forbidden: User role '${voter.role}' does not have permission to access this resource`,
-    );
-  }
+  throw new ForbiddenError(
+    `Forbidden: User role '${voter.role}' does not have permission to access this resource`,
+  );
 }
 
 function toQueueItem(row: JudgingQueueRecord): JudgingQueueItem {

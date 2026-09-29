@@ -10,8 +10,8 @@ import { swaggerErrorEnvelope, swaggerSuccessEnvelope } from './auth.schema.js';
  *
  * POST /contests/:id/videos/:videoId/rate does not require authentication.
  * Visitors may rate without creator registration (project overview).
- * An optional Bearer token is accepted for role VIEWER only; other roles
- * are 403. An invalid token is 401.
+ * No account is required. A missing Authorization header is an anonymous guest.
+ * Authenticated ADMIN and CREATOR are 403. An invalid token is 401.
  *
  * voterFingerprint is optional. The fingerprint algorithm is NOT SPECIFIED.
  * The field is stored as sent and is not required. There is no uniqueness
@@ -129,7 +129,7 @@ export const rateSubmissionSwaggerSchema: FastifySchema = {
   summary: 'Rate an approved submission',
   description:
     'Auth is optional. Anonymous visitors may rate (no creator registration). ' +
-    'A valid VIEWER token stores userId. CREATOR, BRAND_ADMIN, and SUPER_ADMIN are 403. ' +
+    'Guests rate without a token. An authenticated ADMIN or CREATOR is 403. ' +
     'An invalid Bearer token is 401. voterFingerprint is optional and is not hashed; ' +
     'the fingerprint algorithm and duplicate-vote window are NOT SPECIFIED, so this route ' +
     'does not reject a second rating. Contest must be ACTIVE or JUDGING. Submission must be APPROVED. ' +

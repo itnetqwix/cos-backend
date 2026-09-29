@@ -13,7 +13,6 @@ describe('M12-P02-T01 sanitizeUser', () => {
       email: 'jane@contestos.com',
       name: 'Jane',
       role: Role.CREATOR,
-      organizationId: null,
       passwordHash: '$2b$10$should-not-leak',
       createdAt: new Date('2026-09-25T00:00:00.000Z'),
     });
@@ -33,9 +32,7 @@ describe('M12-P02-T01 sanitizeUser', () => {
       email: 'jane@contestos.com',
       name: 'Jane',
       role: Role.CREATOR,
-      organizationId: null,
       passwordHash,
-      organization: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })) as unknown as typeof UserRepository.findByEmail;

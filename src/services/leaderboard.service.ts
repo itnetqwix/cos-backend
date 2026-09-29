@@ -29,7 +29,6 @@ export interface ContestLeaderboardView {
     id: string;
     title: string;
     status: ContestStatus;
-    organizationId: string;
     category?: {
       id: string;
       name: string;
@@ -106,7 +105,6 @@ export class LeaderboardService {
         id: contest.id,
         title: contest.title,
         status: contest.status,
-        organizationId: contest.organizationId,
         category: contest.category
           ? {
               id: contest.category.id,
