@@ -29,10 +29,20 @@
  * AWS keys (M06-P02-T01) are optional at parse time (empty-string defaults)
  * so unit tests and local boot still succeed without credentials.
  * `S3StorageAdapter` refuses to sign when region/bucket are empty.
- * There is no local-filesystem fallback.
+ * There is no silent local-filesystem fallback.
+ *
+ * `STORAGE_PROVIDER` is `s3` (default, production) or `local-demo`
+ * (TEMPORARY LOCAL CLIENT DEMO MODE). `s3` never selects disk storage.
+ * `DEMO_MEDIA_PORT` is the standalone demo media port (default 5055).
+ * It is unused when the provider is `s3`.
+ *
+ * `DEPLOYMENT_ORGANIZATION_SLUG` is the one organization for this deployment.
+ * It is a slug, not a UUID. The default matches the Woofskis demo seed.
+ * Another company's deployment sets its own slug and database.
  */
 import dotenv from 'dotenv';
 import { z } from 'zod';
+import { LOCAL_DEMO } from './local-demo.js';
 import { SYSTEM_CONSTANTS } from './constants.js';
 
 dotenv.config();
@@ -49,6 +59,13 @@ const envSchema = z.object({
   AWS_S3_BUCKET: z.string().default(''),
   AWS_ACCESS_KEY_ID: z.string().default(''),
   AWS_SECRET_ACCESS_KEY: z.string().default(''),
+  STORAGE_PROVIDER: z.enum(['s3', 'local-demo']).default('s3'),
+  DEMO_MEDIA_PORT: z.coerce.number().int().positive().default(5055),
+  DEPLOYMENT_ORGANIZATION_SLUG: z
+    .string()
+    .trim()
+    .min(1)
+    .default(LOCAL_DEMO.organizationSlug),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

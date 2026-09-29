@@ -16,7 +16,6 @@ import {
 import { getLeaderboardSwaggerSchema } from '../schemas/leaderboard.schema.js';
 import {
   registerCreatorSwaggerSchema,
-  registerBrandSwaggerSchema,
   loginSwaggerSchema,
   getMeSwaggerSchema,
 } from '../schemas/auth.schema.js';
@@ -24,6 +23,7 @@ import {
   createContestSwaggerSchema,
   getContestSwaggerSchema,
   listContestsSwaggerSchema,
+  listDeploymentActiveContestsSwaggerSchema,
   updateContestSwaggerSchema,
 } from '../schemas/contest.schema.js';
 import {
@@ -51,8 +51,11 @@ import {
   healthSwaggerSchema,
   rootSwaggerSchema,
 } from '../schemas/user.schema.js';
+import { LocalDemoCatalogController } from '../controllers/local-demo.controller.js';
+import { env } from '../config/env.js';
 import { sendSuccess } from '../utils/response.js';
 import { SYSTEM_CONSTANTS, HTTP_STATUS } from '../config/constants.js';
+import { localDemoBootstrapSwaggerSchema } from '../schemas/local-demo.schema.js';
 import {
   authCredentialRateLimit,
   rateLimitPlugin,
@@ -100,8 +103,10 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // 2. Authentication Endpoints (/api/v1/auth)
   // -------------------------------------------------------------
 
-  // M12-P01-T01: each of login and the two register routes has its own
-  // per-IP counter. Thresholds are RATE_LIMIT_DEFAULTS (engineering defaults).
+  // M12-P01-T01: login and creator register each have their own per-IP
+  // counter. Thresholds are RATE_LIMIT_DEFAULTS (engineering defaults).
+  // Brand registration is not a customer-facing route on a single-organization
+  // deployment. The admin account is provisioned with the organization.
   fastify.post(
     '/auth/register/creator',
     {
@@ -109,15 +114,6 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       config: { rateLimit: authCredentialRateLimit },
     },
     AuthController.registerCreator,
-  );
-
-  fastify.post(
-    '/auth/register/brand',
-    {
-      schema: registerBrandSwaggerSchema,
-      config: { rateLimit: authCredentialRateLimit },
-    },
-    AuthController.registerBrand,
   );
 
   fastify.post(
@@ -244,6 +240,14 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       onRequest: contestGuards,
     },
     ContestController.list,
+  );
+
+  // Public ACTIVE contests for this deployment only. No organization,
+  // brand, or domain parameter. Registered before /contests/:id.
+  fastify.get(
+    '/contests/active',
+    { schema: listDeploymentActiveContestsSwaggerSchema },
+    ContestController.listDeploymentActive,
   );
 
   fastify.post(
@@ -400,4 +404,17 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     { schema: getLeaderboardSwaggerSchema },
     LeaderboardController.getLeaderboard,
   );
+
+  // -------------------------------------------------------------
+  // 10. Temporary local client demo catalog
+  // Registered only when STORAGE_PROVIDER=local-demo.
+  // Not a submission API and not a production contest list.
+  // -------------------------------------------------------------
+  if (env.STORAGE_PROVIDER === 'local-demo') {
+    fastify.get(
+      '/demo/bootstrap',
+      { schema: localDemoBootstrapSwaggerSchema },
+      LocalDemoCatalogController.bootstrap,
+    );
+  }
 };

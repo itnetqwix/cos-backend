@@ -8,6 +8,7 @@ import {
   RegisterBrandInput,
   LoginInput,
 } from '../schemas/auth.schema.js';
+import { resolveDeploymentOrganization } from './deployment-organization.js';
 
 export class AuthService {
   /**
@@ -18,6 +19,8 @@ export class AuthService {
    *   `SYSTEM_CONSTANTS.BCRYPT_SALT_ROUNDS` = 10) before persist.
    * - User is created as CREATOR by `UserRepository.createCreator`
    *   (select omits `passwordHash`).
+   * - `organizationId` is the deployment organization. The client does not
+   *   send an organization, brand, or domain.
    * - JWT claims are exactly `{ id, email, role, organizationId }`.
    * Password policy beyond Zod min length 6, email verification, and
    * `handle` persistence are NOT SPECIFIED (see M02-P01-T05/T06).
@@ -31,6 +34,8 @@ export class AuthService {
       throw new ConflictError('User with this email already exists');
     }
 
+    const organization = await resolveDeploymentOrganization();
+
     // Hash password with bcrypt
     const passwordHash = await hashPassword(password);
 
@@ -39,6 +44,7 @@ export class AuthService {
       email,
       passwordHash,
       name,
+      organizationId: organization.id,
     });
 
     // Sign JWT access token (claims: id, email, role, organizationId)

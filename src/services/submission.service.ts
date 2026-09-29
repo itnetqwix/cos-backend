@@ -27,8 +27,8 @@ import {
  * Creator submission ingest (M06-P03-T02).
  *
  * POST presign / complete / GET me / GET :id are CREATOR only.
- * CREATOR JWT has organizationId null (M02). Source allows entering
- * active contests without org membership, so any ACTIVE contest is eligible.
+ * CREATOR JWT organizationId is the deployment organization.
+ * The contest organization must match that id before a URL is signed or a row is stored.
  * Max submissions per creator per contest: NOT SPECIFIED (not enforced).
  * Date-window checks beyond status ACTIVE: NOT SPECIFIED (ACTIVE is the gate).
  * BRAND_ADMIN / VIEWER / SUPER_ADMIN cannot submit or read these routes.
@@ -43,11 +43,20 @@ export interface SubmissionActor {
 const CREATOR_ONLY_MESSAGE =
   'Forbidden: User role does not have permission to access this resource';
 
+const CONTEST_ORGANIZATION_MESSAGE =
+  'Forbidden: Contest does not belong to the authenticated organization';
+
 function assertCreator(actor: SubmissionActor): void {
   if (actor.role === Role.CREATOR) {
     return;
   }
   throw new ForbiddenError(CREATOR_ONLY_MESSAGE);
+}
+
+function assertCreatorOwnsContest(actor: SubmissionActor, organizationId: string): void {
+  if (!actor.organizationId || actor.organizationId !== organizationId) {
+    throw new ForbiddenError(CONTEST_ORGANIZATION_MESSAGE);
+  }
 }
 
 function assertVideoConstraints(input: {
@@ -99,6 +108,7 @@ export class SubmissionService {
     if (!contest) {
       throw new NotFoundError('Contest not found');
     }
+    assertCreatorOwnsContest(actor, contest.organizationId);
     if (contest.status !== 'ACTIVE') {
       throw new ValidationError(
         'Submissions are only accepted while the contest is ACTIVE',
@@ -144,6 +154,7 @@ export class SubmissionService {
     if (!contest) {
       throw new NotFoundError('Contest not found');
     }
+    assertCreatorOwnsContest(actor, contest.organizationId);
     if (parsed.organizationId !== contest.organizationId) {
       throw new ForbiddenError(
         'Forbidden: objectKey does not match the contest organization',

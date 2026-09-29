@@ -4,6 +4,11 @@ dist
 .env.*
 !.env.example
 
+# Temporary local demo uploads. The sample clip under samples/ stays tracked.
+storage/demo/**
+!storage/demo/samples/
+!storage/demo/samples/**
+
 # AI agent skill caches
 .cursor
 .claude

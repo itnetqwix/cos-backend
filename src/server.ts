@@ -1,9 +1,26 @@
 import { buildApp } from './app.js';
 import { env } from './config/env.js';
+import { LocalDemoStorageAdapter } from './services/local-demo-storage.adapter.js';
+import { getStorageService } from './services/storage.service.js';
 
 const start = async () => {
   try {
     const app = await buildApp();
+    let demoStorage: LocalDemoStorageAdapter | null = null;
+    try {
+      const storage = getStorageService();
+      if (storage instanceof LocalDemoStorageAdapter) {
+        demoStorage = storage;
+      }
+    } catch {
+      demoStorage = null;
+    }
+    if (demoStorage) {
+      await demoStorage.start();
+      app.addHook('onClose', async () => {
+        await demoStorage?.close();
+      });
+    }
     const port = env.PORT;
     await app.listen({ port, host: '0.0.0.0' });
 

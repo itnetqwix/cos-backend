@@ -59,6 +59,7 @@ export class UserRepository {
     email: string;
     passwordHash: string;
     name: string;
+    organizationId: string;
   }) {
     return prisma.user.create({
       data: {
@@ -66,6 +67,7 @@ export class UserRepository {
         passwordHash: data.passwordHash,
         name: data.name,
         role: Role.CREATOR,
+        organizationId: data.organizationId,
       },
       select: {
         id: true,

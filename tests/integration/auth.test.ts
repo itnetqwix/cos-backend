@@ -6,6 +6,7 @@ import { Role } from '@prisma/client';
 import { buildApp } from '../../src/app.js';
 import { prisma } from '../../src/config/database.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
+import { OrganizationRepository } from '../../src/repositories/organization.repository.js';
 import { AuthService } from '../../src/services/auth.service.js';
 import {
   registerCreatorSchema,
@@ -15,15 +16,27 @@ import {
 
 describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module', () => {
   let app: FastifyInstance;
+  let originalFindBySlug: typeof OrganizationRepository.findBySlug;
 
   before(async () => {
     process.env.NODE_ENV = 'test';
     process.env.JWT_SECRET = 'test-secret-key-1234567890-cos-auth';
+    originalFindBySlug = OrganizationRepository.findBySlug;
+    OrganizationRepository.findBySlug = (async () => ({
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Woofskis Demo',
+      slug: 'woofskis-demo',
+      branding: null,
+      status: 'ACTIVE',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })) as typeof OrganizationRepository.findBySlug;
     app = await buildApp();
     await app.ready();
   });
 
   after(async () => {
+    OrganizationRepository.findBySlug = originalFindBySlug;
     await app.close();
   });
 
@@ -363,62 +376,19 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
       }
     });
 
-    it('POST /api/v1/auth/register/brand returns 201 with success envelope', async () => {
-      const mockOrg = {
-        id: 'org-e2e',
-        name: 'Brand Org',
-        slug: 'brand-org',
-        branding: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const mockUser = {
-        id: 'admin-e2e',
-        email: 'admin@brandorg.com',
-        name: 'Brand Admin',
-        role: Role.BRAND_ADMIN,
-        organizationId: mockOrg.id,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const originalFindByEmail = UserRepository.findByEmail;
-      const originalFindBySlug = UserRepository.findOrganizationBySlug;
-      const originalCreateBrand = UserRepository.createBrandWithOrganization;
-
-      UserRepository.findByEmail = (async () => null) as unknown as typeof UserRepository.findByEmail;
-      UserRepository.findOrganizationBySlug = (async () => null) as unknown as typeof UserRepository.findOrganizationBySlug;
-      UserRepository.createBrandWithOrganization = (async () => ({
-        user: mockUser,
-        organization: mockOrg,
-      })) as unknown as typeof UserRepository.createBrandWithOrganization;
-
-      try {
-        const res = await app.inject({
-          method: 'POST',
-          url: '/api/v1/auth/register/brand',
-          payload: {
-            email: 'admin@brandorg.com',
-            password: 'password123',
-            name: 'Brand Admin',
-            organizationName: 'Brand Org',
-            slug: 'brand-org',
-          },
-        });
-
-        assert.equal(res.statusCode, 201);
-        const body = JSON.parse(res.payload);
-        assert.equal(body.success, true);
-        assert.equal(body.message, 'Brand organization and admin created successfully');
-        assert.equal(body.data.organization.slug, 'brand-org');
-        assert.equal(body.data.user.role, Role.BRAND_ADMIN);
-        assert.ok(body.data.token);
-      } finally {
-        UserRepository.findByEmail = originalFindByEmail;
-        UserRepository.findOrganizationBySlug = originalFindBySlug;
-        UserRepository.createBrandWithOrganization = originalCreateBrand;
-      }
+    it('POST /api/v1/auth/register/brand is not registered', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/register/brand',
+        payload: {
+          email: 'admin@brandorg.com',
+          password: 'password123',
+          name: 'Brand Admin',
+          organizationName: 'Brand Org',
+          slug: 'brand-org',
+        },
+      });
+      assert.equal(res.statusCode, 404);
     });
 
     it('GET /api/v1/auth/me with valid Bearer token returns 200 with profile', async () => {
@@ -495,7 +465,8 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
 
       // Verify Routes in OpenAPI Specification
       assert.ok(spec.paths['/api/v1/auth/register/creator']?.post);
-      assert.ok(spec.paths['/api/v1/auth/register/brand']?.post);
+      assert.equal(spec.paths['/api/v1/auth/register/brand'], undefined);
+      assert.ok(spec.paths['/api/v1/contests/active']?.get);
       assert.ok(spec.paths['/api/v1/auth/login']?.post);
       assert.ok(spec.paths['/api/v1/auth/me']?.get);
       assert.ok(spec.paths['/api/v1/users']?.get);

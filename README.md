@@ -95,7 +95,7 @@ npm install
 ### 2. Environment Setup
 Copy `.env.example` to `.env` and replace placeholders with local values. `.env` is gitignored — do not commit secrets.
 
-Supported keys are only those in `src/config/env.ts` / `.env.example`: `PORT`, `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, `LOG_LEVEL`. `CORS_ORIGIN` is not an env key.
+Supported keys are only those in `src/config/env.ts` / `.env.example`: `PORT`, `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, `LOG_LEVEL`, `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `STORAGE_PROVIDER`, `DEMO_MEDIA_PORT`. `CORS_ORIGIN` is not an env key. Production storage is `STORAGE_PROVIDER=s3`. `local-demo` is temporary and documented in `docs/LOCAL-DEMO-MODE.md`.
 
 ### 3. Database Migration & Seeding
 ```bash

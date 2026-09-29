@@ -92,7 +92,7 @@ export function setStorageService(storage: StorageService | null): void {
 export function getStorageService(): StorageService {
   if (!activeStorage) {
     throw new Error(
-      'StorageService is not configured. Set AWS_REGION and AWS_S3_BUCKET, or inject a test adapter.',
+      'StorageService is not configured. Set AWS_REGION and AWS_S3_BUCKET for S3, set STORAGE_PROVIDER=local-demo for the temporary local client demo, or inject a test adapter.',
     );
   }
   return activeStorage;

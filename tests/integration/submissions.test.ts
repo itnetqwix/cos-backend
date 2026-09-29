@@ -194,7 +194,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     memory = createMemory();
     signedKeys = [];
     const contest = seedActive();
-    const auth = { authorization: `Bearer ${token(Role.CREATOR)}` };
+    const auth = { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A, ORG_A)}` };
 
     const presign = await app.inject({
       method: 'POST',
@@ -275,7 +275,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     const judging = contestRow(uuid(memory.seq++), ORG_A, ContestStatus.JUDGING);
     memory.contests.set(draft.id, draft);
     memory.contests.set(judging.id, judging);
-    const auth = { authorization: `Bearer ${token(Role.CREATOR)}` };
+    const auth = { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A, ORG_A)}` };
     const payload = {
       contestId: draft.id,
       contentType: 'video/webm',
@@ -313,7 +313,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
   it('M06-P05-T03 rejects invalid content-type and oversize at presign', async () => {
     memory = createMemory();
     const contest = seedActive();
-    const auth = { authorization: `Bearer ${token(Role.CREATOR)}` };
+    const auth = { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A, ORG_A)}` };
 
     const type = await app.inject({
       method: 'POST',
@@ -399,7 +399,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     const stolen = await app.inject({
       method: 'POST',
       url: '/api/v1/submissions/complete',
-      headers: { authorization: `Bearer ${token(Role.CREATOR)}` },
+      headers: { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A, ORG_A)}` },
       payload: {
         contestId: contest.id,
         objectKey: stolenKey,
@@ -419,7 +419,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
     const created = await app.inject({
       method: 'POST',
       url: '/api/v1/submissions/complete',
-      headers: { authorization: `Bearer ${token(Role.CREATOR)}` },
+      headers: { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A, ORG_A)}` },
       payload: {
         contestId: contest.id,
         objectKey: ownKey,
@@ -443,6 +443,56 @@ describe('M06 submission APIs', { concurrency: false }, () => {
       headers: { authorization: `Bearer ${token(Role.BRAND_ADMIN, CREATOR_B, ORG_A)}` },
     });
     assert.equal(brandPeek.statusCode, 403);
+  });
+
+  it('rejects presign and complete for a contest in another organization', async () => {
+    memory = createMemory();
+    signedKeys = [];
+    const foreign = seedActive(ORG_B);
+    const auth = { authorization: `Bearer ${token(Role.CREATOR, CREATOR_A, ORG_A)}` };
+    const before = memory.submissions.size;
+
+    const presign = await app.inject({
+      method: 'POST',
+      url: '/api/v1/submissions/presign',
+      headers: auth,
+      payload: {
+        contestId: foreign.id,
+        contentType: 'video/mp4',
+        fileSizeBytes: 1000,
+        durationSeconds: 10,
+      },
+    });
+    assert.equal(presign.statusCode, 403);
+    const presignBody = JSON.parse(presign.payload);
+    assertEnvelope(presignBody, false);
+    assert.equal(presignBody.message.includes(ORG_B), false);
+    assert.equal(presignBody.message.includes('Other Org'), false);
+    assert.equal(signedKeys.length, 0);
+
+    const objectKey = buildSubmissionObjectKey({
+      organizationId: ORG_B,
+      contestId: foreign.id,
+      creatorId: CREATOR_A,
+      contentType: 'video/mp4',
+      objectId: 'cccccccc-cccc-4ccc-8ccc-000000000077',
+    });
+    const complete = await app.inject({
+      method: 'POST',
+      url: '/api/v1/submissions/complete',
+      headers: auth,
+      payload: {
+        contestId: foreign.id,
+        objectKey,
+        title: 'Foreign clip',
+        durationSeconds: 10,
+      },
+    });
+    assert.equal(complete.statusCode, 403);
+    const completeBody = JSON.parse(complete.payload);
+    assertEnvelope(completeBody, false);
+    assert.equal(completeBody.message.includes(ORG_B), false);
+    assert.equal(memory.submissions.size, before);
   });
 
   it('M06-P05-T04 Fastify has no video binary upload path', () => {
