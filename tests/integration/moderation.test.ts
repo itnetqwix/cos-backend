@@ -14,11 +14,8 @@ import { ModerationService } from '../../src/services/moderation.service.js';
 import { ConflictError } from '../../src/utils/response.js';
 
 const ENVELOPE_KEYS = ['data', 'errors', 'message', 'success'];
-const ORG_A = 'e7a18492-91f2-4c22-9fa4-a4f61e890123';
-const ORG_B = 'b2c3d4e5-f6a7-4890-bcde-f12345678901';
+const CONTEST_ID = '11111111-1111-4111-8111-111111111111';
 const ADMIN_A = 'cccccccc-cccc-4ccc-8ccc-0000000000aa';
-const ADMIN_B = 'cccccccc-cccc-4ccc-8ccc-0000000000bb';
-const SUPER_ID = 'cccccccc-cccc-4ccc-8ccc-0000000000cc';
 const CREATOR_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-0000000000aa';
 
 interface Memory {
@@ -33,19 +30,18 @@ function createMemory(): Memory {
 
 function submissionRow(
   id: string,
-  organizationId: string,
   status: SubmissionStatus,
   contestStatus: ContestStatus = ContestStatus.ACTIVE,
 ): SubmissionRecord & { creator: { id: string; name: string } } {
   const now = new Date('2026-10-04T00:00:00.000Z');
   return {
     id,
-    contestId: `contest-${organizationId.slice(0, 8)}`,
+    contestId: CONTEST_ID,
     creatorId: CREATOR_ID,
     title: `Entry ${id.slice(-4)}`,
     description: 'A short sketch.',
     videoUrl: `https://cos-test-bucket.s3.us-east-1.amazonaws.com/${id}.mp4`,
-    objectKey: `org/${organizationId}/contests/c/creators/${CREATOR_ID}/${id}.mp4`,
+    objectKey: `contests/${CONTEST_ID}/creators/${CREATOR_ID}/${id}.mp4`,
     thumbnailUrl: null,
     durationSeconds: 20,
     status,
@@ -59,10 +55,9 @@ function submissionRow(
     updatedAt: now,
     creator: { id: CREATOR_ID, name: 'Ada Creator' },
     contest: {
-      id: `contest-${organizationId.slice(0, 8)}`,
-      title: organizationId === ORG_A ? 'Ripskis Open' : 'Other Open',
+      id: CONTEST_ID,
+      title: 'Ripskis Open',
       status: contestStatus,
-      organizationId,
       category: { id: 'cat-1', name: 'Sketch', slug: 'sketch' },
     },
   };
@@ -92,12 +87,10 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
     SubmissionRepository.findById = (async (id: string) =>
       memory.submissions.get(id) ?? null) as typeof SubmissionRepository.findById;
 
-    SubmissionRepository.listPendingReview = (async (organizationId?: string) => {
-      const rows = [...memory.submissions.values()].filter((row) => {
-        if (row.status !== SubmissionStatus.PENDING_REVIEW) return false;
-        if (organizationId && row.contest.organizationId !== organizationId) return false;
-        return true;
-      });
+    SubmissionRepository.listPendingReview = (async () => {
+      const rows = [...memory.submissions.values()].filter(
+        (row) => row.status === SubmissionStatus.PENDING_REVIEW,
+      );
       return rows as ModerationQueueRecord[];
     }) as typeof SubmissionRepository.listPendingReview;
 
@@ -145,7 +138,6 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
               status: submission.status,
               contest: {
                 id: submission.contest.id,
-                organizationId: submission.contest.organizationId,
               },
               creator: { id: submission.creator.id, name: submission.creator.name },
             }
@@ -156,12 +148,7 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
       return entry;
     }) as typeof AuditLogRepository.create;
 
-    AuditLogRepository.list = (async (organizationId?: string) => {
-      return memory.audits.filter((entry) => {
-        if (!organizationId) return true;
-        return entry.submission?.contest.organizationId === organizationId;
-      });
-    }) as typeof AuditLogRepository.list;
+    AuditLogRepository.list = (async () => memory.audits) as typeof AuditLogRepository.list;
   });
 
   after(async () => {
@@ -174,17 +161,16 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
     await app.close();
   });
 
-  function token(role: Role, id: string, organizationId: string | null): string {
+  function token(role: Role, id: string): string {
     return app.jwt.sign({
       id,
       email: `${role.toLowerCase()}@contestos.com`,
       role,
-      organizationId,
     });
   }
 
-  function auth(role: Role, id: string, organizationId: string | null) {
-    return { authorization: `Bearer ${token(role, id, organizationId)}` };
+  function auth(role: Role, id: string) {
+    return { authorization: `Bearer ${token(role, id)}` };
   }
 
   function assertEnvelope(body: Record<string, unknown>, success: boolean): void {
@@ -194,24 +180,23 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
   }
 
   function seed(
-    organizationId: string,
     status: SubmissionStatus = SubmissionStatus.PENDING_REVIEW,
     contestStatus: ContestStatus = ContestStatus.ACTIVE,
   ) {
     const id = `dddddddd-dddd-4ddd-8ddd-${memory.seq.toString(16).padStart(12, '0')}`;
     memory.seq += 1;
-    const row = submissionRow(id, organizationId, status, contestStatus);
+    const row = submissionRow(id, status, contestStatus);
     memory.submissions.set(id, row);
     return row;
   }
 
   it('M07-P04-T01 approve pending submission writes APPROVED and an audit row', async () => {
     memory = createMemory();
-    const row = seed(ORG_A);
+    const row = seed();
     const response = await app.inject({
       method: 'POST',
       url: `/api/v1/admin/submissions/${row.id}/approve`,
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
+      headers: auth(Role.ADMIN, ADMIN_A),
       payload: {},
     });
     const body = response.json();
@@ -232,7 +217,7 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
     const logs = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/moderation/audit-logs',
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
+      headers: auth(Role.ADMIN, ADMIN_A),
     });
     const logBody = logs.json();
     assert.equal(logs.statusCode, 200);
@@ -246,11 +231,11 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
 
   it('M07-P04-T02 reject without a reason returns 400 and does not write', async () => {
     memory = createMemory();
-    const row = seed(ORG_A);
+    const row = seed();
     const response = await app.inject({
       method: 'POST',
       url: `/api/v1/admin/submissions/${row.id}/reject`,
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
+      headers: auth(Role.ADMIN, ADMIN_A),
       payload: {},
     });
     const body = response.json();
@@ -262,7 +247,7 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
     const blank = await app.inject({
       method: 'POST',
       url: `/api/v1/admin/submissions/${row.id}/reject`,
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
+      headers: auth(Role.ADMIN, ADMIN_A),
       payload: { reason: '   ' },
     });
     assert.equal(blank.statusCode, 400);
@@ -271,11 +256,11 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
 
   it('reject with a reason stores REJECTED, the reason, and a REJECT audit row', async () => {
     memory = createMemory();
-    const row = seed(ORG_A);
+    const row = seed();
     const response = await app.inject({
       method: 'POST',
       url: `/api/v1/admin/submissions/${row.id}/reject`,
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
+      headers: auth(Role.ADMIN, ADMIN_A),
       payload: { reason: 'Watermark remains visible', reasonCode: 'WATERMARK' },
     });
     const body = response.json();
@@ -292,7 +277,7 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
 
   it('M07-P04-T03 CREATOR and anonymous callers cannot use moderation routes', async () => {
     memory = createMemory();
-    const row = seed(ORG_A);
+    const row = seed();
     const paths: Array<{ method: 'GET' | 'POST'; url: string; payload?: unknown }> = [
       { method: 'GET', url: '/api/v1/admin/moderation/queue' },
       { method: 'GET', url: '/api/v1/admin/moderation/audit-logs' },
@@ -308,19 +293,11 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
       const creator = await app.inject({
         method: path.method,
         url: path.url,
-        headers: auth(Role.CREATOR, CREATOR_ID, null),
+        headers: auth(Role.CREATOR, CREATOR_ID),
         payload: path.payload,
       });
       assert.equal(creator.statusCode, 403, path.url);
       assertEnvelope(creator.json(), false);
-
-      const viewer = await app.inject({
-        method: path.method,
-        url: path.url,
-        headers: auth(Role.VIEWER, CREATOR_ID, null),
-        payload: path.payload,
-      });
-      assert.equal(viewer.statusCode, 403, path.url);
 
       const anon = await app.inject({
         method: path.method,
@@ -333,78 +310,13 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
     assert.equal(memory.submissions.get(row.id)?.status, SubmissionStatus.PENDING_REVIEW);
   });
 
-  it('scopes the queue and decisions to the brand admin organization', async () => {
-    memory = createMemory();
-    const own = seed(ORG_A);
-    const foreign = seed(ORG_B);
-    seed(ORG_A, SubmissionStatus.APPROVED);
-
-    const queue = await app.inject({
-      method: 'GET',
-      url: '/api/v1/admin/moderation/queue',
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
-    });
-    const queueBody = queue.json();
-    assert.equal(queue.statusCode, 200);
-    assertEnvelope(queueBody, true);
-    assert.deepEqual(
-      queueBody.data.map((item: { id: string }) => item.id),
-      [own.id],
-    );
-    assert.equal(queueBody.data[0].creator.name, 'Ada Creator');
-    assert.equal(queueBody.data[0].status, 'PENDING_REVIEW');
-
-    const denied = await app.inject({
-      method: 'POST',
-      url: `/api/v1/admin/submissions/${foreign.id}/approve`,
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
-      payload: {},
-    });
-    assert.equal(denied.statusCode, 403);
-    assertEnvelope(denied.json(), false);
-    assert.equal(memory.submissions.get(foreign.id)?.status, SubmissionStatus.PENDING_REVIEW);
-
-    const superQueue = await app.inject({
-      method: 'GET',
-      url: '/api/v1/admin/moderation/queue',
-      headers: auth(Role.SUPER_ADMIN, SUPER_ID, null),
-    });
-    const superIds = superQueue.json().data.map((item: { id: string }) => item.id).sort();
-    assert.deepEqual(superIds, [own.id, foreign.id].sort());
-
-    const cross = await app.inject({
-      method: 'POST',
-      url: `/api/v1/admin/submissions/${foreign.id}/approve`,
-      headers: auth(Role.SUPER_ADMIN, SUPER_ID, null),
-      payload: { note: 'Cleared' },
-    });
-    assert.equal(cross.statusCode, 200);
-    assert.equal(cross.json().data.status, 'APPROVED');
-    assert.equal(memory.audits.at(-1)?.reason, 'Cleared');
-
-    const foreignLogs = await app.inject({
-      method: 'GET',
-      url: '/api/v1/admin/moderation/audit-logs',
-      headers: auth(Role.BRAND_ADMIN, ADMIN_B, ORG_B),
-    });
-    assert.equal(foreignLogs.json().data.length, 1);
-    assert.equal(foreignLogs.json().data[0].submissionId, foreign.id);
-
-    const ownLogs = await app.inject({
-      method: 'GET',
-      url: '/api/v1/admin/moderation/audit-logs',
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
-    });
-    assert.equal(ownLogs.json().data.length, 0);
-  });
-
   it('rejects invalid transitions and moderation of closed contests', async () => {
     memory = createMemory();
-    const row = seed(ORG_A);
+    const row = seed();
     const first = await app.inject({
       method: 'POST',
       url: `/api/v1/admin/submissions/${row.id}/approve`,
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
+      headers: auth(Role.ADMIN, ADMIN_A),
       payload: {},
     });
     assert.equal(first.statusCode, 200);
@@ -412,18 +324,18 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
     const second = await app.inject({
       method: 'POST',
       url: `/api/v1/admin/submissions/${row.id}/reject`,
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
+      headers: auth(Role.ADMIN, ADMIN_A),
       payload: { reason: 'Changed my mind' },
     });
     assert.equal(second.statusCode, 409);
     assertEnvelope(second.json(), false);
     assert.equal(memory.submissions.get(row.id)?.status, SubmissionStatus.APPROVED);
 
-    const archived = seed(ORG_A, SubmissionStatus.PENDING_REVIEW, ContestStatus.ARCHIVED);
+    const archived = seed(SubmissionStatus.PENDING_REVIEW, ContestStatus.ARCHIVED);
     const blocked = await app.inject({
       method: 'POST',
       url: `/api/v1/admin/submissions/${archived.id}/approve`,
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
+      headers: auth(Role.ADMIN, ADMIN_A),
       payload: {},
     });
     assert.equal(blocked.statusCode, 409);
@@ -433,7 +345,7 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
     const missing = await app.inject({
       method: 'POST',
       url: '/api/v1/admin/submissions/11111111-1111-4111-8111-111111111111/approve',
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
+      headers: auth(Role.ADMIN, ADMIN_A),
       payload: {},
     });
     assert.equal(missing.statusCode, 404);
@@ -441,9 +353,9 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
 
   it('flags through the service only and does not register a flag route', async () => {
     memory = createMemory();
-    const row = seed(ORG_A);
+    const row = seed();
     const decision = await ModerationService.flag(
-      { id: ADMIN_A, role: Role.BRAND_ADMIN, organizationId: ORG_A },
+      { id: ADMIN_A, role: Role.ADMIN },
       row.id,
       'Needs a senior look',
     );
@@ -454,13 +366,13 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
     const route = await app.inject({
       method: 'POST',
       url: `/api/v1/admin/submissions/${row.id}/flag`,
-      headers: auth(Role.BRAND_ADMIN, ADMIN_A, ORG_A),
+      headers: auth(Role.ADMIN, ADMIN_A),
       payload: { reason: 'Needs a senior look' },
     });
     assert.equal(route.statusCode, 404);
 
     const again = await ModerationService.approve(
-      { id: ADMIN_A, role: Role.BRAND_ADMIN, organizationId: ORG_A },
+      { id: ADMIN_A, role: Role.ADMIN },
       row.id,
     ).then(
       () => 'approved',
@@ -469,17 +381,4 @@ describe('M07 moderation APIs', { concurrency: false }, () => {
     assert.ok(again instanceof ConflictError);
   });
 
-  it('M10 tenant list and suspend require authentication', async () => {
-    const orgs = await app.inject({
-      method: 'GET',
-      url: '/api/v1/super-admin/organizations',
-    });
-    assert.equal(orgs.statusCode, 401);
-
-    const suspend = await app.inject({
-      method: 'POST',
-      url: `/api/v1/super-admin/organizations/${ORG_A}/suspend`,
-    });
-    assert.equal(suspend.statusCode, 401);
-  });
 });

@@ -14,7 +14,6 @@ function actorFromRequest(request: FastifyRequest) {
   return {
     id: request.user.id,
     role: request.user.role,
-    organizationId: request.user.organizationId,
   };
 }
 

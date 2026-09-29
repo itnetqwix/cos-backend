@@ -6,37 +6,21 @@ import { Role } from '@prisma/client';
 import { buildApp } from '../../src/app.js';
 import { prisma } from '../../src/config/database.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
-import { OrganizationRepository } from '../../src/repositories/organization.repository.js';
 import { AuthService } from '../../src/services/auth.service.js';
-import {
-  registerCreatorSchema,
-  registerBrandSchema,
-  loginSchema,
-} from '../../src/schemas/auth.schema.js';
+import { registerCreatorSchema, loginSchema } from '../../src/schemas/auth.schema.js';
+import { JWTPayload } from '../../src/types/auth.js';
 
 describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module', () => {
   let app: FastifyInstance;
-  let originalFindBySlug: typeof OrganizationRepository.findBySlug;
 
   before(async () => {
     process.env.NODE_ENV = 'test';
     process.env.JWT_SECRET = 'test-secret-key-1234567890-cos-auth';
-    originalFindBySlug = OrganizationRepository.findBySlug;
-    OrganizationRepository.findBySlug = (async () => ({
-      id: '11111111-1111-4111-8111-111111111111',
-      name: 'Woofskis Demo',
-      slug: 'woofskis-demo',
-      branding: null,
-      status: 'ACTIVE',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })) as typeof OrganizationRepository.findBySlug;
     app = await buildApp();
     await app.ready();
   });
 
   after(async () => {
-    OrganizationRepository.findBySlug = originalFindBySlug;
     await app.close();
   });
 
@@ -98,27 +82,6 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
       });
     });
 
-    it('validates registerBrand input correctly with slug constraints', () => {
-      const valid = registerBrandSchema.parse({
-        email: 'admin@nike.com',
-        password: 'password123',
-        name: 'Nike Admin',
-        organizationName: 'Nike Global',
-        slug: 'nike-global',
-      });
-      assert.equal(valid.slug, 'nike-global');
-
-      assert.throws(() => {
-        registerBrandSchema.parse({
-          email: 'admin@nike.com',
-          password: 'password123',
-          name: 'Nike Admin',
-          organizationName: 'Nike Global',
-          slug: 'Nike Global!',
-        });
-      });
-    });
-
     it('validates login input correctly', () => {
       const valid = loginSchema.parse({
         email: 'USER@TEST.COM',
@@ -149,21 +112,20 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
     });
 
     it('signs and verifies JWT with custom user payload', async () => {
-      const payload = {
+      const payload: JWTPayload = {
         id: 'user-uuid-1234',
         email: 'creator@contestos.com',
         role: Role.CREATOR,
-        organizationId: null,
       };
 
       const token = app.jwt.sign(payload);
       assert.equal(typeof token, 'string');
 
-      const decoded = app.jwt.verify<typeof payload>(token);
+      const decoded = app.jwt.verify<JWTPayload>(token);
       assert.equal(decoded.id, payload.id);
       assert.equal(decoded.email, payload.email);
       assert.equal(decoded.role, Role.CREATOR);
-      assert.equal(decoded.organizationId, null);
+      assert.equal('organizationId' in decoded, false);
     });
   });
 
@@ -205,7 +167,6 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
         email: 'mockcreator@contestos.com',
         name: 'Mock Creator',
         role: Role.CREATOR,
-        organizationId: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -228,7 +189,6 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
 
         assert.equal(result.user.email, 'mockcreator@contestos.com');
         assert.equal(result.user.role, Role.CREATOR);
-        assert.equal(result.user.organizationId, null);
         assert.ok(result.token);
         assert.equal((result.user as Record<string, unknown>).passwordHash, undefined);
 
@@ -242,64 +202,6 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
       }
     });
 
-    it('AuthService.registerBrand runs transaction for Organization and BRAND_ADMIN User', async () => {
-      const mockOrg = {
-        id: 'org-uuid-1',
-        name: 'Ripskis Entertainment',
-        slug: 'ripskis',
-        branding: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const mockUser = {
-        id: 'u-uuid-1',
-        email: 'admin@ripskis.com',
-        name: 'Ripskis Admin',
-        role: Role.BRAND_ADMIN,
-        organizationId: mockOrg.id,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const originalFindByEmail = UserRepository.findByEmail;
-      const originalFindBySlug = UserRepository.findOrganizationBySlug;
-      const originalCreateBrand = UserRepository.createBrandWithOrganization;
-
-      UserRepository.findByEmail = (async () => null) as unknown as typeof UserRepository.findByEmail;
-      UserRepository.findOrganizationBySlug = (async () => null) as unknown as typeof UserRepository.findOrganizationBySlug;
-      UserRepository.createBrandWithOrganization = (async () => ({
-        user: mockUser,
-        organization: mockOrg,
-      })) as unknown as typeof UserRepository.createBrandWithOrganization;
-
-      try {
-        const result = await AuthService.registerBrand(
-          {
-            email: 'admin@ripskis.com',
-            password: 'password123',
-            name: 'Ripskis Admin',
-            organizationName: 'Ripskis Entertainment',
-            slug: 'ripskis',
-          },
-          app,
-        );
-
-        assert.equal(result.organization.slug, 'ripskis');
-        assert.equal(result.user.role, Role.BRAND_ADMIN);
-        assert.equal(result.user.organizationId, mockOrg.id);
-        assert.ok(result.token);
-
-        const decoded = app.jwt.verify<{ organizationId: string; role: string }>(result.token);
-        assert.equal(decoded.organizationId, mockOrg.id);
-        assert.equal(decoded.role, Role.BRAND_ADMIN);
-      } finally {
-        UserRepository.findByEmail = originalFindByEmail;
-        UserRepository.findOrganizationBySlug = originalFindBySlug;
-        UserRepository.createBrandWithOrganization = originalCreateBrand;
-      }
-    });
-
     it('AuthService.login authenticates user and verifies password', async () => {
       const hashedPassword = await bcrypt.hash('password123', 10);
       const mockUser = {
@@ -308,8 +210,6 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
         name: 'Login User',
         passwordHash: hashedPassword,
         role: Role.CREATOR,
-        organizationId: null,
-        organization: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -342,7 +242,6 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
         email: 'e2ecreator@test.com',
         name: 'E2E Creator',
         role: Role.CREATOR,
-        organizationId: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -397,8 +296,6 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
         email: 'me@contestos.com',
         name: 'Authenticated User',
         role: Role.CREATOR,
-        organizationId: null,
-        organization: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -407,7 +304,6 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
         id: mockUser.id,
         email: mockUser.email,
         role: mockUser.role,
-        organizationId: null,
       });
 
       const originalFindById = UserRepository.findById;

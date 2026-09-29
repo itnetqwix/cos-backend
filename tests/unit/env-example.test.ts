@@ -38,7 +38,7 @@ describe('Unit Tests: .env.example template (M01-P01-T05)', () => {
     assert.match(ENV_EXAMPLE, /AWS_S3_BUCKET="ripskis-production-media"/);
     assert.match(ENV_EXAMPLE, /AWS_ACCESS_KEY_ID="your-access-key-id"/);
     assert.match(ENV_EXAMPLE, /AWS_SECRET_ACCESS_KEY="your-secret-access-key"/);
-    assert.match(ENV_EXAMPLE, /DEPLOYMENT_ORGANIZATION_SLUG=ripskis/);
+    assert.equal(ENV_EXAMPLE.includes('DEPLOYMENT_ORGANIZATION_SLUG'), false);
     assert.equal(ENV_EXAMPLE.includes('local-demo'), false);
     assert.equal(ENV_EXAMPLE.includes('DEMO_MEDIA_PORT'), false);
     assert.equal(ENV_EXAMPLE.includes('AKIA'), false);

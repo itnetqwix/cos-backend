@@ -13,7 +13,7 @@ import { authenticate } from '../middleware/auth.middleware.js';
  * `env.JWT_SECRET` and `SYSTEM_CONSTANTS.JWT_EXPIRES_IN` (`7d`).
  *
  * M12-P01-T03 review: expiry stays `7d` (not an env var). Claims stay
- * `{ id, email, role, organizationId }`. Secret stays `env.JWT_SECRET`.
+ * Claims are `{ id, email, role }`. Secret stays `env.JWT_SECRET`.
  * When `JWT_SECRET` is omitted, `env.ts` still applies its M01 fallback.
  * Minimum length, rotation, and failing boot without a secret are
  * NOT SPECIFIED, so this review does not change that fallback.

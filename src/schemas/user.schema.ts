@@ -55,7 +55,7 @@ export const listUsersSwaggerSchema: FastifySchema = {
   tags: ['Users'],
   summary: 'List users with pagination & search',
   description:
-    'Retrieves a paginated collection of users. Requires Bearer JWT and role SUPER_ADMIN. BRAND_ADMIN organization-scoped listing is NOT SPECIFIED and is not allowed on this endpoint. Self-profile is GET /auth/me.',
+    'Retrieves a paginated collection of users. Requires Bearer JWT and role ADMIN. Self-profile is GET /auth/me.',
   security: [{ bearerAuth: [] }],
   querystring: {
     type: 'object',
@@ -65,7 +65,7 @@ export const listUsersSwaggerSchema: FastifySchema = {
       search: { type: 'string', description: 'Filter by name or email keyword' },
       role: {
         type: 'string',
-        enum: ['SUPER_ADMIN', 'BRAND_ADMIN', 'CREATOR', 'VIEWER'],
+        enum: ['ADMIN', 'CREATOR'],
       },
     },
   },
@@ -92,7 +92,7 @@ export const getUserByIdSwaggerSchema: FastifySchema = {
   tags: ['Users'],
   summary: 'Get user profile by unique ID',
   description:
-    'Retrieves a user profile by ID. Requires Bearer JWT and role SUPER_ADMIN. Authenticated creators/admins load their own profile via GET /auth/me. BRAND_ADMIN scoped lookup is NOT SPECIFIED and is not allowed here.',
+    'Retrieves a user profile by ID. Requires Bearer JWT and role ADMIN. Authenticated users load their own profile via GET /auth/me.',
   security: [{ bearerAuth: [] }],
   params: {
     type: 'object',

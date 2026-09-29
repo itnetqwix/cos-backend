@@ -3,56 +3,33 @@ import { UserRepository } from '../repositories/user.repository.js';
 import { hashPassword, comparePassword } from '../utils/crypto.js';
 import { ConflictError, NotFoundError, UnauthorizedError } from '../utils/response.js';
 import { sanitizeUser } from '../utils/sanitize-user.js';
-import {
-  RegisterCreatorInput,
-  RegisterBrandInput,
-  LoginInput,
-} from '../schemas/auth.schema.js';
-import { resolveDeploymentOrganization } from './deployment-organization.js';
+import { RegisterCreatorInput, LoginInput } from '../schemas/auth.schema.js';
 
 export class AuthService {
   /**
-   * Register a new Creator user.
-   *
-   * Verified M02-P01-T01:
-   * - Password is bcrypt-hashed via `hashPassword` (salt rounds =
-   *   `SYSTEM_CONSTANTS.BCRYPT_SALT_ROUNDS` = 10) before persist.
-   * - User is created as CREATOR by `UserRepository.createCreator`
-   *   (select omits `passwordHash`).
-   * - `organizationId` is the deployment organization. The client does not
-   *   send an organization, brand, or domain.
-   * - JWT claims are exactly `{ id, email, role, organizationId }`.
-   * Password policy beyond Zod min length 6, email verification, and
-   * `handle` persistence are NOT SPECIFIED (see M02-P01-T05/T06).
+   * Register a creator. Body is email, password, and name.
+   * Password is bcrypt-hashed before persist. JWT claims are `{ id, email, role }`.
+   * There is no public admin registration.
    */
   static async registerCreator(input: RegisterCreatorInput, fastify: FastifyInstance) {
     const { email, password, name } = input;
 
-    // Check if user already exists
     const existingUser = await UserRepository.findByEmail(email);
     if (existingUser) {
       throw new ConflictError('User with this email already exists');
     }
 
-    const organization = await resolveDeploymentOrganization();
-
-    // Hash password with bcrypt
     const passwordHash = await hashPassword(password);
-
-    // Persist Creator user via repository
     const user = await UserRepository.createCreator({
       email,
       passwordHash,
       name,
-      organizationId: organization.id,
     });
 
-    // Sign JWT access token (claims: id, email, role, organizationId)
     const token = fastify.jwt.sign({
       id: user.id,
       email: user.email,
       role: user.role,
-      organizationId: user.organizationId,
     });
 
     return {
@@ -61,72 +38,6 @@ export class AuthService {
     };
   }
 
-  /**
-   * Register a Brand organization along with the initial Brand Admin user.
-   *
-   * Verified M02-P01-T02:
-   * - Duplicate email → 409 before writes.
-   * - Duplicate organization slug → 409 before writes.
-   * - Org + BRAND_ADMIN user persist in one `prisma.$transaction`
-   *   (`UserRepository.createBrandWithOrganization`).
-   * - JWT claims `{ id, email, role, organizationId }` with the new org id.
-   * Concurrent unique-constraint races (Prisma P2002 → 409 mapping):
-   * NOT SPECIFIED (sequential pre-checks only).
-   */
-  static async registerBrand(input: RegisterBrandInput, fastify: FastifyInstance) {
-    const { email, password, name, organizationName, slug } = input;
-
-    // Pre-check duplicate email
-    const existingUser = await UserRepository.findByEmail(email);
-    if (existingUser) {
-      throw new ConflictError('User with this email already exists');
-    }
-
-    // Pre-check duplicate organization slug
-    const existingOrg = await UserRepository.findOrganizationBySlug(slug);
-    if (existingOrg) {
-      throw new ConflictError('Organization with this slug already exists');
-    }
-
-    // Hash password
-    const passwordHash = await hashPassword(password);
-
-    // Atomically persist organization & brand admin user via repository
-    const result = await UserRepository.createBrandWithOrganization({
-      email,
-      passwordHash,
-      name,
-      organizationName,
-      slug,
-    });
-
-    // Sign JWT access token (claims: id, email, role, organizationId = new org)
-    const token = fastify.jwt.sign({
-      id: result.user.id,
-      email: result.user.email,
-      role: result.user.role,
-      organizationId: result.organization.id,
-    });
-
-    return {
-      user: sanitizeUser(result.user),
-      organization: result.organization,
-      token,
-    };
-  }
-
-  /**
-   * Authenticate user with email and password.
-   *
-   * Verified M02-P01-T03:
-   * - Unknown email and wrong password both throw UnauthorizedError
-   *   with the same message (`Invalid email or password`).
-   * - Password is checked with `comparePassword` (bcrypt).
-   * - Response user is sanitized (no `passwordHash`).
-   * - JWT claims `{ id, email, role, organizationId }`.
-   * Refresh tokens, remember-me, lockout, and cookie sessions:
-   * NOT SPECIFIED.
-   */
   static async login(input: LoginInput, fastify: FastifyInstance) {
     const { email, password } = input;
 
@@ -144,7 +55,6 @@ export class AuthService {
       id: user.id,
       email: user.email,
       role: user.role,
-      organizationId: user.organizationId,
     });
 
     return {
@@ -153,17 +63,6 @@ export class AuthService {
     };
   }
 
-  /**
-   * Fetch current authenticated user profile.
-   *
-   * Verified M02-P01-T04:
-   * - Route is guarded by `fastify.authenticate` (Bearer JWT).
-   * - Loads the user by `request.user.id` from JWT claims.
-   * - `UserRepository.findById` select omits `passwordHash`.
-   * - Missing user → NotFoundError 404.
-   * Session lifetime beyond JWT `expiresIn` (`7d` constant), refresh,
-   * and cookie transport: NOT SPECIFIED.
-   */
   static async getCurrentUser(userId: string) {
     const user = await UserRepository.findById(userId);
     if (!user) {

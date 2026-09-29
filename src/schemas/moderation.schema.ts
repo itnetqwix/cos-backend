@@ -66,7 +66,6 @@ const submissionDataSchema = {
         id: { type: 'string' },
         title: { type: 'string' },
         status: { type: 'string' },
-        organizationId: { type: 'string' },
         category: {
           type: 'object',
           nullable: true,
@@ -119,12 +118,12 @@ const auditDataSchema = {
 };
 
 const guardsDescription =
-  'Requires Authorization: Bearer <token>. BRAND_ADMIN (own organization only) or SUPER_ADMIN. CREATOR and VIEWER receive 403.';
+  'Requires Authorization: Bearer <token>. ADMIN only. CREATOR receives 403.';
 
 export const moderationQueueSwaggerSchema: FastifySchema = {
   tags: ['Moderation'],
   summary: 'List the pending-review moderation queue',
-  description: `${guardsDescription} Returns submissions in PENDING_REVIEW only. BRAND_ADMIN is limited to the JWT organization. SUPER_ADMIN is cross-tenant. Moderation SLA is NOT SPECIFIED.`,
+  description: `${guardsDescription} Returns submissions in PENDING_REVIEW only. Moderation SLA is NOT SPECIFIED.`,
   response: {
     200: swaggerSuccessEnvelope(
       { type: 'array', items: submissionDataSchema },
@@ -196,7 +195,7 @@ export const rejectSubmissionSwaggerSchema: FastifySchema = {
 export const auditLogsSwaggerSchema: FastifySchema = {
   tags: ['Moderation'],
   summary: 'List moderation audit logs',
-  description: `${guardsDescription} Append-only decision history. BRAND_ADMIN sees logs for submissions in the JWT organization. SUPER_ADMIN sees all. Retention is NOT SPECIFIED.`,
+  description: `${guardsDescription} Append-only decision history. Retention is NOT SPECIFIED.`,
   response: {
     200: swaggerSuccessEnvelope(
       { type: 'array', items: auditDataSchema },

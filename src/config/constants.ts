@@ -52,10 +52,8 @@ export const RATE_LIMIT_DEFAULTS = {
 } as const;
 
 export const ROLES = {
-  SUPER_ADMIN: 'SUPER_ADMIN',
-  BRAND_ADMIN: 'BRAND_ADMIN',
+  ADMIN: 'ADMIN',
   CREATOR: 'CREATOR',
-  VIEWER: 'VIEWER',
 } as const;
 
 export type SystemRole = (typeof ROLES)[keyof typeof ROLES];

@@ -70,7 +70,6 @@ const contestSummarySchema = {
     id: { type: 'string', example: 'c1b07384-d113-4a6c-9c09-7708579d4691' },
     title: { type: 'string', example: 'Ripskis Comedy Challenge' },
     status: { type: 'string', example: 'ACTIVE' },
-    organizationId: { type: 'string', example: 'o1b07384-d113-4a6c-9c09-7708579d4690' },
     category: {
       type: 'object',
       nullable: true,

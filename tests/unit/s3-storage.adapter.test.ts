@@ -21,7 +21,6 @@ describe('M06-P02 S3 storage adapter', () => {
 
   it('constructs tenant-scoped object keys the client cannot choose', () => {
     const key = buildSubmissionObjectKey({
-      organizationId: ORG,
       contestId: CONTEST,
       creatorId: CREATOR,
       contentType: 'video/mp4',
@@ -29,11 +28,10 @@ describe('M06-P02 S3 storage adapter', () => {
     });
     assert.equal(
       key,
-      `org/${ORG}/contests/${CONTEST}/creators/${CREATOR}/cccccccc-cccc-4ccc-8ccc-000000000001.mp4`,
+      `contests/${CONTEST}/creators/${CREATOR}/cccccccc-cccc-4ccc-8ccc-000000000001.mp4`,
     );
     const parsed = parseSubmissionObjectKey(key);
     assert.ok(parsed);
-    assert.equal(parsed.organizationId, ORG);
     assert.equal(parsed.contestId, CONTEST);
     assert.equal(parsed.creatorId, CREATOR);
     assert.equal(parsed.extension, 'mp4');
@@ -106,7 +104,6 @@ describe('M06-P02 S3 storage adapter', () => {
 
   it('signs a GET for a submission key and rejects an arbitrary key', async () => {
     const key = buildSubmissionObjectKey({
-      organizationId: ORG,
       contestId: CONTEST,
       creatorId: CREATOR,
       contentType: 'video/mp4',
@@ -143,14 +140,12 @@ describe('M06-P02 S3 storage adapter', () => {
 
   it('signs playback only for approved judging rows and not for an arbitrary key', async () => {
     const approvedKey = buildSubmissionObjectKey({
-      organizationId: ORG,
       contestId: CONTEST,
       creatorId: CREATOR,
       contentType: 'video/mp4',
       objectId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
     });
     const pendingKey = buildSubmissionObjectKey({
-      organizationId: ORG,
       contestId: CONTEST,
       creatorId: CREATOR,
       contentType: 'video/mp4',

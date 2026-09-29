@@ -8,51 +8,22 @@ generator client {
 }
 
 enum Role {
-  SUPER_ADMIN
-  BRAND_ADMIN
+  ADMIN
   CREATOR
-  VIEWER
-}
-
-// M10 approved decision (progress Amendment 2026-09-25). Written only by
-// SUPER_ADMIN suspend/reinstate. Suspension reason is free text; there is no
-// reason taxonomy, expiry, or appeal state.
-enum OrganizationStatus {
-  ACTIVE
-  SUSPENDED
-}
-
-model Organization {
-  id               String             @id @default(uuid())
-  name             String
-  slug             String             @unique
-  branding         Json?
-  status           OrganizationStatus @default(ACTIVE)
-  suspendedAt      DateTime?
-  suspensionReason String?            @db.Text
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-  users            User[]
-  categories       Category[]
-  contests         Contest[]
-
-  @@map("organizations")
 }
 
 model User {
-  id             String        @id @default(uuid())
-  email          String        @unique
-  passwordHash   String
-  name           String
-  role           Role          @default(CREATOR)
-  organizationId String?
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
-  submissions           Submission[]  @relation("CreatedByUser")
-  moderatedSubmissions  Submission[]  @relation("ModeratedByUser")
-  auditLogs             AuditLog[]
-  ratings               Rating[]
+  id                   String       @id @default(uuid())
+  email                String       @unique
+  passwordHash         String
+  name                 String
+  role                 Role         @default(CREATOR)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  submissions          Submission[] @relation("CreatedByUser")
+  moderatedSubmissions Submission[] @relation("ModeratedByUser")
+  auditLogs            AuditLog[]
+  ratings              Rating[]
 
   // handle and avatarUrl are domain-model PLANNED fields.
   // Persistence (nullability, uniqueness, @-prefix format) is NOT SPECIFIED
@@ -76,19 +47,15 @@ enum ContestStatus {
   ARCHIVED
 }
 
-// M05-P01-T02. One category belongs to one organization.
-// Slug is unique per organization, not globally.
+// Slug is unique for this deployment. There is no organization scope.
 model Category {
-  id             String       @id @default(uuid())
-  name           String
-  slug           String
-  description    String?
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  contests       Contest[]
-  createdAt      DateTime     @default(now())
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  description String?
+  contests    Contest[]
+  createdAt   DateTime  @default(now())
 
-  @@unique([organizationId, slug])
   @@map("categories")
 }
 
@@ -98,8 +65,6 @@ model Category {
 // Prize distribution breakdown is NOT SPECIFIED; only prizeSummary is stored.
 model Contest {
   id                 String        @id @default(uuid())
-  organizationId     String
-  organization       Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   categoryId         String?
   category           Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   title              String
@@ -114,7 +79,7 @@ model Contest {
   updatedAt          DateTime      @updatedAt
   submissions        Submission[]
 
-  @@index([organizationId, status])
+  @@index([status])
   @@map("contests")
 }
 

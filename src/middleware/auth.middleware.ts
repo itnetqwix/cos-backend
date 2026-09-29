@@ -8,7 +8,7 @@ import { HTTP_STATUS } from '../config/constants.js';
  *
  * Verifies Bearer JWT via `@fastify/jwt` `request.jwtVerify()`.
  * On success, Fastify attaches decoded claims to `request.user`.
- * Typed claims (`JWTPayload`) are exactly `{ id, email, role, organizationId }`
+ * Typed claims (`JWTPayload`) are `{ id, email, role }`.
  * (frozen M02-P01). `role` is Prisma `Role`.
  *
  * Missing/invalid token → HTTP 401 frozen envelope
@@ -34,10 +34,9 @@ export async function authenticate(
  * Role-based authorization guard (M03-P01-T01).
  *
  * Higher-order `onRequest` hook. Intended usage:
- * `onRequest: [fastify.authenticate, authorizeRoles(Role.SUPER_ADMIN)]`
+ * `onRequest: [fastify.authenticate, authorizeRoles(Role.ADMIN)]`
  *
- * Allowed values are the Prisma `Role` enum:
- * `SUPER_ADMIN`, `BRAND_ADMIN`, `CREATOR`, `VIEWER`.
+ * Allowed values are the Prisma `Role` enum: `ADMIN`, `CREATOR`.
  * Fine-grained permission table beyond this enum: **NOT SPECIFIED**.
  *
  * No `request.user` after authenticate → 401.
@@ -74,8 +73,8 @@ export const requireRoles = authorizeRoles;
  *
  * No Authorization header: continue as an anonymous visitor.
  * Header present: verify the JWT. Invalid or expired tokens are 401.
- * This hook does not check roles. JudgingService allows anonymous voters
- * and authenticated VIEWER only.
+ * This hook does not check roles. JudgingService allows anonymous guests.
+ * Authenticated ADMIN and CREATOR are rejected by the judging service.
  */
 export async function authenticateOptional(
   request: FastifyRequest,

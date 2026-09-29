@@ -31,15 +31,13 @@ describe('Contest Operating System (COS) - User Management & Querying Module', (
       assert.equal(body.success, false);
     });
 
-    it('returns 200 with paginated user collection when SUPER_ADMIN', async () => {
+    it('returns 200 with paginated user collection when ADMIN', async () => {
       const mockUsers = [
         {
           id: 'u-1',
           email: 'admin@test.com',
           name: 'Admin User',
-          role: Role.SUPER_ADMIN,
-          organizationId: null,
-          organization: null,
+          role: Role.ADMIN,
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -48,8 +46,6 @@ describe('Contest Operating System (COS) - User Management & Querying Module', (
           email: 'creator@test.com',
           name: 'Creator User',
           role: Role.CREATOR,
-          organizationId: null,
-          organization: null,
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -58,8 +54,7 @@ describe('Contest Operating System (COS) - User Management & Querying Module', (
       const token = app.jwt.sign({
         id: 'u-1',
         email: 'admin@test.com',
-        role: Role.SUPER_ADMIN,
-        organizationId: null,
+        role: Role.ADMIN,
       });
 
       const originalFindMany = UserRepository.findMany;
@@ -96,8 +91,6 @@ describe('Contest Operating System (COS) - User Management & Querying Module', (
         email: 'creator@test.com',
         name: 'Creator User',
         role: Role.CREATOR,
-        organizationId: null,
-        organization: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -105,8 +98,7 @@ describe('Contest Operating System (COS) - User Management & Querying Module', (
       const token = app.jwt.sign({
         id: 'u-1',
         email: 'admin@test.com',
-        role: Role.SUPER_ADMIN,
-        organizationId: null,
+        role: Role.ADMIN,
       });
 
       const originalFindById = UserRepository.findById;
@@ -135,8 +127,7 @@ describe('Contest Operating System (COS) - User Management & Querying Module', (
       const token = app.jwt.sign({
         id: 'a1b2c3d4-e5f6-4890-abcd-ef1234567890',
         email: 'admin@test.com',
-        role: Role.SUPER_ADMIN,
-        organizationId: null,
+        role: Role.ADMIN,
       });
 
       const originalFindById = UserRepository.findById;

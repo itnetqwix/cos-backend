@@ -1,10 +1,6 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../services/auth.service.js';
-import {
-  registerCreatorSchema,
-  registerBrandSchema,
-  loginSchema,
-} from '../schemas/auth.schema.js';
+import { registerCreatorSchema, loginSchema } from '../schemas/auth.schema.js';
 import { sendSuccess } from '../utils/response.js';
 import { HTTP_STATUS } from '../config/constants.js';
 
@@ -21,22 +17,6 @@ export class AuthController {
       reply,
       result,
       'Creator account created successfully',
-      HTTP_STATUS.CREATED,
-    );
-  }
-
-  /**
-   * Handle Brand registration (Organization + Brand Admin).
-   * POST /api/v1/auth/register/brand
-   */
-  static async registerBrand(request: FastifyRequest, reply: FastifyReply) {
-    const validatedData = registerBrandSchema.parse(request.body);
-    const result = await AuthService.registerBrand(validatedData, request.server);
-
-    return sendSuccess(
-      reply,
-      result,
-      'Brand organization and admin created successfully',
       HTTP_STATUS.CREATED,
     );
   }

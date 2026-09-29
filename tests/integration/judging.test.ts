@@ -16,8 +16,6 @@ import {
 import { setJudgingTransactionRunner } from '../../src/services/judging.service.js';
 
 const ENVELOPE_KEYS = ['data', 'errors', 'message', 'success'];
-const ORG_A = 'e7a18492-91f2-4c22-9fa4-a4f61e890123';
-const ORG_B = 'b2c3d4e5-f6a7-4890-bcde-f12345678901';
 const CONTEST_A = '11111111-1111-4111-8111-111111111111';
 const CONTEST_B = '11111111-1111-4111-8111-111111111112';
 const VIDEO_A = '22222222-2222-4222-8222-222222222221';
@@ -25,13 +23,12 @@ const VIDEO_B = '22222222-2222-4222-8222-222222222222';
 const VIDEO_PENDING = '22222222-2222-4222-8222-222222222223';
 const VIDEO_REJECTED = '22222222-2222-4222-8222-222222222224';
 const VIDEO_FLAGGED = '22222222-2222-4222-8222-222222222225';
-const VIEWER_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-0000000000aa';
+const ADMIN_ID = 'cccccccc-cccc-4ccc-8ccc-0000000000aa';
 const CREATOR_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-0000000000bb';
 
 interface MemorySubmission {
   id: string;
   contestId: string;
-  organizationId: string;
   status: SubmissionStatus;
   communityScore: number;
   totalVotes: number;
@@ -65,16 +62,14 @@ function createMemory(): Memory {
 
 function contestRow(
   id: string,
-  organizationId: string,
   status: ContestStatus,
   autoAdvanceDelayMs = 1800,
 ): ContestRecord {
   const now = new Date('2026-09-01T00:00:00.000Z');
   return {
     id,
-    organizationId,
     categoryId: 'cat-1',
-    title: organizationId === ORG_A ? 'Ripskis Open' : 'Other Open',
+    title: id === CONTEST_A ? 'Ripskis Open' : 'Other Open',
     description: 'Rules',
     status,
     startDate: now,
@@ -85,18 +80,12 @@ function contestRow(
     createdAt: now,
     updatedAt: now,
     category: { id: 'cat-1', name: 'Sketch', slug: 'sketch', description: null },
-    organization: {
-      id: organizationId,
-      name: organizationId === ORG_A ? 'Ripskis' : 'Other',
-      slug: organizationId === ORG_A ? 'ripskis' : 'other',
-    },
   };
 }
 
 function submissionRow(
   id: string,
   contestId: string,
-  organizationId: string,
   status: SubmissionStatus,
   createdAt: string,
   score = 0,
@@ -105,7 +94,6 @@ function submissionRow(
   return {
     id,
     contestId,
-    organizationId,
     status,
     communityScore: score,
     totalVotes: votes,
@@ -122,7 +110,7 @@ function toQueueRecord(row: MemorySubmission, contest: ContestRecord): JudgingQu
     title: row.title,
     description: 'A short sketch.',
     videoUrl: `https://cos-test-bucket.s3.us-east-1.amazonaws.com/${row.id}.mp4`,
-    objectKey: `org/${row.organizationId}/contests/${row.contestId}/creators/${CREATOR_ID}/${row.id}.mp4`,
+    objectKey: `contests/${row.contestId}/creators/${CREATOR_ID}/${row.id}.mp4`,
     thumbnailUrl: null,
     durationSeconds: 20,
     status: row.status,
@@ -138,7 +126,6 @@ function toQueueRecord(row: MemorySubmission, contest: ContestRecord): JudgingQu
     contest: {
       id: contest.id,
       status: contest.status,
-      organizationId: contest.organizationId,
       category: contest.category
         ? { id: contest.category.id, name: contest.category.name, slug: contest.category.slug }
         : null,
@@ -237,37 +224,36 @@ describe('M08 judging APIs', { concurrency: false }, () => {
   });
 
   function seedActive() {
-    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ORG_A, ContestStatus.ACTIVE, 1800));
-    memory.contests.set(CONTEST_B, contestRow(CONTEST_B, ORG_B, ContestStatus.ACTIVE, 2400));
+    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.ACTIVE, 1800));
+    memory.contests.set(CONTEST_B, contestRow(CONTEST_B, ContestStatus.ACTIVE, 2400));
     memory.submissions.set(
       VIDEO_A,
-      submissionRow(VIDEO_A, CONTEST_A, ORG_A, SubmissionStatus.APPROVED, '2026-10-01T00:00:00.000Z'),
+      submissionRow(VIDEO_A, CONTEST_A, SubmissionStatus.APPROVED, '2026-10-01T00:00:00.000Z'),
     );
     memory.submissions.set(
       VIDEO_B,
-      submissionRow(VIDEO_B, CONTEST_B, ORG_B, SubmissionStatus.APPROVED, '2026-10-02T00:00:00.000Z'),
+      submissionRow(VIDEO_B, CONTEST_B, SubmissionStatus.APPROVED, '2026-10-02T00:00:00.000Z'),
     );
     memory.submissions.set(
       VIDEO_PENDING,
-      submissionRow(VIDEO_PENDING, CONTEST_A, ORG_A, SubmissionStatus.PENDING_REVIEW, '2026-09-01T00:00:00.000Z'),
+      submissionRow(VIDEO_PENDING, CONTEST_A, SubmissionStatus.PENDING_REVIEW, '2026-09-01T00:00:00.000Z'),
     );
     memory.submissions.set(
       VIDEO_REJECTED,
-      submissionRow(VIDEO_REJECTED, CONTEST_A, ORG_A, SubmissionStatus.REJECTED, '2026-09-02T00:00:00.000Z'),
+      submissionRow(VIDEO_REJECTED, CONTEST_A, SubmissionStatus.REJECTED, '2026-09-02T00:00:00.000Z'),
     );
     memory.submissions.set(
       VIDEO_FLAGGED,
-      submissionRow(VIDEO_FLAGGED, CONTEST_A, ORG_A, SubmissionStatus.FLAGGED, '2026-09-03T00:00:00.000Z'),
+      submissionRow(VIDEO_FLAGGED, CONTEST_A, SubmissionStatus.FLAGGED, '2026-09-03T00:00:00.000Z'),
     );
   }
 
-  function token(role: Role, id = VIEWER_ID): string {
+  function token(role: Role, id = ADMIN_ID): string {
     return app.jwt.sign({
       id,
       email: `${role.toLowerCase()}@contestos.com`,
       role,
-      organizationId: role === Role.BRAND_ADMIN ? ORG_A : null,
-    });
+      });
   }
 
   function rateUrl(contestId = CONTEST_A, videoId = VIDEO_A): string {
@@ -282,7 +268,6 @@ describe('M08 judging APIs', { concurrency: false }, () => {
       submissionRow(
         '22222222-2222-4222-8222-222222222226',
         CONTEST_A,
-        ORG_A,
         SubmissionStatus.APPROVED,
         '2026-10-03T00:00:00.000Z',
         4.2,
@@ -309,7 +294,7 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     assert.equal(JSON.stringify(body).includes('objectKey'), false);
   });
 
-  it('does not include another tenant contest or non-approved submissions', async () => {
+  it('does not include another contest or non-approved submissions', async () => {
     const res = await app.inject({ method: 'GET', url: `/api/v1/contests/${CONTEST_A}/queue` });
     const body = JSON.parse(res.payload);
     const ids = body.data.items.map((item: { id: string; status: string }) => `${item.id}:${item.status}`);
@@ -333,21 +318,21 @@ describe('M08 judging APIs', { concurrency: false }, () => {
   });
 
   it('rejects the queue when the contest is not ACTIVE or JUDGING', async () => {
-    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ORG_A, ContestStatus.DRAFT));
+    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.DRAFT));
     const draft = await app.inject({ method: 'GET', url: `/api/v1/contests/${CONTEST_A}/queue` });
     assert.equal(draft.statusCode, 409);
 
-    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ORG_A, ContestStatus.COMPLETED));
+    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.COMPLETED));
     const closed = await app.inject({ method: 'GET', url: `/api/v1/contests/${CONTEST_A}/queue` });
     assert.equal(closed.statusCode, 409);
     const body = JSON.parse(closed.payload);
     assert.equal(body.success, false);
     assert.equal(body.data, null);
 
-    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ORG_A, ContestStatus.JUDGING, 1800));
+    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.JUDGING, 1800));
     const judging = await app.inject({ method: 'GET', url: `/api/v1/contests/${CONTEST_A}/queue` });
     assert.equal(judging.statusCode, 200);
-    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ORG_A, ContestStatus.ACTIVE, 1800));
+    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.ACTIVE, 1800));
   });
 
   it('returns 404 for an unknown contest', async () => {
@@ -386,37 +371,28 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     assert.equal(row.totalVotes, 1);
   });
 
-  it('stores a viewer id and fingerprint, then applies the next rating to the updated score', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: rateUrl(),
-      headers: { authorization: `Bearer ${token(Role.VIEWER)}` },
-      payload: { rating: 3, voterFingerprint: 'device-a' },
-    });
-    assert.equal(res.statusCode, 200);
-    const body = JSON.parse(res.payload);
-    assert.deepEqual(body.data, {
-      previousScore: 5,
-      newScore: 4,
-      delta: -1,
-      totalVotes: 2,
-    });
-    const latest = memory.ratings[memory.ratings.length - 1];
-    assert.equal(latest.userId, VIEWER_ID);
-    assert.equal(latest.voterFingerprint, 'device-a');
+  it('rejects authenticated CREATOR and ADMIN voters', async () => {
+    for (const role of [Role.CREATOR, Role.ADMIN]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: rateUrl(),
+        headers: { authorization: `Bearer ${token(role, CREATOR_ID)}` },
+        payload: { rating: 3, voterFingerprint: 'device-a' },
+      });
+      assert.equal(res.statusCode, 403, role);
+    }
   });
 
-  it('allows a second rating from the same viewer', async () => {
+  it('allows a second anonymous rating', async () => {
     const before = memory.ratings.length;
     const res = await app.inject({
       method: 'POST',
       url: rateUrl(),
-      headers: { authorization: `Bearer ${token(Role.VIEWER)}` },
       payload: { rating: 4, voterFingerprint: 'device-a' },
     });
     assert.equal(res.statusCode, 200);
     assert.equal(memory.ratings.length, before + 1);
-    assert.equal(JSON.parse(res.payload).data.totalVotes, 3);
+    assert.equal(JSON.parse(res.payload).data.totalVotes, 2);
   });
 
   it('keeps score and vote count consistent when two ratings run together', async () => {
@@ -456,7 +432,7 @@ describe('M08 judging APIs', { concurrency: false }, () => {
   });
 
   it('rejects ratings when the contest is outside ACTIVE or JUDGING', async () => {
-    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ORG_A, ContestStatus.SCHEDULED));
+    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.SCHEDULED));
     const scheduled = await app.inject({
       method: 'POST',
       url: rateUrl(),
@@ -464,14 +440,14 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     });
     assert.equal(scheduled.statusCode, 409);
 
-    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ORG_A, ContestStatus.ARCHIVED));
+    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.ARCHIVED));
     const archived = await app.inject({
       method: 'POST',
       url: rateUrl(),
       payload: { rating: 4 },
     });
     assert.equal(archived.statusCode, 409);
-    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ORG_A, ContestStatus.ACTIVE));
+    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.ACTIVE));
   });
 
   it('rejects pending, rejected, and flagged submissions and a video from another contest', async () => {
@@ -504,7 +480,7 @@ describe('M08 judging APIs', { concurrency: false }, () => {
   });
 
   it('allows JUDGING and denies creator, brand admin, and super admin', async () => {
-    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ORG_A, ContestStatus.JUDGING));
+    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.JUDGING));
     const judging = await app.inject({
       method: 'POST',
       url: rateUrl(),
@@ -512,7 +488,7 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     });
     assert.equal(judging.statusCode, 200);
 
-    for (const role of [Role.CREATOR, Role.BRAND_ADMIN, Role.SUPER_ADMIN]) {
+    for (const role of [Role.CREATOR, Role.ADMIN]) {
       const res = await app.inject({
         method: 'POST',
         url: rateUrl(),
@@ -524,7 +500,7 @@ describe('M08 judging APIs', { concurrency: false }, () => {
       assert.equal(body.success, false);
       assert.equal(body.data, null);
     }
-    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ORG_A, ContestStatus.ACTIVE));
+    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.ACTIVE));
   });
 
   it('returns 401 for an invalid token and 400 for an invalid rating', async () => {
@@ -550,17 +526,4 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     }
   });
 
-  it('M10 tenant list and reinstate require authentication', async () => {
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/v1/super-admin/organizations',
-    });
-    assert.equal(res.statusCode, 401);
-
-    const reinstate = await app.inject({
-      method: 'POST',
-      url: '/api/v1/super-admin/organizations/e7a18492-91f2-4c22-9fa4-a4f61e890123/reinstate',
-    });
-    assert.equal(reinstate.statusCode, 401);
-  });
 });

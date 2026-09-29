@@ -16,7 +16,6 @@ const auditInclude = {
       contest: {
         select: {
           id: true,
-          organizationId: true,
         },
       },
       creator: {
@@ -62,14 +61,9 @@ export class AuditLogRepository {
     });
   }
 
-  /**
-   * organizationId undefined = all tenants (SUPER_ADMIN).
-   * Brand admins see logs whose submission contest belongs to their organization.
-   * Newest first.
-   */
-  static async list(organizationId?: string): Promise<AuditLogRecord[]> {
+  /** Newest first. */
+  static async list(): Promise<AuditLogRecord[]> {
     return prisma.auditLog.findMany({
-      where: organizationId ? { submission: { contest: { organizationId } } } : {},
       include: auditInclude,
       orderBy: { createdAt: 'desc' },
     });

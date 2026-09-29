@@ -1,10 +1,9 @@
-import { OrganizationStatus, Prisma, Role } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import { CategoryRepository } from '../repositories/category.repository.js';
 import {
   ContestRepository,
   UpdateContestData,
 } from '../repositories/contest.repository.js';
-import { OrganizationRepository } from '../repositories/organization.repository.js';
 import {
   CreateContestInput,
   ListContestsQueryInput,
@@ -22,27 +21,16 @@ import {
   assertContestTransition,
 } from './contest-lifecycle.js';
 import { z } from 'zod';
-import { resolveDeploymentOrganization } from './deployment-organization.js';
 
 /**
- * Contest administration (M05-P02).
- *
- * Actors are JWT claims `{ role, organizationId }`.
- * BRAND_ADMIN may create, read, update, and list only their organization.
- * SUPER_ADMIN may act across organizations (architecture: cross-tenant admin).
- * CREATOR and VIEWER are rejected. Their read visibility is NOT SPECIFIED.
- *
- * Contests are created as DRAFT. Status moves only through
- * `assertContestTransition`. No automatic date transitions.
+ * Contest administration.
+ * ADMIN creates, reads, updates, and lists contests.
+ * CREATOR is rejected on these routes. Public active contests use listActive.
  */
 
 export interface ContestActor {
   role: Role;
-  organizationId: string | null;
 }
-
-const OWN_ORGANIZATION_MESSAGE =
-  'Forbidden: Brand administrators can manage contests only for their own organization';
 
 const CONFIGURATION_KEYS = [
   'title',
@@ -59,23 +47,12 @@ const CONFIGURATION_KEYS = [
 type CategoryWrite = z.infer<typeof categoryWriteSchema>;
 
 function assertContestManager(actor: ContestActor): void {
-  if (actor.role === Role.BRAND_ADMIN || actor.role === Role.SUPER_ADMIN) {
+  if (actor.role === Role.ADMIN) {
     return;
   }
   throw new ForbiddenError(
     `Forbidden: User role '${actor.role}' does not have permission to access this resource`,
   );
-}
-
-function assertOwnOrganization(actor: ContestActor, organizationId: string): void {
-  assertContestManager(actor);
-  if (actor.role === Role.SUPER_ADMIN) {
-    return;
-  }
-  if (actor.role === Role.BRAND_ADMIN && actor.organizationId === organizationId) {
-    return;
-  }
-  throw new ForbiddenError(OWN_ORGANIZATION_MESSAGE);
 }
 
 export function slugifyCategoryName(name: string): string {
@@ -91,7 +68,6 @@ function isUniqueConflict(error: unknown): boolean {
 }
 
 async function resolveCategoryId(
-  organizationId: string,
   categoryId: string | null | undefined,
   category: CategoryWrite | null | undefined,
 ): Promise<string | null | undefined> {
@@ -103,11 +79,6 @@ async function resolveCategoryId(
     const existing = await CategoryRepository.findById(categoryId);
     if (!existing) {
       throw new NotFoundError('Category not found');
-    }
-    if (existing.organizationId !== organizationId) {
-      throw new ForbiddenError(
-        'Forbidden: Category does not belong to the contest organization',
-      );
     }
     return existing.id;
   }
@@ -121,17 +92,13 @@ async function resolveCategoryId(
     throw new ValidationError('Category slug is invalid');
   }
 
-  const existing = await CategoryRepository.findByOrganizationAndSlug(
-    organizationId,
-    slug,
-  );
+  const existing = await CategoryRepository.findBySlug(slug);
   if (existing) {
     return existing.id;
   }
 
   try {
     const created = await CategoryRepository.create({
-      organizationId,
       name: category.name,
       slug,
       description: category.description ?? null,
@@ -139,27 +106,12 @@ async function resolveCategoryId(
     return created.id;
   } catch (error) {
     if (isUniqueConflict(error)) {
-      const raced = await CategoryRepository.findByOrganizationAndSlug(
-        organizationId,
-        slug,
-      );
+      const raced = await CategoryRepository.findBySlug(slug);
       if (raced) {
         return raced.id;
       }
     }
     throw error;
-  }
-}
-
-const SUSPENDED_ORGANIZATION_MESSAGE =
-  'Organization is suspended: contest changes are blocked until it is reinstated';
-
-/** M10-P03-T02: a SUSPENDED organization blocks contest writes. Reads are unaffected. */
-function assertOrganizationNotSuspended(organization: {
-  status?: OrganizationStatus;
-}): void {
-  if (organization.status === OrganizationStatus.SUSPENDED) {
-    throw new ConflictError(SUSPENDED_ORGANIZATION_MESSAGE);
   }
 }
 
@@ -170,35 +122,14 @@ function changesConfiguration(input: UpdateContestInput): boolean {
 export class ContestService {
   static async list(actor: ContestActor, query: ListContestsQueryInput) {
     assertContestManager(actor);
-
-    let organizationId: string | undefined;
-    if (actor.role === Role.BRAND_ADMIN) {
-      if (!actor.organizationId) {
-        throw new ForbiddenError(OWN_ORGANIZATION_MESSAGE);
-      }
-      if (query.tenantId && query.tenantId !== actor.organizationId) {
-        throw new ForbiddenError(OWN_ORGANIZATION_MESSAGE);
-      }
-      organizationId = actor.organizationId;
-    } else {
-      organizationId = query.tenantId;
-    }
-
     return ContestRepository.list({
-      organizationId,
       status: query.status,
       categorySlug: query.category,
     });
   }
 
   static async create(actor: ContestActor, input: CreateContestInput) {
-    assertOwnOrganization(actor, input.organizationId);
-
-    const organization = await OrganizationRepository.findById(input.organizationId);
-    if (!organization) {
-      throw new NotFoundError('Organization not found');
-    }
-    assertOrganizationNotSuspended(organization);
+    assertContestManager(actor);
 
     const startDate = new Date(input.startDate);
     const endDate = new Date(input.endDate);
@@ -206,14 +137,9 @@ export class ContestService {
       throw new ValidationError('endDate must be after startDate');
     }
 
-    const categoryId = await resolveCategoryId(
-      input.organizationId,
-      input.categoryId,
-      input.category,
-    );
+    const categoryId = await resolveCategoryId(input.categoryId, input.category);
 
     return ContestRepository.create({
-      organizationId: input.organizationId,
       categoryId: categoryId ?? null,
       title: input.title,
       description: input.description,
@@ -231,17 +157,11 @@ export class ContestService {
     if (!contest) {
       throw new NotFoundError('Contest not found');
     }
-    assertOwnOrganization(actor, contest.organizationId);
     return contest;
   }
 
   static async update(actor: ContestActor, id: string, input: UpdateContestInput) {
     const existing = await ContestService.getById(actor, id);
-
-    const organization = await OrganizationRepository.findById(existing.organizationId);
-    if (organization) {
-      assertOrganizationNotSuspended(organization);
-    }
 
     if (changesConfiguration(input)) {
       assertContestConfigurationMutable(existing.status);
@@ -264,15 +184,12 @@ export class ContestService {
     if (input.endDate !== undefined) data.endDate = endDate;
     if (input.prizeSummary !== undefined) data.prizeSummary = input.prizeSummary;
     if (input.rules !== undefined) data.rules = input.rules;
-    if (input.autoAdvanceDelayMs !== undefined)
+    if (input.autoAdvanceDelayMs !== undefined) {
       data.autoAdvanceDelayMs = input.autoAdvanceDelayMs;
+    }
 
     if (input.categoryId !== undefined || input.category !== undefined) {
-      const categoryId = await resolveCategoryId(
-        existing.organizationId,
-        input.categoryId,
-        input.category,
-      );
+      const categoryId = await resolveCategoryId(input.categoryId, input.category);
       if (categoryId !== undefined) {
         data.categoryId = categoryId;
       }
@@ -286,15 +203,8 @@ export class ContestService {
     return ContestRepository.update(id, data);
   }
 
-  /**
-   * Public read of ACTIVE contests for the deployment organization.
-   * No actor and no client-supplied organization id.
-   */
-  static async listDeploymentActive() {
-    const organization = await resolveDeploymentOrganization();
-    return ContestRepository.list({
-      organizationId: organization.id,
-      status: 'ACTIVE',
-    });
+  /** Public read of every ACTIVE contest. No client tenant parameter. */
+  static async listActive() {
+    return ContestRepository.list({ status: 'ACTIVE' });
   }
 }

@@ -10,13 +10,6 @@ const contestInclude = {
       description: true,
     },
   },
-  organization: {
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-    },
-  },
 } satisfies Prisma.ContestInclude;
 
 export type ContestRecord = Prisma.ContestGetPayload<{
@@ -24,13 +17,11 @@ export type ContestRecord = Prisma.ContestGetPayload<{
 }>;
 
 export interface ContestListFilters {
-  organizationId?: string;
   status?: ContestStatus;
   categorySlug?: string;
 }
 
 export interface CreateContestData {
-  organizationId: string;
   categoryId: string | null;
   title: string;
   description: string;
@@ -62,7 +53,6 @@ export class ContestRepository {
   static async create(data: CreateContestData): Promise<ContestRecord> {
     return prisma.contest.create({
       data: {
-        organizationId: data.organizationId,
         categoryId: data.categoryId,
         title: data.title,
         description: data.description,
@@ -87,7 +77,6 @@ export class ContestRepository {
   static async list(filters: ContestListFilters): Promise<ContestRecord[]> {
     return prisma.contest.findMany({
       where: {
-        organizationId: filters.organizationId,
         status: filters.status,
         category: filters.categorySlug ? { slug: filters.categorySlug } : undefined,
       },

@@ -4,7 +4,6 @@ import { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import { RATE_LIMIT_DEFAULTS, HTTP_STATUS } from '../../src/config/constants.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
-import { OrganizationRepository } from '../../src/repositories/organization.repository.js';
 
 const ENVELOPE_KEYS = ['data', 'errors', 'message', 'success'];
 const LOGIN_BODY = {
@@ -22,24 +21,12 @@ const CREATOR_BODY = {
   name: 'Rate Limit',
 };
 
-const BRAND_BODY = {
-  email: 'rate-limit-brand@contestos.com',
-  password: 'password123',
-  name: 'Brand Admin',
-  organizationName: 'Rate Limit Org',
-  slug: 'rate-limit-org',
-};
-
 describe('M12-P01-T01 auth credential rate limit', () => {
   let app: FastifyInstance;
   let lookups = 0;
   let creatorWrites = 0;
-  let brandWrites = 0;
   const originalFindByEmail = UserRepository.findByEmail;
   const originalCreateCreator = UserRepository.createCreator;
-  const originalFindOrganizationBySlug = UserRepository.findOrganizationBySlug;
-  const originalCreateBrand = UserRepository.createBrandWithOrganization;
-  const originalFindBySlug = OrganizationRepository.findBySlug;
 
   before(async () => {
     process.env.NODE_ENV = 'test';
@@ -47,17 +34,6 @@ describe('M12-P01-T01 auth credential rate limit', () => {
       lookups += 1;
       return null;
     }) as unknown as typeof UserRepository.findByEmail;
-    UserRepository.findOrganizationBySlug = (async () =>
-      null) as unknown as typeof UserRepository.findOrganizationBySlug;
-    OrganizationRepository.findBySlug = (async () => ({
-      id: '11111111-1111-4111-8111-111111111111',
-      name: 'Woofskis Demo',
-      slug: 'woofskis-demo',
-      branding: null,
-      status: 'ACTIVE',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })) as typeof OrganizationRepository.findBySlug;
     UserRepository.createCreator = (async () => {
       creatorWrites += 1;
       return {
@@ -65,30 +41,10 @@ describe('M12-P01-T01 auth credential rate limit', () => {
         email: CREATOR_BODY.email,
         name: CREATOR_BODY.name,
         role: 'CREATOR',
-        organizationId: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
     }) as unknown as typeof UserRepository.createCreator;
-    UserRepository.createBrandWithOrganization = (async () => {
-      brandWrites += 1;
-      return {
-        user: {
-          id: 'brand-rate-limit',
-          email: BRAND_BODY.email,
-          name: BRAND_BODY.name,
-          role: 'BRAND_ADMIN',
-          organizationId: 'org-rate-limit',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        organization: {
-          id: 'org-rate-limit',
-          name: BRAND_BODY.organizationName,
-          slug: BRAND_BODY.slug,
-        },
-      };
-    }) as unknown as typeof UserRepository.createBrandWithOrganization;
     app = await buildApp();
     await app.ready();
   });
@@ -96,9 +52,6 @@ describe('M12-P01-T01 auth credential rate limit', () => {
   after(async () => {
     UserRepository.findByEmail = originalFindByEmail;
     UserRepository.createCreator = originalCreateCreator;
-    UserRepository.findOrganizationBySlug = originalFindOrganizationBySlug;
-    UserRepository.createBrandWithOrganization = originalCreateBrand;
-    OrganizationRepository.findBySlug = originalFindBySlug;
     await app.close();
   });
 
@@ -165,8 +118,6 @@ describe('M12-P01-T01 auth credential rate limit', () => {
       payload: LOGIN_BODY,
     });
     assert.equal(otherIp.statusCode, HTTP_STATUS.UNAUTHORIZED);
-    // Login and creator register each call findByEmail.
-    // The blocked requests do not. One extra login from another IP does.
     assert.equal(lookups, RATE_LIMIT_DEFAULTS.AUTH_MAX * 2 + 1);
 
     const health = await app.inject({

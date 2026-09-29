@@ -57,7 +57,6 @@ export const categoryWriteSchema = z
 
 export const createContestSchema = z
   .object({
-    organizationId: z.string().uuid('organizationId must be a valid UUID'),
     categoryId: z.string().uuid('categoryId must be a valid UUID').optional(),
     category: categoryWriteSchema.optional(),
     title: z.string().trim().min(1, 'Title is required'),
@@ -112,7 +111,6 @@ export type ContestIdParamInput = z.infer<typeof contestIdParamSchema>;
 
 export const listContestsQuerySchema = z
   .object({
-    tenantId: z.string().uuid('tenantId must be a valid UUID').optional(),
     status: contestStatusSchema.optional(),
     category: categorySlugSchema.optional(),
   })
@@ -131,21 +129,10 @@ const categoryViewSchema = {
   },
 };
 
-const organizationSummarySchema = {
-  type: 'object',
-  properties: {
-    id: { type: 'string', format: 'uuid' },
-    name: { type: 'string' },
-    slug: { type: 'string' },
-  },
-};
-
 const contestViewSchema = {
   type: 'object',
   properties: {
     id: { type: 'string', format: 'uuid' },
-    organizationId: { type: 'string', format: 'uuid' },
-    organization: organizationSummarySchema,
     categoryId: { type: 'string', format: 'uuid', nullable: true },
     category: categoryViewSchema,
     title: { type: 'string' },
@@ -170,7 +157,6 @@ const contestViewSchema = {
 const contestWriteBody = {
   type: 'object',
   properties: {
-    organizationId: { type: 'string', format: 'uuid' },
     categoryId: { type: 'string', format: 'uuid' },
     category: {
       type: 'object',
@@ -201,12 +187,11 @@ export const listContestsSwaggerSchema: FastifySchema = {
   tags: ['Contests'],
   summary: 'List contests',
   description:
-    'Lists contests for BRAND_ADMIN (own organization only) or SUPER_ADMIN (optional tenantId filter). Query filters: tenantId (organization id), status, category (slug). CREATOR and VIEWER are forbidden. Unauthenticated requests are 401.',
+    'Lists contests for ADMIN. Query filters: status, category (slug). CREATOR is forbidden. Unauthenticated requests are 401.',
   security: [{ bearerAuth: [] }],
   querystring: {
     type: 'object',
     properties: {
-      tenantId: { type: 'string', format: 'uuid' },
       status: { type: 'string', enum: [...CONTEST_STATUSES] },
       category: { type: 'string' },
     },
@@ -238,7 +223,7 @@ export const listDeploymentActiveContestsSwaggerSchema: FastifySchema = {
   tags: ['Contests'],
   summary: 'List ACTIVE contests for this deployment',
   description:
-    'Public. No authentication. Returns ACTIVE contests for the deployment organization resolved from DEPLOYMENT_ORGANIZATION_SLUG. The client cannot pass an organization, brand, domain, or tenant. Other organizations are not included.',
+    'Public. No authentication. Returns every ACTIVE contest. The client cannot pass an organization, brand, domain, or tenant.',
   querystring: {
     type: 'object',
     additionalProperties: false,
@@ -256,7 +241,7 @@ export const listDeploymentActiveContestsSwaggerSchema: FastifySchema = {
       ...swaggerErrorEnvelope('Validation error'),
     },
     404: {
-      description: 'Deployment organization is not provisioned',
+      description: 'Unexpected query',
       ...swaggerErrorEnvelope('Not found'),
     },
   },
@@ -266,11 +251,11 @@ export const createContestSwaggerSchema: FastifySchema = {
   tags: ['Contests'],
   summary: 'Create a contest',
   description:
-    'Creates a DRAFT contest. Auth: BRAND_ADMIN (organizationId must equal JWT organizationId) or SUPER_ADMIN. Status cannot be set on create. endDate must be after startDate. autoAdvanceDelayMs defaults to 1800.',
+    'Creates a DRAFT contest. Auth: ADMIN. Status cannot be set on create. endDate must be after startDate. autoAdvanceDelayMs defaults to 1800.',
   security: [{ bearerAuth: [] }],
   body: {
     ...contestWriteBody,
-    required: ['organizationId', 'title', 'description', 'startDate', 'endDate'],
+    required: ['title', 'description', 'startDate', 'endDate'],
   },
   response: {
     201: {
@@ -290,8 +275,8 @@ export const createContestSwaggerSchema: FastifySchema = {
       ...swaggerErrorEnvelope('Forbidden'),
     },
     404: {
-      description: 'Organization or category not found',
-      ...swaggerErrorEnvelope('Organization not found'),
+      description: 'Category not found',
+      ...swaggerErrorEnvelope('Category not found'),
     },
     409: {
       description: 'Organization is suspended (M10)',
@@ -306,7 +291,7 @@ export const getContestSwaggerSchema: FastifySchema = {
   tags: ['Contests'],
   summary: 'Get a contest',
   description:
-    'Returns one contest. BRAND_ADMIN may read only contests in their organization (other organizations are 403). SUPER_ADMIN may read any contest. Missing id is 404.',
+    'Returns one contest. ADMIN may read any contest. CREATOR is forbidden. Missing id is 404.',
   security: [{ bearerAuth: [] }],
   params: {
     type: 'object',
@@ -343,7 +328,7 @@ export const updateContestSwaggerSchema: FastifySchema = {
   tags: ['Contests'],
   summary: 'Update contest metadata or status',
   description:
-    'Patches metadata and/or moves status one documented step. BRAND_ADMIN is limited to their organization. Settings, category, and rules are rejected once status is ACTIVE (BR-CONT-04). COMPLETED and ARCHIVED reject metadata changes (BR-CONT-05). COMPLETED may move to ARCHIVED. ARCHIVED is terminal.',
+    'Patches metadata and/or moves status one documented step. ADMIN only. Settings, category, and rules are rejected once status is ACTIVE (BR-CONT-04). COMPLETED and ARCHIVED reject metadata changes (BR-CONT-05). COMPLETED may move to ARCHIVED. ARCHIVED is terminal.',
   security: [{ bearerAuth: [] }],
   params: {
     type: 'object',

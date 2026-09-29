@@ -34,9 +34,9 @@
  * `STORAGE_PROVIDER` is `s3`. There is no disk storage provider.
  * Missing AWS config does not fall back to local files.
  *
- * `DEPLOYMENT_ORGANIZATION_SLUG` is the one organization for this deployment.
- * It is a slug, not a UUID. The Ripskis deployment default is `ripskis`.
- * The organization row must already exist. This process does not create it.
+ * Admin bootstrap reads `RIPSKIS_ADMIN_EMAIL`, `RIPSKIS_ADMIN_PASSWORD`, and
+ * `RIPSKIS_ADMIN_NAME` from the process environment in the bootstrap script.
+ * Those keys are not required to boot the API.
  */
 import dotenv from 'dotenv';
 import { z } from 'zod';
@@ -57,7 +57,6 @@ const envSchema = z.object({
   AWS_ACCESS_KEY_ID: z.string().default(''),
   AWS_SECRET_ACCESS_KEY: z.string().default(''),
   STORAGE_PROVIDER: z.enum(['s3']).default('s3'),
-  DEPLOYMENT_ORGANIZATION_SLUG: z.string().trim().min(1).default('ripskis'),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
