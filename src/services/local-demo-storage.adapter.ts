@@ -6,9 +6,10 @@ import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
-import { VIDEO_CONSTRAINTS } from '../config/constants.js';
+import { VIDEO_CONSTRAINTS, VIDEO_CONTENT_TYPE_MESSAGE } from '../config/constants.js';
 import { ValidationError } from '../utils/response.js';
 import {
+  isAllowedVideoContentType,
   parseSubmissionObjectKey,
   PresignedUploadRequest,
   PresignedUploadResult,
@@ -75,7 +76,9 @@ function tokensEqual(left: string, right: string): boolean {
 }
 
 function contentTypeForKey(objectKey: string): string {
-  return objectKey.endsWith('.webm') ? 'video/webm' : 'video/mp4';
+  if (objectKey.endsWith('.webm')) return 'video/webm';
+  if (objectKey.endsWith('.mov')) return 'video/quicktime';
+  return 'video/mp4';
 }
 
 export class LocalDemoStorageAdapter implements StorageService {
@@ -132,8 +135,8 @@ export class LocalDemoStorageAdapter implements StorageService {
     if (!parseSubmissionObjectKey(request.objectKey)) {
       throw new ValidationError('objectKey is not a backend-issued submission key');
     }
-    if (request.contentType !== 'video/mp4' && request.contentType !== 'video/webm') {
-      throw new ValidationError('contentType must be video/mp4 or video/webm');
+    if (!isAllowedVideoContentType(request.contentType)) {
+      throw new ValidationError(VIDEO_CONTENT_TYPE_MESSAGE);
     }
 
     const expiresInSeconds = VIDEO_CONSTRAINTS.PRESIGN_EXPIRES_SECONDS;

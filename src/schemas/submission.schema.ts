@@ -120,7 +120,7 @@ const creatorOnlyDescription =
 export const presignSubmissionSwaggerSchema: FastifySchema = {
   tags: ['Submissions'],
   summary: 'Create a presigned S3 upload URL',
-  description: `${creatorOnlyDescription} Contest must be ACTIVE. Allowed types: video/mp4, video/webm. Max 100MB and 60 seconds (client-reported duration). Fastify never receives video bytes. The legacy binary ingest path is not implemented.`,
+  description: `${creatorOnlyDescription} Contest must be ACTIVE. Allowed types: video/mp4, video/webm, video/quicktime. Max 100MB and 60 seconds (client-reported duration). Fastify never receives video bytes. The legacy binary ingest path is not implemented.`,
   security: [{ bearerAuth: [] }],
   body: {
     type: 'object',

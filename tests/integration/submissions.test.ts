@@ -313,12 +313,28 @@ describe('M06 submission APIs', { concurrency: false }, () => {
       headers: auth,
       payload: {
         contestId: contest.id,
-        contentType: 'video/quicktime',
+        contentType: 'video/ogg',
         fileSizeBytes: 1000,
         durationSeconds: 10,
       },
     });
     assert.equal(type.statusCode, 400);
+
+    const mov = await app.inject({
+      method: 'POST',
+      url: '/api/v1/submissions/presign',
+      headers: auth,
+      payload: {
+        contestId: contest.id,
+        contentType: 'video/quicktime',
+        fileSizeBytes: 1000,
+        durationSeconds: 10,
+      },
+    });
+    assert.equal(mov.statusCode, 200);
+    const movBody = JSON.parse(mov.payload);
+    assert.equal(movBody.data.headers['Content-Type'], 'video/quicktime');
+    assert.match(movBody.data.objectKey, /\.mov$/);
 
     const size = await app.inject({
       method: 'POST',

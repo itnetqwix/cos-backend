@@ -1,5 +1,5 @@
 import { Prisma, Role, SubmissionStatus } from '@prisma/client';
-import { VIDEO_CONSTRAINTS } from '../config/constants.js';
+import { VIDEO_CONSTRAINTS, VIDEO_CONTENT_TYPE_MESSAGE } from '../config/constants.js';
 import { ContestRepository } from '../repositories/contest.repository.js';
 import {
   CreateSubmissionData,
@@ -53,7 +53,7 @@ function assertVideoConstraints(input: {
   durationSeconds: number;
 }): void {
   if (input.contentType !== undefined && !isAllowedVideoContentType(input.contentType)) {
-    throw new ValidationError('contentType must be video/mp4 or video/webm');
+    throw new ValidationError(VIDEO_CONTENT_TYPE_MESSAGE);
   }
   if (
     input.fileSizeBytes !== undefined &&

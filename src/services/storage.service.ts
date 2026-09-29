@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { VIDEO_CONSTRAINTS } from '../config/constants.js';
+import {
+  VIDEO_CONSTRAINTS,
+  VIDEO_CONTENT_TYPE_MESSAGE,
+  type AllowedVideoContentType,
+} from '../config/constants.js';
 import { ValidationError } from '../utils/response.js';
 
 /**
@@ -36,20 +40,28 @@ export interface SubmissionObjectKeyParts {
   contestId: string;
   creatorId: string;
   objectId: string;
-  extension: 'mp4' | 'webm';
+  extension: 'mp4' | 'webm' | 'mov';
 }
 
 const OBJECT_KEY_PATTERN =
-  /^contests\/([0-9a-f-]{36})\/creators\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(mp4|webm)$/i;
+  /^contests\/([0-9a-f-]{36})\/creators\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(mp4|webm|mov)$/i;
 
 /** Keys issued before the single-product cutover. Playback still signs these. */
 const LEGACY_OBJECT_KEY_PATTERN =
-  /^org\/[0-9a-f-]{36}\/contests\/([0-9a-f-]{36})\/creators\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(mp4|webm)$/i;
+  /^org\/[0-9a-f-]{36}\/contests\/([0-9a-f-]{36})\/creators\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(mp4|webm|mov)$/i;
 
-export function extensionForContentType(contentType: string): 'mp4' | 'webm' {
-  if (contentType === 'video/mp4') return 'mp4';
-  if (contentType === 'video/webm') return 'webm';
-  throw new ValidationError('contentType must be video/mp4 or video/webm');
+const EXTENSION_BY_CONTENT_TYPE: Record<AllowedVideoContentType, 'mp4' | 'webm' | 'mov'> =
+  {
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    'video/quicktime': 'mov',
+  };
+
+export function extensionForContentType(contentType: string): 'mp4' | 'webm' | 'mov' {
+  if (!isAllowedVideoContentType(contentType)) {
+    throw new ValidationError(VIDEO_CONTENT_TYPE_MESSAGE);
+  }
+  return EXTENSION_BY_CONTENT_TYPE[contentType];
 }
 
 /**
@@ -78,7 +90,7 @@ export function parseSubmissionObjectKey(
     contestId: match[1],
     creatorId: match[2],
     objectId: match[3],
-    extension: match[4].toLowerCase() as 'mp4' | 'webm',
+    extension: match[4].toLowerCase() as 'mp4' | 'webm' | 'mov',
   };
 }
 
