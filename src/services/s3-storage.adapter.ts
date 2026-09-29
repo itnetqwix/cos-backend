@@ -1,12 +1,14 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from '../config/env.js';
 import { VIDEO_CONSTRAINTS } from '../config/constants.js';
 import {
+  parseSubmissionObjectKey,
   PresignedUploadRequest,
   PresignedUploadResult,
   StorageService,
 } from './storage.service.js';
+import { ValidationError } from '../utils/response.js';
 
 export interface S3StorageAdapterOptions {
   region: string;
@@ -15,6 +17,11 @@ export interface S3StorageAdapterOptions {
     bucket: string;
     key: string;
     contentType: string;
+    expiresIn: number;
+  }) => Promise<string>;
+  signGetObject?: (input: {
+    bucket: string;
+    key: string;
     expiresIn: number;
   }) => Promise<string>;
 }
@@ -33,10 +40,13 @@ export interface S3StorageAdapterOptions {
  * - Presign TTL is `VIDEO_CONSTRAINTS.PRESIGN_EXPIRES_SECONDS` (900), an
  *   engineering default. Source does not name a TTL.
  * - `getPublicUrl` builds an unsigned virtual-hosted URL stored as
- *   `videoUrl`. It does not sign a GET and does not change object ACL.
- *   Whether that URL can be fetched depends on bucket policy outside this
- *   repository. Bucket CORS for browser PUT, Block Public Access, and a
- *   signed-GET playback URL are NOT SPECIFIED here (no IaC in this repo).
+ *   `videoUrl`. That value is not a playback credential. Private playback
+ *   uses `createPresignedDownload` at response time.
+ * - `GetObjectCommand` sets Bucket and Key only. It does not set ACL,
+ *   `public-read`, or a Range header. The browser sends Range itself so
+ *   S3 can answer video seeks. The signature does not include Range.
+ * - Playback TTL reuses `VIDEO_CONSTRAINTS.PRESIGN_EXPIRES_SECONDS` (900).
+ *   That is an engineering default. Source does not name a playback TTL.
  */
 export class S3StorageAdapter implements StorageService {
   constructor(private readonly options: S3StorageAdapterOptions) {}
@@ -72,6 +82,13 @@ export class S3StorageAdapter implements StorageService {
         });
         return getSignedUrl(s3, command, { expiresIn });
       },
+      signGetObject: async ({ bucket, key, expiresIn }) => {
+        const command = new GetObjectCommand({
+          Bucket: bucket,
+          Key: key,
+        });
+        return getSignedUrl(s3, command, { expiresIn });
+      },
     });
   }
 
@@ -93,6 +110,20 @@ export class S3StorageAdapter implements StorageService {
       expiresInSeconds,
       method: 'PUT',
     };
+  }
+
+  async createPresignedDownload(objectKey: string): Promise<string> {
+    if (!parseSubmissionObjectKey(objectKey)) {
+      throw new ValidationError('objectKey is not a backend-issued submission key');
+    }
+    if (!this.options.signGetObject) {
+      throw new Error('S3 GET signing is not configured');
+    }
+    return this.options.signGetObject({
+      bucket: this.options.bucket,
+      key: objectKey,
+      expiresIn: VIDEO_CONSTRAINTS.PRESIGN_EXPIRES_SECONDS,
+    });
   }
 
   getPublicUrl(objectKey: string): string {

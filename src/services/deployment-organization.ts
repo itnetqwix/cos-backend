@@ -4,7 +4,7 @@ import { NotFoundError } from '../utils/response.js';
 
 /**
  * One deployment has one organization. The slug comes from
- * `DEPLOYMENT_ORGANIZATION_SLUG` (default: the Woofskis demo seed slug).
+ * `DEPLOYMENT_ORGANIZATION_SLUG` (default: `ripskis`).
  * Callers do not accept an organization id, brand, or domain from the client.
  */
 export async function resolveDeploymentOrganization() {

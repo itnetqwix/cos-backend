@@ -128,19 +128,24 @@ describe('Temporary local demo storage adapter', { concurrency: 1 }, () => {
     assert.match(adapterSrc, /Video exceeds the 100MB limit/);
   });
 
-  it('keeps S3 as the production adapter and gates demo mode explicitly', () => {
+  it('keeps S3 as the only production storage adapter', () => {
     const app = readFileSync(new URL('../../src/app.ts', import.meta.url), 'utf8');
     const routes = readFileSync(new URL('../../src/routes/index.ts', import.meta.url), 'utf8');
+    const server = readFileSync(new URL('../../src/server.ts', import.meta.url), 'utf8');
     const s3 = readFileSync(new URL('../../src/services/s3-storage.adapter.ts', import.meta.url), 'utf8');
-    assert.match(app, /env\.STORAGE_PROVIDER === 'local-demo'/);
-    assert.match(app, /env\.STORAGE_PROVIDER === 's3'/);
+    assert.doesNotMatch(app, /local-demo|LocalDemoStorageAdapter/);
     assert.match(app, /S3StorageAdapter\.fromEnv\(\)/);
     assert.match(s3, /class S3StorageAdapter/);
     assert.match(s3, /Does not receive, stream, or buffer video bytes/);
     assert.doesNotMatch(s3, /local-demo|createWriteStream|storage\/demo/);
+    assert.match(s3, /new PutObjectCommand\(\{[\s\S]*Bucket:[\s\S]*Key:[\s\S]*ContentType:[\s\S]*\}\)/);
+    assert.doesNotMatch(
+      s3.slice(s3.indexOf('new PutObjectCommand')),
+      /ACL|public-read/,
+    );
     assert.equal(typeof S3StorageAdapter.fromEnv, 'function');
-    assert.match(routes, /env\.STORAGE_PROVIDER === 'local-demo'/);
-    assert.match(routes, /\/demo\/bootstrap/);
+    assert.doesNotMatch(routes, /local-demo|\/demo\/bootstrap/);
+    assert.doesNotMatch(server, /LocalDemoStorageAdapter|5055/);
     assert.doesNotMatch(routes, /multipart/);
     assert.doesNotMatch(routes, /fastify\.(post|get)\(\s*'\/submissions\/upload'/);
   });

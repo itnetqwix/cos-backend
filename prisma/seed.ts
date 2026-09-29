@@ -5,10 +5,8 @@
  * admin / creator users. Writes to DATABASE_URL. Do not point this at a
  * production database. It is not a migration.
  */
-import { ContestStatus, Prisma, Role } from '@prisma/client';
+import { ContestStatus, Role } from '@prisma/client';
 import bcrypt from 'bcrypt';
-import { env } from '../src/config/env.js';
-import { LOCAL_DEMO } from '../src/config/local-demo.js';
 import { prisma } from '../src/config/database.js';
 
 const SALT_ROUNDS = 10;
@@ -33,6 +31,11 @@ const ORGANIZATIONS = [
 ];
 
 async function main() {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('Refusing to seed while NODE_ENV=production.');
+    process.exit(1);
+  }
+
   console.log('🌱 Starting database seeding...');
   const passwordHash = await bcrypt.hash('password123', SALT_ROUNDS);
 
@@ -117,107 +120,6 @@ async function main() {
         console.log(`  ↳ Sample Active Contest: ${contest.title} (${contest.id})`);
       }
     }
-  }
-
-  // TEMPORARY LOCAL CLIENT DEMO MODE.
-  // Idempotent: lookup is the demo slug and demo emails. A second run
-  // updates those rows and does not create duplicates. Other organizations
-  // are left as the loop above wrote them. Re-seed forces the demo contest
-  // back to ACTIVE with the 1800ms reveal delay.
-  const demoPasswordHash = await bcrypt.hash('WoofskisDemo2026', SALT_ROUNDS);
-  const demoOrg = await prisma.organization.upsert({
-    where: { slug: env.DEPLOYMENT_ORGANIZATION_SLUG },
-    update: {
-      name: LOCAL_DEMO.organizationName,
-      branding: {
-        primaryColor: '#7C3AED',
-        logoUrl: 'https://example.com/woofskis-demo-logo.png',
-      },
-    },
-    create: {
-      name: LOCAL_DEMO.organizationName,
-      slug: env.DEPLOYMENT_ORGANIZATION_SLUG,
-      branding: {
-        primaryColor: '#7C3AED',
-        logoUrl: 'https://example.com/woofskis-demo-logo.png',
-      },
-    },
-  });
-  console.log(`✅ Demo organization: ${demoOrg.name} (${demoOrg.slug})`);
-
-  const demoAdmin = await prisma.user.upsert({
-    where: { email: LOCAL_DEMO.adminEmail },
-    update: {
-      name: 'Woofskis Demo Admin',
-      role: Role.BRAND_ADMIN,
-      organizationId: demoOrg.id,
-      passwordHash: demoPasswordHash,
-    },
-    create: {
-      email: LOCAL_DEMO.adminEmail,
-      name: 'Woofskis Demo Admin',
-      role: Role.BRAND_ADMIN,
-      organizationId: demoOrg.id,
-      passwordHash: demoPasswordHash,
-    },
-  });
-  console.log(`  ↳ Demo brand admin: ${demoAdmin.email}`);
-
-  const demoCreator = await prisma.user.upsert({
-    where: { email: LOCAL_DEMO.creatorEmail },
-    update: {
-      name: 'Woofskis Demo Creator',
-      role: Role.CREATOR,
-      organizationId: demoOrg.id,
-      passwordHash: demoPasswordHash,
-    },
-    create: {
-      email: LOCAL_DEMO.creatorEmail,
-      name: 'Woofskis Demo Creator',
-      role: Role.CREATOR,
-      organizationId: demoOrg.id,
-      passwordHash: demoPasswordHash,
-    },
-  });
-  console.log(`  ↳ Demo creator: ${demoCreator.email}`);
-
-  const demoDescription =
-    'Temporary local client demo. Creators upload one short original clip. An organization admin approves it. Viewers rate 1–5, then the community score reveals and the queue advances.';
-  const demoRules: Prisma.InputJsonValue = [
-    'Upload one original MP4 or WebM, 1–60 seconds, up to 100MB.',
-    'The clip stays PENDING_REVIEW until an organization admin approves it.',
-    'Viewers rate 1–5. The community score uses the existing consensus formula.',
-  ];
-  const existingDemoContest = await prisma.contest.findFirst({
-    where: { organizationId: demoOrg.id, title: LOCAL_DEMO.contestTitle },
-  });
-  if (existingDemoContest) {
-    const contest = await prisma.contest.update({
-      where: { id: existingDemoContest.id },
-      data: {
-        description: demoDescription,
-        status: ContestStatus.ACTIVE,
-        prizeSummary: 'Demo prize — not a real payout',
-        rules: demoRules,
-        autoAdvanceDelayMs: LOCAL_DEMO.autoAdvanceDelayMs,
-      },
-    });
-    console.log(`  ↳ Demo contest updated: ${contest.title} (${contest.id})`);
-  } else {
-    const contest = await prisma.contest.create({
-      data: {
-        organizationId: demoOrg.id,
-        title: LOCAL_DEMO.contestTitle,
-        description: demoDescription,
-        status: ContestStatus.ACTIVE,
-        startDate: new Date('2026-09-01T00:00:00.000Z'),
-        endDate: new Date('2026-12-31T23:59:59.999Z'),
-        prizeSummary: 'Demo prize — not a real payout',
-        rules: demoRules,
-        autoAdvanceDelayMs: LOCAL_DEMO.autoAdvanceDelayMs,
-      },
-    });
-    console.log(`  ↳ Demo contest created: ${contest.title} (${contest.id})`);
   }
 
   console.log('🎉 Seeding completed successfully!');

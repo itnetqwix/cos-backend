@@ -6,7 +6,6 @@ import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
-import { env } from '../config/env.js';
 import { VIDEO_CONSTRAINTS } from '../config/constants.js';
 import { ValidationError } from '../utils/response.js';
 import {
@@ -19,8 +18,8 @@ import {
 /**
  * TEMPORARY LOCAL CLIENT DEMO MODE.
  *
- * Production storage remains `S3StorageAdapter`. This adapter is selected
- * only when `STORAGE_PROVIDER=local-demo`. It does not run for `s3`.
+ * Not selected by the production server. Unit tests construct it directly.
+ * Production storage is `S3StorageAdapter`.
  *
  * Video bytes are accepted by a standalone Node HTTP server, not by Fastify.
  * The submission service still presigns, and the browser still PUTs the file
@@ -85,18 +84,6 @@ export class LocalDemoStorageAdapter implements StorageService {
 
   constructor(private readonly options: LocalDemoStorageOptions) {
     this.origin = `http://${options.host}:${options.port}`;
-  }
-
-  static fromEnv(): LocalDemoStorageAdapter {
-    if (!env.JWT_SECRET) {
-      throw new Error('JWT_SECRET is required to sign local demo upload URLs');
-    }
-    return new LocalDemoStorageAdapter({
-      rootDir: demoStorageRoot(),
-      host: '127.0.0.1',
-      port: env.DEMO_MEDIA_PORT,
-      signingSecret: env.JWT_SECRET,
-    });
   }
 
   get listeningOrigin(): string {

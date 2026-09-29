@@ -51,11 +51,8 @@ import {
   healthSwaggerSchema,
   rootSwaggerSchema,
 } from '../schemas/user.schema.js';
-import { LocalDemoCatalogController } from '../controllers/local-demo.controller.js';
-import { env } from '../config/env.js';
 import { sendSuccess } from '../utils/response.js';
 import { SYSTEM_CONSTANTS, HTTP_STATUS } from '../config/constants.js';
-import { localDemoBootstrapSwaggerSchema } from '../schemas/local-demo.schema.js';
 import {
   authCredentialRateLimit,
   rateLimitPlugin,
@@ -404,17 +401,4 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     { schema: getLeaderboardSwaggerSchema },
     LeaderboardController.getLeaderboard,
   );
-
-  // -------------------------------------------------------------
-  // 10. Temporary local client demo catalog
-  // Registered only when STORAGE_PROVIDER=local-demo.
-  // Not a submission API and not a production contest list.
-  // -------------------------------------------------------------
-  if (env.STORAGE_PROVIDER === 'local-demo') {
-    fastify.get(
-      '/demo/bootstrap',
-      { schema: localDemoBootstrapSwaggerSchema },
-      LocalDemoCatalogController.bootstrap,
-    );
-  }
 };

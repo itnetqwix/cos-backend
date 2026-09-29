@@ -11,7 +11,6 @@ describe('Unit Tests: Environment schema (M01-P01-T02)', () => {
     'AWS_S3_BUCKET',
     'AWS_SECRET_ACCESS_KEY',
     'DATABASE_URL',
-    'DEMO_MEDIA_PORT',
     'DEPLOYMENT_ORGANIZATION_SLUG',
     'JWT_SECRET',
     'LOG_LEVEL',
@@ -30,10 +29,9 @@ describe('Unit Tests: Environment schema (M01-P01-T02)', () => {
 
   it('keeps S3 as the default storage provider', () => {
     const envSrc = readFileSync(new URL('../../src/config/env.ts', import.meta.url), 'utf8');
-    assert.match(envSrc, /STORAGE_PROVIDER: z\.enum\(\['s3', 'local-demo'\]\)\.default\('s3'\)/);
-    assert.match(envSrc, /DEMO_MEDIA_PORT: z\.coerce\.number\(\)\.int\(\)\.positive\(\)\.default\(5055\)/);
-    assert.ok(env.STORAGE_PROVIDER === 's3' || env.STORAGE_PROVIDER === 'local-demo');
-    assert.equal(typeof env.DEMO_MEDIA_PORT, 'number');
+    assert.match(envSrc, /STORAGE_PROVIDER: z\.enum\(\['s3'\]\)\.default\('s3'\)/);
+    assert.equal(env.STORAGE_PROVIDER, 's3');
+    assert.match(envSrc, /DEPLOYMENT_ORGANIZATION_SLUG: z\.string\(\)\.trim\(\)\.min\(1\)\.default\('ripskis'\)/);
   });
 
   it('exports optional AWS S3 keys as strings', () => {

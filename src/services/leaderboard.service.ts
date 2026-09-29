@@ -1,6 +1,7 @@
 import { ContestStatus } from '@prisma/client';
 import { ContestRepository } from '../repositories/contest.repository.js';
 import { SubmissionRepository } from '../repositories/submission.repository.js';
+import { playbackUrlForSubmission } from './storage.service.js';
 import { NotFoundError } from '../utils/response.js';
 
 export interface LeaderboardItemView {
@@ -71,25 +72,27 @@ export class LeaderboardService {
       options.category,
     );
 
-    const items: LeaderboardItemView[] = rawSubmissions.map((record, index) => ({
-      rank: index + 1,
-      id: record.id,
-      contestId: record.contestId,
-      contestTitle: record.contest.title,
-      title: record.title,
-      description: record.description,
-      videoUrl: record.videoUrl,
-      thumbnailUrl: record.thumbnailUrl,
-      durationSeconds: record.durationSeconds,
-      tags: record.tags,
-      communityScore: record.communityScore,
-      totalVotes: record.totalVotes,
-      createdAt: record.createdAt.toISOString(),
-      creator: {
-        id: record.creator.id,
-        name: record.creator.name,
-      },
-    }));
+    const items: LeaderboardItemView[] = await Promise.all(
+      rawSubmissions.map(async (record, index) => ({
+        rank: index + 1,
+        id: record.id,
+        contestId: record.contestId,
+        contestTitle: record.contest.title,
+        title: record.title,
+        description: record.description,
+        videoUrl: await playbackUrlForSubmission(record.objectKey, record.videoUrl),
+        thumbnailUrl: record.thumbnailUrl,
+        durationSeconds: record.durationSeconds,
+        tags: record.tags,
+        communityScore: record.communityScore,
+        totalVotes: record.totalVotes,
+        createdAt: record.createdAt.toISOString(),
+        creator: {
+          id: record.creator.id,
+          name: record.creator.name,
+        },
+      })),
+    );
 
     const totalEntries = items.length;
     const totalVotes = items.reduce((sum, item) => sum + item.totalVotes, 0);

@@ -9,7 +9,6 @@ import { swaggerPlugin } from './plugins/swagger.js';
 import { globalErrorHandler } from './middleware/error.middleware.js';
 import { routes } from './routes/index.js';
 import { S3StorageAdapter } from './services/s3-storage.adapter.js';
-import { LocalDemoStorageAdapter } from './services/local-demo-storage.adapter.js';
 import { getStorageService, setStorageService } from './services/storage.service.js';
 
 /**
@@ -59,8 +58,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(swaggerPlugin);
 
   // 3. Storage adapter. Tests inject a fake StorageService before buildApp.
-  // Default provider is s3. Missing AWS config does not fail boot and does
-  // not fall back to disk. local-demo is selected only by STORAGE_PROVIDER.
+  // Production provider is S3. Missing AWS config does not fall back to disk.
   let storageAlreadySet = false;
   try {
     getStorageService();
@@ -68,14 +66,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   } catch {
     storageAlreadySet = false;
   }
-  if (!storageAlreadySet && env.STORAGE_PROVIDER === 'local-demo') {
-    setStorageService(LocalDemoStorageAdapter.fromEnv());
-  } else if (
-    !storageAlreadySet &&
-    env.STORAGE_PROVIDER === 's3' &&
-    env.AWS_REGION &&
-    env.AWS_S3_BUCKET
-  ) {
+  if (!storageAlreadySet && env.AWS_REGION && env.AWS_S3_BUCKET) {
     setStorageService(S3StorageAdapter.fromEnv());
   }
 
