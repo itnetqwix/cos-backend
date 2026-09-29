@@ -36,7 +36,11 @@ describe('M06-P01 submission schema and Zod contracts', () => {
       durationSeconds: 45,
     };
     assert.equal(presignSubmissionSchema.parse(valid).contentType, 'video/mp4');
-    assert.equal(presignSubmissionSchema.safeParse({ ...valid, contentType: 'video/quicktime' }).success, false);
+    assert.equal(
+      presignSubmissionSchema.parse({ ...valid, contentType: 'video/quicktime' }).contentType,
+      'video/quicktime',
+    );
+    assert.equal(presignSubmissionSchema.safeParse({ ...valid, contentType: 'video/ogg' }).success, false);
     assert.equal(
       presignSubmissionSchema.safeParse({
         ...valid,

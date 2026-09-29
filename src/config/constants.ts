@@ -66,7 +66,7 @@ export type SystemRole = (typeof ROLES)[keyof typeof ROLES];
  * Presign expiry is an engineering default (source does not name a TTL).
  */
 export const VIDEO_CONSTRAINTS = {
-  ALLOWED_CONTENT_TYPES: ['video/mp4', 'video/webm'] as const,
+  ALLOWED_CONTENT_TYPES: ['video/mp4', 'video/webm', 'video/quicktime'] as const,
   MAX_FILE_SIZE_BYTES: 100 * 1024 * 1024,
   MIN_DURATION_SECONDS: 1,
   MAX_DURATION_SECONDS: 60,
@@ -75,3 +75,6 @@ export const VIDEO_CONSTRAINTS = {
 
 export type AllowedVideoContentType =
   (typeof VIDEO_CONSTRAINTS.ALLOWED_CONTENT_TYPES)[number];
+
+export const VIDEO_CONTENT_TYPE_MESSAGE =
+  'contentType must be video/mp4, video/webm, or video/quicktime';
