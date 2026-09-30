@@ -27,18 +27,18 @@ import {
  * - JUDGING: submissions are closed and the voting queue stays open
  * - COMPLETED: voting is closed
  *
- * Allowed set: ACTIVE, JUDGING.
- * Rejected set: DRAFT, SCHEDULED, COMPLETED, ARCHIVED.
+ * Rating set: ACTIVE, JUDGING.
+ * Viewing set: ACTIVE, JUDGING, COMPLETED, ARCHIVED.
+ * Rejected for both: DRAFT, SCHEDULED.
  *
  * Auth: a rating does not require a token. Guests vote without an account.
  * An authenticated ADMIN or CREATOR is not a guest and receives 403.
  * Invalid tokens are 401 in authenticateOptional, before this service runs.
  *
- * voterFingerprint is optional. The algorithm is NOT SPECIFIED, so the value
- * is stored as sent and is not required.
+ * voterFingerprint is optional client metadata. It is not the vote key.
  *
- * Duplicate ratings are allowed. There is no unique (user, submission)
- * constraint and no retry/idempotency rule. Each call inserts a new Rating.
+ * One guest rating is allowed per submission and hashed client IP.
+ * The same identifier may rate a different video. A repeat is 409.
  *
  * Queue order is createdAt then id ascending. That is display order.
  * Ranking by communityScore is M09 and is not done here.
@@ -47,6 +47,13 @@ import {
 export const VOTING_CONTEST_STATUSES: ReadonlySet<ContestStatus> = new Set([
   ContestStatus.ACTIVE,
   ContestStatus.JUDGING,
+]);
+
+export const VIEWABLE_CONTEST_STATUSES: ReadonlySet<ContestStatus> = new Set([
+  ContestStatus.ACTIVE,
+  ContestStatus.JUDGING,
+  ContestStatus.COMPLETED,
+  ContestStatus.ARCHIVED,
 ]);
 
 export interface JudgingVoter {
@@ -60,6 +67,7 @@ export interface RateSubmissionInput {
   rating: number;
   voter: JudgingVoter | null;
   voterFingerprint: string | null;
+  voterIpHash: string;
 }
 
 export interface JudgingQueueItem {
@@ -81,6 +89,7 @@ export interface JudgingQueueItem {
 export interface JudgingQueueView {
   contestId: string;
   status: ContestStatus;
+  ratingOpen: boolean;
   autoAdvanceDelayMs: number;
   items: JudgingQueueItem[];
 }
@@ -107,6 +116,18 @@ export function assertVotingContest(status: ContestStatus): void {
       'Votes are only accepted while a contest is ACTIVE or JUDGING',
     );
   }
+}
+
+export function assertViewableContest(status: ContestStatus): void {
+  if (!VIEWABLE_CONTEST_STATUSES.has(status)) {
+    throw new ConflictError('This contest is not available for viewing');
+  }
+}
+
+export const ALREADY_RATED_MESSAGE = 'You have already rated this video.';
+
+function isUniqueConflict(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 
 function assertVoter(voter: JudgingVoter | null): void {
@@ -140,7 +161,7 @@ export class JudgingService {
     if (!contest) {
       throw new NotFoundError('Contest not found');
     }
-    assertVotingContest(contest.status);
+    assertViewableContest(contest.status);
     const rows = await SubmissionRepository.listApprovedForContest(contestId);
     const items = await Promise.all(
       rows.map(async (row) => ({
@@ -151,6 +172,7 @@ export class JudgingService {
     return {
       contestId: contest.id,
       status: contest.status,
+      ratingOpen: VOTING_CONTEST_STATUSES.has(contest.status),
       autoAdvanceDelayMs: contest.autoAdvanceDelayMs,
       items,
     };
@@ -174,6 +196,15 @@ export class JudgingService {
         throw new ConflictError('Only approved submissions can be rated');
       }
 
+      const existing = await RatingRepository.findGuestVote(
+        locked.id,
+        input.voterIpHash,
+        tx,
+      );
+      if (existing) {
+        throw new ConflictError(ALREADY_RATED_MESSAGE);
+      }
+
       const score = computeCommunityScore(
         locked.communityScore,
         locked.totalVotes,
@@ -183,9 +214,17 @@ export class JudgingService {
         submissionId: locked.id,
         userId: input.voter?.id ?? null,
         voterFingerprint: input.voterFingerprint,
+        voterIpHash: input.voterIpHash,
         rating: input.rating,
       };
-      await RatingRepository.insert(ratingRow, tx);
+      try {
+        await RatingRepository.insert(ratingRow, tx);
+      } catch (error) {
+        if (isUniqueConflict(error)) {
+          throw new ConflictError(ALREADY_RATED_MESSAGE);
+        }
+        throw error;
+      }
       await RatingRepository.writeScore(locked.id, score.newScore, score.totalVotes, tx);
       return score;
     });

@@ -20,9 +20,13 @@ import {
 } from '../schemas/auth.schema.js';
 import {
   createContestSwaggerSchema,
+  deleteContestSwaggerSchema,
   getContestSwaggerSchema,
+  getCreatorContestSwaggerSchema,
   listContestsSwaggerSchema,
+  listCreatorContestsSwaggerSchema,
   listDeploymentActiveContestsSwaggerSchema,
+  listViewableContestsSwaggerSchema,
   updateContestSwaggerSchema,
 } from '../schemas/contest.schema.js';
 import {
@@ -166,6 +170,12 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     ContestController.listDeploymentActive,
   );
 
+  fastify.get(
+    '/contests/viewable',
+    { schema: listViewableContestsSwaggerSchema },
+    ContestController.listViewable,
+  );
+
   fastify.post(
     '/contests',
     {
@@ -193,6 +203,15 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     ContestController.update,
   );
 
+  fastify.delete(
+    '/contests/:id',
+    {
+      schema: deleteContestSwaggerSchema,
+      onRequest: contestGuards,
+    },
+    ContestController.remove,
+  );
+
   // -------------------------------------------------------------
   // 6. Submissions (/api/v1/submissions)
   // M06. CREATOR only. Presign + complete (no binary through Fastify).
@@ -201,6 +220,24 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // -------------------------------------------------------------
 
   const creatorGuards = [fastify.authenticate, authorizeRoles(Role.CREATOR)];
+
+  fastify.get(
+    '/creator/contests',
+    {
+      schema: listCreatorContestsSwaggerSchema,
+      onRequest: creatorGuards,
+    },
+    ContestController.listForCreator,
+  );
+
+  fastify.get(
+    '/creator/contests/:id',
+    {
+      schema: getCreatorContestSwaggerSchema,
+      onRequest: creatorGuards,
+    },
+    ContestController.getForCreator,
+  );
 
   fastify.post(
     '/submissions/presign',

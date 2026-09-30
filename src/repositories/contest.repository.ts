@@ -18,6 +18,7 @@ export type ContestRecord = Prisma.ContestGetPayload<{
 
 export interface ContestListFilters {
   status?: ContestStatus;
+  statuses?: ContestStatus[];
   categorySlug?: string;
 }
 
@@ -25,6 +26,9 @@ export interface CreateContestData {
   categoryId: string | null;
   title: string;
   description: string;
+  tagline: string | null;
+  bannerUrl: string | null;
+  thumbnailUrl: string | null;
   startDate: Date;
   endDate: Date;
   prizeSummary: string | null;
@@ -36,6 +40,9 @@ export type UpdateContestData = {
   categoryId?: string | null;
   title?: string;
   description?: string;
+  tagline?: string | null;
+  bannerUrl?: string | null;
+  thumbnailUrl?: string | null;
   status?: ContestStatus;
   startDate?: Date;
   endDate?: Date;
@@ -56,6 +63,9 @@ export class ContestRepository {
         categoryId: data.categoryId,
         title: data.title,
         description: data.description,
+        tagline: data.tagline,
+        bannerUrl: data.bannerUrl,
+        thumbnailUrl: data.thumbnailUrl,
         startDate: data.startDate,
         endDate: data.endDate,
         prizeSummary: data.prizeSummary,
@@ -77,7 +87,7 @@ export class ContestRepository {
   static async list(filters: ContestListFilters): Promise<ContestRecord[]> {
     return prisma.contest.findMany({
       where: {
-        status: filters.status,
+        status: filters.statuses ? { in: filters.statuses } : filters.status,
         category: filters.categorySlug ? { slug: filters.categorySlug } : undefined,
       },
       include: contestInclude,
@@ -92,6 +102,9 @@ export class ContestRepository {
         categoryId: data.categoryId,
         title: data.title,
         description: data.description,
+        tagline: data.tagline,
+        bannerUrl: data.bannerUrl,
+        thumbnailUrl: data.thumbnailUrl,
         status: data.status,
         startDate: data.startDate,
         endDate: data.endDate,
@@ -106,5 +119,13 @@ export class ContestRepository {
       },
       include: contestInclude,
     });
+  }
+
+  /**
+   * Hard-delete. Submission and Rating rows cascade from the Prisma relations.
+   * Audit logs keep the actor row and null the submission reference.
+   */
+  static async deleteById(id: string): Promise<void> {
+    await prisma.contest.delete({ where: { id } });
   }
 }

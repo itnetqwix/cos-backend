@@ -7,6 +7,8 @@ import {
   rateParamsSchema,
 } from '../schemas/judging.schema.js';
 import { sendSuccess } from '../utils/response.js';
+import { clientIp } from '../utils/client-ip.js';
+import { hashVoterIp } from '../services/voter-ip-hash.js';
 
 function voterFromRequest(request: FastifyRequest) {
   if (!request.user) return null;
@@ -48,6 +50,7 @@ export class JudgingController {
       {
         contestId: queue.contestId,
         status: queue.status,
+        ratingOpen: queue.ratingOpen,
         autoAdvanceDelayMs: queue.autoAdvanceDelayMs,
         items: queue.items.map(toQueueItemView),
       },
@@ -69,6 +72,7 @@ export class JudgingController {
       rating: body.rating,
       voter: voterFromRequest(request),
       voterFingerprint: body.voterFingerprint ?? null,
+      voterIpHash: hashVoterIp(clientIp(request)),
     });
     return sendSuccess(
       reply,

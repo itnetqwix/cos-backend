@@ -7,8 +7,8 @@ import { swaggerErrorEnvelope, swaggerSuccessEnvelope } from './auth.schema.js';
  *
  * Persisted fields match the Prisma Contest model. Not accepted:
  * submission/upload fields, prize distribution breakdown, media constraints,
- * banner/thumbnail, tagline, votingCloseDate, entries, votes, or a status
- * on create (create always stores DRAFT).
+ * votingCloseDate, entries, votes, or a status on create (create always
+ * stores DRAFT). Optional tagline, bannerUrl, and thumbnailUrl are stored.
  *
  * `rules` is a JSON string or a string array (domain model: JSON / string array).
  * Evaluation criteria are NOT SPECIFIED as a column. Unknown keys, including
@@ -16,6 +16,10 @@ import { swaggerErrorEnvelope, swaggerSuccessEnvelope } from './auth.schema.js';
  *
  * `endDate` must be later than `startDate` so the documented submission window
  * (`startDate <= now <= endDate`) can exist.
+ *
+ * Optional creator-facing fields collected by the admin form and stored on
+ * Contest: tagline, bannerUrl, thumbnailUrl. Prize breakdown, media
+ * constraints, and votingCloseDate are still not columns.
  */
 
 export const CONTEST_STATUSES = [
@@ -35,6 +39,8 @@ const isoDateTimeSchema = z.string().refine((value) => {
 }, 'Must be an ISO 8601 date-time');
 
 const rulesSchema = z.union([z.string(), z.array(z.string())]);
+
+const optionalVisualText = z.string().trim().max(2000).nullable().optional();
 
 const categorySlugSchema = z
   .string()
@@ -61,6 +67,9 @@ export const createContestSchema = z
     category: categoryWriteSchema.optional(),
     title: z.string().trim().min(1, 'Title is required'),
     description: z.string().trim().min(1, 'Description is required'),
+    tagline: optionalVisualText,
+    bannerUrl: optionalVisualText,
+    thumbnailUrl: optionalVisualText,
     startDate: isoDateTimeSchema,
     endDate: isoDateTimeSchema,
     prizeSummary: z.string().nullable().optional(),
@@ -83,6 +92,9 @@ export const updateContestSchema = z
   .object({
     title: z.string().trim().min(1, 'Title is required').optional(),
     description: z.string().trim().min(1, 'Description is required').optional(),
+    tagline: optionalVisualText,
+    bannerUrl: optionalVisualText,
+    thumbnailUrl: optionalVisualText,
     startDate: isoDateTimeSchema.optional(),
     endDate: isoDateTimeSchema.optional(),
     prizeSummary: z.string().nullable().optional(),
@@ -137,6 +149,9 @@ const contestViewSchema = {
     category: categoryViewSchema,
     title: { type: 'string' },
     description: { type: 'string' },
+    tagline: { type: 'string', nullable: true },
+    bannerUrl: { type: 'string', nullable: true },
+    thumbnailUrl: { type: 'string', nullable: true },
     status: { type: 'string', enum: [...CONTEST_STATUSES] },
     startDate: { type: 'string', format: 'date-time' },
     endDate: { type: 'string', format: 'date-time' },
@@ -168,6 +183,9 @@ const contestWriteBody = {
     },
     title: { type: 'string' },
     description: { type: 'string' },
+    tagline: { type: 'string', nullable: true },
+    bannerUrl: { type: 'string', nullable: true },
+    thumbnailUrl: { type: 'string', nullable: true },
     startDate: { type: 'string', format: 'date-time' },
     endDate: { type: 'string', format: 'date-time' },
     prizeSummary: { type: 'string', nullable: true },
@@ -362,6 +380,123 @@ export const updateContestSwaggerSchema: FastifySchema = {
     409: {
       description: 'Illegal transition, settings lock, or suspended organization (M10)',
       ...swaggerErrorEnvelope('Invalid contest status transition'),
+    },
+  },
+};
+
+const deletedContestSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+  },
+};
+
+export const deleteContestSwaggerSchema: FastifySchema = {
+  tags: ['Contests'],
+  summary: 'Delete a contest',
+  description:
+    'ADMIN only. ACTIVE and JUDGING contests are rejected. DRAFT, SCHEDULED, COMPLETED, and ARCHIVED may be deleted. Submissions and ratings for that contest cascade. Other contests and users are not deleted.',
+  security: [{ bearerAuth: [] }],
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+    },
+  },
+  response: {
+    200: {
+      description: 'Contest deleted',
+      ...swaggerSuccessEnvelope(deletedContestSchema, 'Contest deleted successfully'),
+    },
+    401: {
+      description: 'Missing or invalid token',
+      ...swaggerErrorEnvelope('Unauthorized'),
+    },
+    403: {
+      description: 'Wrong role',
+      ...swaggerErrorEnvelope('Forbidden'),
+    },
+    404: {
+      description: 'Contest not found',
+      ...swaggerErrorEnvelope('Contest not found'),
+    },
+    409: {
+      description: 'Contest state does not allow deletion',
+      ...swaggerErrorEnvelope('Active contests cannot be deleted'),
+    },
+  },
+};
+
+export const listCreatorContestsSwaggerSchema: FastifySchema = {
+  tags: ['Contests'],
+  summary: 'List contests for a creator',
+  description:
+    'CREATOR only. Returns every contest in this deployment, including drafts created by an admin. Does not accept an organization parameter.',
+  security: [{ bearerAuth: [] }],
+  response: {
+    200: {
+      description: 'Creator contest catalog',
+      ...swaggerSuccessEnvelope(
+        { type: 'array', items: contestViewSchema },
+        'Contests retrieved successfully',
+      ),
+    },
+    401: {
+      description: 'Missing or invalid token',
+      ...swaggerErrorEnvelope('Unauthorized'),
+    },
+    403: {
+      description: 'Wrong role',
+      ...swaggerErrorEnvelope('Forbidden'),
+    },
+  },
+};
+
+export const getCreatorContestSwaggerSchema: FastifySchema = {
+  tags: ['Contests'],
+  summary: 'Get one contest for a creator',
+  description: 'CREATOR only. Returns the same contest view as the creator catalog.',
+  security: [{ bearerAuth: [] }],
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+    },
+  },
+  response: {
+    200: {
+      description: 'Contest retrieved',
+      ...swaggerSuccessEnvelope(contestViewSchema, 'Contest retrieved successfully'),
+    },
+    401: {
+      description: 'Missing or invalid token',
+      ...swaggerErrorEnvelope('Unauthorized'),
+    },
+    403: {
+      description: 'Wrong role',
+      ...swaggerErrorEnvelope('Forbidden'),
+    },
+    404: {
+      description: 'Contest not found',
+      ...swaggerErrorEnvelope('Contest not found'),
+    },
+  },
+};
+
+export const listViewableContestsSwaggerSchema: FastifySchema = {
+  tags: ['Contests'],
+  summary: 'List contests that can be watched',
+  description:
+    'Public. Returns ACTIVE, JUDGING, COMPLETED, and ARCHIVED contests. DRAFT and SCHEDULED are omitted. Rating is closed once a contest is COMPLETED or ARCHIVED.',
+  response: {
+    200: {
+      description: 'Viewable contests',
+      ...swaggerSuccessEnvelope(
+        { type: 'array', items: contestViewSchema },
+        'Viewable contests retrieved successfully',
+      ),
     },
   },
 };

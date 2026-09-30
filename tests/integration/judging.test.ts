@@ -41,6 +41,7 @@ interface MemoryRating {
   submissionId: string;
   userId: string | null;
   voterFingerprint: string | null;
+  voterIpHash: string;
   rating: number;
 }
 
@@ -74,6 +75,9 @@ function contestRow(
     status,
     startDate: now,
     endDate: new Date('2026-12-01T00:00:00.000Z'),
+    tagline: null,
+    bannerUrl: null,
+    thumbnailUrl: null,
     prizeSummary: null,
     rules: null,
     autoAdvanceDelayMs,
@@ -141,6 +145,7 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     findContest: ContestRepository.findById,
     listApproved: SubmissionRepository.listApprovedForContest,
     lock: RatingRepository.lockSubmission,
+    findGuestVote: RatingRepository.findGuestVote,
     insert: RatingRepository.insert,
     writeScore: RatingRepository.writeScore,
   };
@@ -188,13 +193,31 @@ describe('M08 judging APIs', { concurrency: false }, () => {
       return locked;
     }) as typeof RatingRepository.lockSubmission;
 
+    RatingRepository.findGuestVote = (async (submissionId: string, voterIpHash: string) => {
+      const found = memory.ratings.find(
+        (row) => row.submissionId === submissionId && row.voterIpHash === voterIpHash,
+      );
+      return found ? { id: found.id } : null;
+    }) as typeof RatingRepository.findGuestVote;
+
     RatingRepository.insert = (async (data: InsertRatingData) => {
+      const duplicate = memory.ratings.find(
+        (row) => row.submissionId === data.submissionId && row.voterIpHash === data.voterIpHash,
+      );
+      if (duplicate) {
+        const error = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        });
+        throw error;
+      }
       const id = `rating-${memory.seq++}`;
       memory.ratings.push({
         id,
         submissionId: data.submissionId,
         userId: data.userId,
         voterFingerprint: data.voterFingerprint,
+        voterIpHash: data.voterIpHash,
         rating: data.rating,
       });
       return {
@@ -217,6 +240,7 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     ContestRepository.findById = original.findContest;
     SubmissionRepository.listApprovedForContest = original.listApproved;
     RatingRepository.lockSubmission = original.lock;
+    RatingRepository.findGuestVote = original.findGuestVote;
     RatingRepository.insert = original.insert;
     RatingRepository.writeScore = original.writeScore;
     setJudgingTransactionRunner(null);
@@ -317,21 +341,31 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     memory.submissions.get(VIDEO_A)!.status = SubmissionStatus.APPROVED;
   });
 
-  it('rejects the queue when the contest is not ACTIVE or JUDGING', async () => {
+  it('keeps completed contest videos viewable and rejects new ratings', async () => {
     memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.DRAFT));
     const draft = await app.inject({ method: 'GET', url: `/api/v1/contests/${CONTEST_A}/queue` });
     assert.equal(draft.statusCode, 409);
 
     memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.COMPLETED));
     const closed = await app.inject({ method: 'GET', url: `/api/v1/contests/${CONTEST_A}/queue` });
-    assert.equal(closed.statusCode, 409);
+    assert.equal(closed.statusCode, 200);
     const body = JSON.parse(closed.payload);
-    assert.equal(body.success, false);
-    assert.equal(body.data, null);
+    assert.equal(body.data.ratingOpen, false);
+    assert.equal(body.data.items.some((item: { id: string }) => item.id === VIDEO_A), true);
+
+    const rated = await app.inject({
+      method: 'POST',
+      url: rateUrl(),
+      remoteAddress: '203.0.113.50',
+      payload: { rating: 2 },
+    });
+    assert.equal(rated.statusCode, 409);
+    assert.equal(JSON.parse(rated.payload).message, 'Votes are only accepted while a contest is ACTIVE or JUDGING');
 
     memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.JUDGING, 1800));
     const judging = await app.inject({ method: 'GET', url: `/api/v1/contests/${CONTEST_A}/queue` });
     assert.equal(judging.statusCode, 200);
+    assert.equal(JSON.parse(judging.payload).data.ratingOpen, true);
     memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.ACTIVE, 1800));
   });
 
@@ -383,34 +417,61 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     }
   });
 
-  it('allows a second anonymous rating', async () => {
+  it('rejects a second rating for the same video from the same IP identifier', async () => {
     const before = memory.ratings.length;
     const res = await app.inject({
       method: 'POST',
       url: rateUrl(),
       payload: { rating: 4, voterFingerprint: 'device-a' },
     });
-    assert.equal(res.statusCode, 200);
-    assert.equal(memory.ratings.length, before + 1);
-    assert.equal(JSON.parse(res.payload).data.totalVotes, 2);
+    const body = JSON.parse(res.payload);
+    assert.equal(res.statusCode, 409);
+    assert.equal(body.success, false);
+    assert.equal(body.message, 'You have already rated this video.');
+    assert.equal(memory.ratings.length, before);
+    assert.equal(JSON.stringify(body).includes('127.0.0.1'), false);
   });
 
-  it('keeps score and vote count consistent when two ratings run together', async () => {
+  it('allows the same IP identifier to rate a different video', async () => {
     const row = memory.submissions.get(VIDEO_B)!;
     row.communityScore = 0;
     row.totalVotes = 0;
-    const before = memory.ratings.length;
+    const res = await app.inject({
+      method: 'POST',
+      url: rateUrl(CONTEST_B, VIDEO_B),
+      remoteAddress: '203.0.113.10',
+      payload: { rating: 3 },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(row.totalVotes, 1);
+  });
+
+  it('keeps one rating when two requests for the same video race', async () => {
+    const row = memory.submissions.get(VIDEO_B)!;
+    row.communityScore = 0;
+    row.totalVotes = 0;
+    memory.ratings = memory.ratings.filter((rating) => rating.submissionId !== VIDEO_B);
     const [first, second] = await Promise.all([
-      app.inject({ method: 'POST', url: rateUrl(CONTEST_B, VIDEO_B), payload: { rating: 5 } }),
-      app.inject({ method: 'POST', url: rateUrl(CONTEST_B, VIDEO_B), payload: { rating: 1 } }),
+      app.inject({
+        method: 'POST',
+        url: rateUrl(CONTEST_B, VIDEO_B),
+        remoteAddress: '198.51.100.8',
+        payload: { rating: 5 },
+      }),
+      app.inject({
+        method: 'POST',
+        url: rateUrl(CONTEST_B, VIDEO_B),
+        remoteAddress: '198.51.100.8',
+        payload: { rating: 1 },
+      }),
     ]);
-    assert.equal(first.statusCode, 200);
-    assert.equal(second.statusCode, 200);
-    assert.equal(row.totalVotes, 2);
-    assert.equal(row.communityScore, 3);
-    assert.equal(memory.ratings.length, before + 2);
-    const votes = memory.ratings.slice(-2).map((entry) => entry.rating).sort();
-    assert.deepEqual(votes, [1, 5]);
+    const statuses = [first.statusCode, second.statusCode].sort();
+    assert.deepEqual(statuses, [200, 409]);
+    assert.equal(row.totalVotes, 1);
+    const accepted = [first, second].find((response) => response.statusCode === 200);
+    const duplicate = [first, second].find((response) => response.statusCode === 409);
+    assert.equal(JSON.parse(duplicate!.payload).message, 'You have already rated this video.');
+    assert.equal(row.communityScore, JSON.parse(accepted!.payload).data.newScore);
   });
 
   it('rounds 4.7 / 2 votes / rating 3 to 4.1', async () => {
@@ -420,6 +481,7 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     const res = await app.inject({
       method: 'POST',
       url: rateUrl(),
+      remoteAddress: '203.0.113.77',
       payload: { rating: 3 },
     });
     assert.equal(res.statusCode, 200);
@@ -484,6 +546,7 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     const judging = await app.inject({
       method: 'POST',
       url: rateUrl(),
+      remoteAddress: '198.51.100.20',
       payload: { rating: 2 },
     });
     assert.equal(judging.statusCode, 200);
