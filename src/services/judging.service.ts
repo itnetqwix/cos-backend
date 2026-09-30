@@ -97,11 +97,13 @@ export interface JudgingQueueView {
 type TransactionClient = Prisma.TransactionClient;
 type TransactionRunner = <T>(fn: (tx: TransactionClient) => Promise<T>) => Promise<T>;
 
-let runTransaction: TransactionRunner = (fn) => prisma.$transaction(fn);
+let runTransaction: TransactionRunner = (fn) =>
+  prisma.$transaction(fn, { maxWait: 10000, timeout: 30000 });
 
 /** Test seam. Pass null to restore prisma.$transaction. */
 export function setJudgingTransactionRunner(runner: TransactionRunner | null): void {
-  runTransaction = runner ?? ((fn) => prisma.$transaction(fn));
+  runTransaction =
+    runner ?? ((fn) => prisma.$transaction(fn, { maxWait: 10000, timeout: 30000 }));
 }
 
 export function assertRatingValue(rating: number): void {
