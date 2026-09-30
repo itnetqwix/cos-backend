@@ -1,4 +1,4 @@
-import { Prisma, Role } from '@prisma/client';
+import { ContestStatus, Prisma, Role } from '@prisma/client';
 import { CategoryRepository } from '../repositories/category.repository.js';
 import {
   ContestRepository,
@@ -19,6 +19,7 @@ import {
 import {
   assertContestConfigurationMutable,
   assertContestTransition,
+  contestDeletionBlockReason,
 } from './contest-lifecycle.js';
 import { z } from 'zod';
 
@@ -35,6 +36,9 @@ export interface ContestActor {
 const CONFIGURATION_KEYS = [
   'title',
   'description',
+  'tagline',
+  'bannerUrl',
+  'thumbnailUrl',
   'startDate',
   'endDate',
   'prizeSummary',
@@ -43,6 +47,19 @@ const CONFIGURATION_KEYS = [
   'categoryId',
   'category',
 ] as const;
+
+const VIEWABLE_CONTEST_STATUSES: ContestStatus[] = [
+  ContestStatus.ACTIVE,
+  ContestStatus.JUDGING,
+  ContestStatus.COMPLETED,
+  ContestStatus.ARCHIVED,
+];
+
+function blankToNull(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
 
 type CategoryWrite = z.infer<typeof categoryWriteSchema>;
 
@@ -143,6 +160,9 @@ export class ContestService {
       categoryId: categoryId ?? null,
       title: input.title,
       description: input.description,
+      tagline: blankToNull(input.tagline),
+      bannerUrl: blankToNull(input.bannerUrl),
+      thumbnailUrl: blankToNull(input.thumbnailUrl),
       startDate,
       endDate,
       prizeSummary: input.prizeSummary ?? null,
@@ -180,6 +200,10 @@ export class ContestService {
 
     if (input.title !== undefined) data.title = input.title;
     if (input.description !== undefined) data.description = input.description;
+    if (input.tagline !== undefined) data.tagline = blankToNull(input.tagline);
+    if (input.bannerUrl !== undefined) data.bannerUrl = blankToNull(input.bannerUrl);
+    if (input.thumbnailUrl !== undefined)
+      data.thumbnailUrl = blankToNull(input.thumbnailUrl);
     if (input.startDate !== undefined) data.startDate = startDate;
     if (input.endDate !== undefined) data.endDate = endDate;
     if (input.prizeSummary !== undefined) data.prizeSummary = input.prizeSummary;
@@ -206,5 +230,46 @@ export class ContestService {
   /** Public read of every ACTIVE contest. No client tenant parameter. */
   static async listActive() {
     return ContestRepository.list({ status: 'ACTIVE' });
+  }
+
+  /**
+   * Every contest in this deployment. CREATOR only.
+   * Newly created contests are DRAFT and must still appear.
+   */
+  static async listForCreator(actor: ContestActor) {
+    if (actor.role !== Role.CREATOR) {
+      throw new ForbiddenError(
+        `Forbidden: User role '${actor.role}' does not have permission to access this resource`,
+      );
+    }
+    return ContestRepository.list({});
+  }
+
+  static async getForCreator(actor: ContestActor, id: string) {
+    if (actor.role !== Role.CREATOR) {
+      throw new ForbiddenError(
+        `Forbidden: User role '${actor.role}' does not have permission to access this resource`,
+      );
+    }
+    const contest = await ContestRepository.findById(id);
+    if (!contest) {
+      throw new NotFoundError('Contest not found');
+    }
+    return contest;
+  }
+
+  /** Public contests a guest can watch. Rating stays closed after COMPLETED. */
+  static async listViewable() {
+    return ContestRepository.list({ statuses: VIEWABLE_CONTEST_STATUSES });
+  }
+
+  static async remove(actor: ContestActor, id: string) {
+    const existing = await ContestService.getById(actor, id);
+    const reason = contestDeletionBlockReason(existing.status);
+    if (reason) {
+      throw new ConflictError(reason);
+    }
+    await ContestRepository.deleteById(id);
+    return { id: existing.id };
   }
 }

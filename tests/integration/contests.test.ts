@@ -67,6 +67,7 @@ describe('M05 contest APIs', { concurrency: false }, () => {
     findById: ContestRepository.findById,
     list: ContestRepository.list,
     update: ContestRepository.update,
+    deleteById: ContestRepository.deleteById,
   };
 
   before(async () => {
@@ -106,6 +107,9 @@ describe('M05 contest APIs', { concurrency: false }, () => {
         category: null,
         title: data.title,
         description: data.description,
+        tagline: data.tagline,
+        bannerUrl: data.bannerUrl,
+        thumbnailUrl: data.thumbnailUrl,
         status: ContestStatus.DRAFT,
         startDate: data.startDate,
         endDate: data.endDate,
@@ -147,6 +151,10 @@ describe('M05 contest APIs', { concurrency: false }, () => {
       memory.contests.set(id, next);
       return next;
     }) as typeof ContestRepository.update;
+
+    ContestRepository.deleteById = (async (id: string) => {
+      memory.contests.delete(id);
+    }) as typeof ContestRepository.deleteById;
   });
 
   after(async () => {
@@ -157,6 +165,7 @@ describe('M05 contest APIs', { concurrency: false }, () => {
     ContestRepository.findById = originalContest.findById;
     ContestRepository.list = originalContest.list;
     ContestRepository.update = originalContest.update;
+    ContestRepository.deleteById = originalContest.deleteById;
     await app.close();
   });
 
@@ -410,5 +419,77 @@ describe('M05 contest APIs', { concurrency: false }, () => {
     assert.equal(scheduled.statusCode, 200);
     assert.equal(JSON.parse(scheduled.payload).data.prizeSummary, '1000 USD');
     assert.equal(JSON.parse(scheduled.payload).data.status, 'SCHEDULED');
+  });
+
+  it('stores the contest visual and prize summary for creators', async () => {
+    memory = createMemory();
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/contests',
+      headers: { authorization: `Bearer ${token(Role.ADMIN)}` },
+      payload: {
+        ...createBody,
+        tagline: 'Funniest minute',
+        bannerUrl: 'https://images.example.com/banner.jpg',
+        thumbnailUrl: 'https://images.example.com/thumb.jpg',
+      },
+    });
+    assert.equal(created.statusCode, 201);
+    const contest = JSON.parse(created.payload).data;
+    assert.equal(contest.thumbnailUrl, 'https://images.example.com/thumb.jpg');
+    assert.equal(contest.bannerUrl, 'https://images.example.com/banner.jpg');
+    assert.equal(contest.prizeSummary, '25000 USD');
+
+    const creator = await app.inject({
+      method: 'GET',
+      url: '/api/v1/creator/contests',
+      headers: { authorization: `Bearer ${token(Role.CREATOR, 'dddddddd-dddd-4ddd-8ddd-0000000000dd')}` },
+    });
+    assert.equal(creator.statusCode, 200);
+    const list = JSON.parse(creator.payload).data;
+    assert.equal(list.some((row: { id: string }) => row.id === contest.id), true);
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/api/v1/creator/contests/${contest.id}`,
+      headers: { authorization: `Bearer ${token(Role.CREATOR, 'dddddddd-dddd-4ddd-8ddd-0000000000dd')}` },
+    });
+    assert.equal(detail.statusCode, 200);
+    assert.equal(JSON.parse(detail.payload).data.tagline, 'Funniest minute');
+    assert.equal(JSON.parse(detail.payload).data.thumbnailUrl, contest.thumbnailUrl);
+  });
+
+  it('rejects delete for an active contest and allows delete for a draft', async () => {
+    memory = createMemory();
+    const created = await createDraft();
+    const admin = { authorization: `Bearer ${token(Role.ADMIN)}` };
+
+    const removed = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/contests/${created.id}`,
+      headers: admin,
+    });
+    assert.equal(removed.statusCode, 200);
+    assert.equal(JSON.parse(removed.payload).data.id, created.id);
+    assert.equal(memory.contests.has(created.id), false);
+
+    const active = await createDraft();
+    memory.contests.get(active.id)!.status = ContestStatus.ACTIVE;
+    const blocked = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/contests/${active.id}`,
+      headers: admin,
+    });
+    assert.equal(blocked.statusCode, 409);
+    assert.equal(JSON.parse(blocked.payload).message, 'Active contests cannot be deleted');
+    assert.equal(memory.contests.has(active.id), true);
+
+    const creator = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/contests/${active.id}`,
+      headers: { authorization: `Bearer ${token(Role.CREATOR, 'dddddddd-dddd-4ddd-8ddd-0000000000dd')}` },
+    });
+    assert.equal(creator.statusCode, 403);
+    assert.equal(memory.contests.has(active.id), true);
   });
 });

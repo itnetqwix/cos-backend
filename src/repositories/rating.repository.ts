@@ -6,8 +6,9 @@ import { prisma } from '../config/database.js';
  *
  * applyRating locks the submission row, inserts one Rating, and writes
  * communityScore / totalVotes in the same transaction.
- * Uniqueness is not enforced: duplicate-vote window is NOT SPECIFIED.
- * voterFingerprint is stored as supplied. No hash is applied.
+ * Guest votes are unique per submission and voterIpHash.
+ * voterFingerprint is stored as supplied and is not the uniqueness key.
+ * voterIpHash is an HMAC. The raw IP is not persisted.
  */
 
 export interface LockedSubmissionScore {
@@ -23,6 +24,7 @@ export interface InsertRatingData {
   submissionId: string;
   userId: string | null;
   voterFingerprint: string | null;
+  voterIpHash: string;
   rating: number;
 }
 
@@ -67,6 +69,17 @@ export class RatingRepository {
     };
   }
 
+  static async findGuestVote(
+    submissionId: string,
+    voterIpHash: string,
+    tx: Prisma.TransactionClient = prisma,
+  ): Promise<{ id: string } | null> {
+    return tx.rating.findFirst({
+      where: { submissionId, voterIpHash },
+      select: { id: true },
+    });
+  }
+
   static async insert(
     data: InsertRatingData,
     tx: Prisma.TransactionClient = prisma,
@@ -81,6 +94,7 @@ export class RatingRepository {
         submissionId: data.submissionId,
         userId: data.userId,
         voterFingerprint: data.voterFingerprint,
+        voterIpHash: data.voterIpHash,
         rating: data.rating,
       },
       select: {

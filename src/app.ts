@@ -36,6 +36,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   const isTest = process.env.NODE_ENV === 'test' || env.NODE_ENV === 'test';
 
   const app = Fastify({
+    // false: socket address. true: Fastify derives request.ip from the
+    // trusted proxy chain. Application code does not read a custom IP header.
+    trustProxy: env.TRUST_PROXY_HOPS > 0,
     logger: isTest
       ? false
       : { level: env.LOG_LEVEL || (env.NODE_ENV === 'development' ? 'info' : 'warn') },

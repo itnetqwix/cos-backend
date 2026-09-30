@@ -77,6 +77,7 @@ const queueDataSchema = {
   properties: {
     contestId: { type: 'string' },
     status: { type: 'string', example: 'ACTIVE' },
+    ratingOpen: { type: 'boolean', example: true },
     autoAdvanceDelayMs: { type: 'integer', example: 1800 },
     items: { type: 'array', items: queueItemSchema },
   },
@@ -97,7 +98,8 @@ export const judgingQueueSwaggerSchema: FastifySchema = {
   summary: 'Approved judging queue for a contest',
   description:
     'Public. Returns APPROVED submissions only, oldest first (display order, not a leaderboard). ' +
-    'Contest must be ACTIVE or JUDGING. Rejected, pending, and flagged submissions are excluded. ' +
+    'Contest must be ACTIVE, JUDGING, COMPLETED, or ARCHIVED. ratingOpen is false after the contest ends. ' +
+    'Rejected, pending, and flagged submissions are excluded. ' +
     'autoAdvanceDelayMs is the contest value (default 1800). Authentication is not required.',
   params: {
     type: 'object',
@@ -117,9 +119,7 @@ export const judgingQueueSwaggerSchema: FastifySchema = {
     },
     409: {
       description: 'Contest is not in the voting window',
-      ...swaggerErrorEnvelope(
-        'Votes are only accepted while a contest is ACTIVE or JUDGING',
-      ),
+      ...swaggerErrorEnvelope('This contest is not available for viewing'),
     },
   },
 };
@@ -130,9 +130,9 @@ export const rateSubmissionSwaggerSchema: FastifySchema = {
   description:
     'Auth is optional. Anonymous visitors may rate (no creator registration). ' +
     'Guests rate without a token. An authenticated ADMIN or CREATOR is 403. ' +
-    'An invalid Bearer token is 401. voterFingerprint is optional and is not hashed; ' +
-    'the fingerprint algorithm and duplicate-vote window are NOT SPECIFIED, so this route ' +
-    'does not reject a second rating. Contest must be ACTIVE or JUDGING. Submission must be APPROVED. ' +
+    'An invalid Bearer token is 401. voterFingerprint is optional metadata. ' +
+    'A second rating for the same video from the same hashed client IP is rejected. ' +
+    'The same identifier may rate a different video. Contest must be ACTIVE or JUDGING. Submission must be APPROVED. ' +
     'Returns previousScore, newScore, delta, and totalVotes. newScore is rounded to 1 decimal. ' +
     'M12-P01-T02 applies a per-IP engineering rate limit (RATE_LIMIT_DEFAULTS.RATING_MAX per RATING_TIME_WINDOW_MS). ' +
     'The numeric ceiling is an engineering default. Duplicate-vote detection remains NOT SPECIFIED.',

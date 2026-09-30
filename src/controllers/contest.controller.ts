@@ -28,6 +28,9 @@ export function toContestView(contest: ContestRecord) {
     category: contest.category,
     title: contest.title,
     description: contest.description,
+    tagline: contest.tagline,
+    bannerUrl: contest.bannerUrl,
+    thumbnailUrl: contest.thumbnailUrl,
     status: contest.status,
     startDate: iso(contest.startDate),
     endDate: iso(contest.endDate),
@@ -110,6 +113,43 @@ export class ContestController {
       reply,
       toContestView(contest),
       'Contest updated successfully',
+      HTTP_STATUS.OK,
+    );
+  }
+
+  static async remove(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = contestIdParamSchema.parse(request.params);
+    const deleted = await ContestService.remove(actorFromRequest(request), id);
+    return sendSuccess(reply, deleted, 'Contest deleted successfully', HTTP_STATUS.OK);
+  }
+
+  static async listForCreator(request: FastifyRequest, reply: FastifyReply) {
+    const contests = await ContestService.listForCreator(actorFromRequest(request));
+    return sendSuccess(
+      reply,
+      contests.map(toContestView),
+      'Contests retrieved successfully',
+      HTTP_STATUS.OK,
+    );
+  }
+
+  static async getForCreator(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = contestIdParamSchema.parse(request.params);
+    const contest = await ContestService.getForCreator(actorFromRequest(request), id);
+    return sendSuccess(
+      reply,
+      toContestView(contest),
+      'Contest retrieved successfully',
+      HTTP_STATUS.OK,
+    );
+  }
+
+  static async listViewable(_request: FastifyRequest, reply: FastifyReply) {
+    const contests = await ContestService.listViewable();
+    return sendSuccess(
+      reply,
+      contests.map(toContestView),
+      'Viewable contests retrieved successfully',
       HTTP_STATUS.OK,
     );
   }

@@ -16,6 +16,7 @@ describe('Unit Tests: Environment schema (M01-P01-T02)', () => {
     'NODE_ENV',
     'PORT',
     'STORAGE_PROVIDER',
+    'TRUST_PROXY_HOPS',
   ];
 
   it('exports only the keys currently defined in env.ts', () => {

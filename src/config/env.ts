@@ -57,6 +57,13 @@ const envSchema = z.object({
   AWS_ACCESS_KEY_ID: z.string().default(''),
   AWS_SECRET_ACCESS_KEY: z.string().default(''),
   STORAGE_PROVIDER: z.enum(['s3']).default('s3'),
+  /**
+   * Trusted reverse-proxy hops for Fastify `request.ip`.
+   * 0 keeps the socket address (local and tests).
+   * Production defaults to 1 so the immediate proxy hop is trusted.
+   * A client-supplied custom header is not read directly.
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).optional(),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -66,7 +73,11 @@ if (!parsedEnv.success) {
   process.exit(1);
 }
 
-export const env = parsedEnv.data;
+export const env = {
+  ...parsedEnv.data,
+  TRUST_PROXY_HOPS:
+    parsedEnv.data.TRUST_PROXY_HOPS ?? (parsedEnv.data.NODE_ENV === 'production' ? 1 : 0),
+};
 
 if (
   env.NODE_ENV === 'production' &&

@@ -69,6 +69,11 @@ model Contest {
   category           Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   title              String
   description        String        @db.Text
+  // Optional creator-facing copy and visuals chosen in the admin form.
+  // Prize breakdown beyond prizeSummary remains NOT SPECIFIED.
+  tagline            String?
+  bannerUrl          String?
+  thumbnailUrl       String?
   status             ContestStatus @default(DRAFT)
   startDate          DateTime
   endDate            DateTime
@@ -161,10 +166,10 @@ model AuditLog {
 
 // M08-P01-T01 / T02.
 // userId is nullable: visitors may rate without creator registration.
-// voterFingerprint is nullable. The fingerprint algorithm is NOT SPECIFIED,
-// so this column stores a client-supplied value and does not hash it.
-// Indexes are not unique. A duplicate-vote window is NOT SPECIFIED, so
-// more than one rating per viewer or fingerprint is allowed.
+// voterFingerprint is optional client metadata and is not the vote key.
+// voterIpHash is an HMAC of the normalized client IP. It is not the raw IP.
+// Uniqueness is (submissionId, voterIpHash): one guest identifier per video.
+// PostgreSQL unique indexes allow multiple NULLs, so older rows stay valid.
 // rating is an integer 1–5, enforced in Zod and JudgingService.
 model Rating {
   id               String     @id @default(uuid())
@@ -173,9 +178,11 @@ model Rating {
   userId           String?
   user             User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
   voterFingerprint String?
+  voterIpHash      String?
   rating           Int
   createdAt        DateTime   @default(now())
 
+  @@unique([submissionId, voterIpHash])
   @@index([submissionId])
   @@index([voterFingerprint, submissionId])
   @@map("ratings")
