@@ -71,8 +71,39 @@ export const SwaggerUserSchema = {
       format: 'date-time',
       example: '2026-09-17T12:00:00.000Z',
     },
+    avatarUrl: {
+      type: 'string',
+      nullable: true,
+      description:
+        'Short-lived presigned profile image URL. Omitted when the creator has no image. The storage key is not returned.',
+    },
   },
 };
+
+export const updateCreatorProfileSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(2, 'Name must be at least 2 characters long')
+      .max(100, 'Name cannot exceed 100 characters')
+      .optional(),
+    avatarObjectKey: z.string().trim().min(1).max(512).nullable().optional(),
+  })
+  .strict()
+  .refine((value) => value.name !== undefined || value.avatarObjectKey !== undefined, {
+    message: 'At least one profile field is required',
+  });
+
+export type UpdateCreatorProfileInput = z.infer<typeof updateCreatorProfileSchema>;
+
+export const presignAvatarSchema = z
+  .object({
+    contentType: z.string().trim().min(1),
+  })
+  .strict();
+
+export type PresignAvatarInput = z.infer<typeof presignAvatarSchema>;
 
 export const SwaggerTokenProperty = {
   type: 'string',
@@ -226,5 +257,70 @@ export const getMeSwaggerSchema: FastifySchema = {
       description: 'Not Found - User account no longer exists',
       ...swaggerErrorEnvelope('User profile not found'),
     },
+  },
+};
+
+export const updateMeSwaggerSchema: FastifySchema = {
+  tags: ['Authentication'],
+  summary: 'Update the authenticated creator profile',
+  description:
+    'CREATOR only. Updates the authenticated user. Email is the sign-in identity and is not accepted. avatarObjectKey must be a key issued by the avatar presign route for this user.',
+  security: [{ bearerAuth: [] }],
+  body: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      name: { type: 'string', minLength: 2, maxLength: 100 },
+      avatarObjectKey: { type: 'string', nullable: true },
+    },
+  },
+  response: {
+    200: {
+      description: 'Profile updated',
+      ...swaggerSuccessEnvelope(SwaggerUserSchema, 'Profile updated successfully'),
+    },
+    400: swaggerErrorEnvelope('Validation error'),
+    401: swaggerErrorEnvelope('Unauthorized: Authentication required or token invalid'),
+    403: swaggerErrorEnvelope('Forbidden'),
+  },
+};
+
+export const presignAvatarSwaggerSchema: FastifySchema = {
+  tags: ['Authentication'],
+  summary: 'Create a presigned profile-image upload URL',
+  description:
+    'CREATOR only. Returns a short-lived PUT URL for a backend-issued private object key. AWS credentials are not included. The image is stored only after PATCH /auth/me saves avatarObjectKey.',
+  security: [{ bearerAuth: [] }],
+  body: {
+    type: 'object',
+    required: ['contentType'],
+    additionalProperties: false,
+    properties: {
+      contentType: {
+        type: 'string',
+        enum: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+      },
+    },
+  },
+  response: {
+    200: {
+      description: 'Presigned upload URL created',
+      ...swaggerSuccessEnvelope(
+        {
+          type: 'object',
+          properties: {
+            uploadUrl: { type: 'string' },
+            objectKey: { type: 'string' },
+            headers: { type: 'object', additionalProperties: { type: 'string' } },
+            expiresInSeconds: { type: 'integer' },
+            method: { type: 'string', example: 'PUT' },
+          },
+        },
+        'Presigned profile image upload URL created',
+      ),
+    },
+    400: swaggerErrorEnvelope('Validation error'),
+    401: swaggerErrorEnvelope('Unauthorized: Authentication required or token invalid'),
+    403: swaggerErrorEnvelope('Forbidden'),
   },
 };

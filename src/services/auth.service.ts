@@ -1,11 +1,54 @@
-import { CreatorActivityAction, Role } from '@prisma/client';
+import { AccountStatus, CreatorActivityAction, Role } from '@prisma/client';
 import { FastifyInstance } from 'fastify';
 import { UserRepository } from '../repositories/user.repository.js';
 import { hashPassword, comparePassword } from '../utils/crypto.js';
-import { ConflictError, NotFoundError, UnauthorizedError } from '../utils/response.js';
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  UnauthorizedError,
+  ValidationError,
+} from '../utils/response.js';
 import { sanitizeUser } from '../utils/sanitize-user.js';
-import { RegisterCreatorInput, LoginInput } from '../schemas/auth.schema.js';
+import {
+  LoginInput,
+  PresignAvatarInput,
+  RegisterCreatorInput,
+  UpdateCreatorProfileInput,
+} from '../schemas/auth.schema.js';
 import { CreatorActivityService } from './creator-activity.service.js';
+import {
+  buildAvatarObjectKey,
+  getStorageService,
+  parseAvatarObjectKey,
+  signedAvatarUrl,
+} from './storage.service.js';
+
+interface ProfileRecord {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  accountStatus: AccountStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  avatarObjectKey?: string | null;
+  passwordHash?: string;
+}
+
+/**
+ * Public profile. `avatarUrl` is a presigned GET and is omitted when absent
+ * so existing clients that expect no avatar field stay compatible.
+ * `avatarObjectKey` and `passwordHash` never leave the service.
+ */
+async function toPublicUser(user: ProfileRecord) {
+  const safe = sanitizeUser(user);
+  const avatarUrl = await signedAvatarUrl(safe.avatarObjectKey);
+  const { avatarObjectKey: _key, ...profile } = safe;
+  void _key;
+  if (!avatarUrl) return profile;
+  return { ...profile, avatarUrl };
+}
 
 export class AuthService {
   /**
@@ -42,7 +85,7 @@ export class AuthService {
     });
 
     return {
-      user: sanitizeUser(user),
+      user: await toPublicUser(user),
       token,
     };
   }
@@ -76,7 +119,7 @@ export class AuthService {
     });
 
     return {
-      user: sanitizeUser(user),
+      user: await toPublicUser(user),
       token,
     };
   }
@@ -87,6 +130,56 @@ export class AuthService {
       throw new NotFoundError('User profile not found');
     }
 
-    return sanitizeUser(user);
+    return toPublicUser(user);
+  }
+
+  /**
+   * Updates the authenticated creator only. The user id comes from the JWT.
+   * Email is not accepted. A profile image key must belong to this creator.
+   */
+  static async updateCurrentUser(userId: string, input: UpdateCreatorProfileInput) {
+    const current = await UserRepository.findById(userId);
+    if (!current) {
+      throw new NotFoundError('User profile not found');
+    }
+    if (current.role !== Role.CREATOR) {
+      throw new ForbiddenError('Only a creator can update this profile');
+    }
+
+    const data: { name?: string; avatarObjectKey?: string | null } = {};
+    if (input.name !== undefined) data.name = input.name;
+    if (input.avatarObjectKey !== undefined) {
+      if (input.avatarObjectKey === null) {
+        data.avatarObjectKey = null;
+      } else {
+        const parsed = parseAvatarObjectKey(input.avatarObjectKey);
+        if (!parsed || parsed.creatorId !== userId) {
+          throw new ValidationError(
+            'Profile image reference is not valid for this account',
+          );
+        }
+        data.avatarObjectKey = input.avatarObjectKey;
+      }
+    }
+
+    const updated = await UserRepository.updateOwnProfile(userId, data);
+    return toPublicUser(updated);
+  }
+
+  static async presignAvatar(userId: string, input: PresignAvatarInput) {
+    const current = await UserRepository.findById(userId);
+    if (!current) {
+      throw new NotFoundError('User profile not found');
+    }
+    if (current.role !== Role.CREATOR) {
+      throw new ForbiddenError('Only a creator can update this profile');
+    }
+
+    const objectKey = buildAvatarObjectKey(userId, input.contentType);
+    const signed = await getStorageService().createPresignedUpload({
+      objectKey,
+      contentType: input.contentType,
+    });
+    return signed;
   }
 }

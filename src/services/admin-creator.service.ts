@@ -13,7 +13,7 @@ import { UserRepository } from '../repositories/user.repository.js';
 import { buildPaginationMeta, parsePaginationParams } from '../utils/pagination.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../utils/response.js';
 import { CreatorActivityService } from './creator-activity.service.js';
-import { playbackUrlForSubmission } from './storage.service.js';
+import { playbackUrlForSubmission, signedAvatarUrl } from './storage.service.js';
 
 /**
  * Admin directory of creator accounts, participation, warnings, and videos.
@@ -197,6 +197,7 @@ export class AdminCreatorService {
     const videos = await Promise.all(
       submissions.map((submission) => toVideo(submission, true)),
     );
+    const avatarUrl = await signedAvatarUrl(creator.avatarObjectKey);
 
     return {
       creator: {
@@ -207,6 +208,7 @@ export class AdminCreatorService {
         accountStatus: creator.accountStatus,
         createdAt: creator.createdAt,
         lastActivityAt: latest?.createdAt ?? null,
+        ...(avatarUrl ? { avatarUrl } : {}),
       },
       stats: {
         ...counts,

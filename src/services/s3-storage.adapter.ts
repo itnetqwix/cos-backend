@@ -3,7 +3,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from '../config/env.js';
 import { VIDEO_CONSTRAINTS } from '../config/constants.js';
 import {
-  parseSubmissionObjectKey,
+  isSignableObjectKey,
   PresignedUploadRequest,
   PresignedUploadResult,
   StorageService,
@@ -113,7 +113,7 @@ export class S3StorageAdapter implements StorageService {
   }
 
   async createPresignedDownload(objectKey: string): Promise<string> {
-    if (!parseSubmissionObjectKey(objectKey)) {
+    if (!isSignableObjectKey(objectKey)) {
       throw new ValidationError('objectKey is not a backend-issued submission key');
     }
     if (!this.options.signGetObject) {

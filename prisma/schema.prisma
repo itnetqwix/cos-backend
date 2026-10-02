@@ -53,10 +53,13 @@ model User {
   activityAsSubject    CreatorActivityLog[] @relation("ActivitySubject")
   activityPerformed    CreatorActivityLog[] @relation("ActivityActor")
 
-  // handle and avatarUrl are domain-model PLANNED fields.
-  // Persistence (nullability, uniqueness, @-prefix format) is NOT SPECIFIED
-  // for this schema until a later decision (M02-P01-T05). Do not add without
-  // an explicit roadmap task.
+  // Private storage key for the creator profile image.
+  // The API returns a short-lived presigned avatarUrl. That URL is not stored.
+  // handle remains PLANNED and is not a column (M02-P01-T05 / T06).
+  avatarObjectKey      String?
+
+  // handle is a domain-model PLANNED field.
+  // Persistence (nullability, uniqueness, @-prefix format) is NOT SPECIFIED.
 
   @@index([role, accountStatus])
   @@index([role, createdAt])

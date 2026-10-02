@@ -9,7 +9,9 @@ import { fileURLToPath } from 'node:url';
 import { VIDEO_CONSTRAINTS, VIDEO_CONTENT_TYPE_MESSAGE } from '../config/constants.js';
 import { ValidationError } from '../utils/response.js';
 import {
+  isAllowedAvatarContentType,
   isAllowedVideoContentType,
+  parseAvatarObjectKey,
   parseSubmissionObjectKey,
   PresignedUploadRequest,
   PresignedUploadResult,
@@ -78,6 +80,10 @@ function tokensEqual(left: string, right: string): boolean {
 function contentTypeForKey(objectKey: string): string {
   if (objectKey.endsWith('.webm')) return 'video/webm';
   if (objectKey.endsWith('.mov')) return 'video/quicktime';
+  if (objectKey.endsWith('.png')) return 'image/png';
+  if (objectKey.endsWith('.webp')) return 'image/webp';
+  if (objectKey.endsWith('.gif')) return 'image/gif';
+  if (objectKey.endsWith('.jpg') || objectKey.endsWith('.jpeg')) return 'image/jpeg';
   return 'video/mp4';
 }
 
@@ -132,11 +138,16 @@ export class LocalDemoStorageAdapter implements StorageService {
   async createPresignedUpload(
     request: PresignedUploadRequest,
   ): Promise<PresignedUploadResult> {
-    if (!parseSubmissionObjectKey(request.objectKey)) {
+    const isAvatar = Boolean(parseAvatarObjectKey(request.objectKey));
+    const isSubmission = Boolean(parseSubmissionObjectKey(request.objectKey));
+    if (!isAvatar && !isSubmission) {
       throw new ValidationError('objectKey is not a backend-issued submission key');
     }
-    if (!isAllowedVideoContentType(request.contentType)) {
+    if (isSubmission && !isAllowedVideoContentType(request.contentType)) {
       throw new ValidationError(VIDEO_CONTENT_TYPE_MESSAGE);
+    }
+    if (isAvatar && !isAllowedAvatarContentType(request.contentType)) {
+      throw new ValidationError('Profile image must be a JPEG, PNG, WebP, or GIF');
     }
 
     const expiresInSeconds = VIDEO_CONSTRAINTS.PRESIGN_EXPIRES_SECONDS;
@@ -172,7 +183,7 @@ export class LocalDemoStorageAdapter implements StorageService {
   }
 
   private resolveObjectPath(objectKey: string): string {
-    const parsed = parseSubmissionObjectKey(objectKey);
+    const parsed = parseSubmissionObjectKey(objectKey) ?? parseAvatarObjectKey(objectKey);
     if (!parsed) {
       throw new DemoMediaError('Upload key is not a submission object', 400);
     }

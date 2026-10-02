@@ -66,6 +66,7 @@ const queueItemSchema = {
       properties: {
         id: { type: 'string' },
         name: { type: 'string' },
+        avatarUrl: { type: 'string', nullable: true },
       },
     },
     createdAt: { type: 'string' },
