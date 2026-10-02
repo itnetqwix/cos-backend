@@ -33,6 +33,12 @@ export class CommentRepository {
     });
   }
 
+  static async countForCreator(creatorId: string): Promise<number> {
+    return prisma.comment.count({
+      where: { submission: { creatorId } },
+    });
+  }
+
   static async create(data: {
     submissionId: string;
     authorId: string;

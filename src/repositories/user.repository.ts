@@ -1,4 +1,4 @@
-import { Prisma, Role } from '@prisma/client';
+import { AccountStatus, Prisma, Role } from '@prisma/client';
 import { prisma } from '../config/database.js';
 
 const publicUserSelect = {
@@ -6,6 +6,7 @@ const publicUserSelect = {
   email: true,
   name: true,
   role: true,
+  accountStatus: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.UserSelect;
@@ -92,6 +93,29 @@ export class UserRepository {
   static async findCreatorById(id: string) {
     return prisma.user.findFirst({
       where: { id, role: Role.CREATOR },
+      select: publicUserSelect,
+    });
+  }
+
+  /**
+   * Live account gate for creator routes.
+   * JWT claims do not include accountStatus, so a block applies immediately.
+   */
+  static async findAccountGate(id: string) {
+    return prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        role: true,
+        accountStatus: true,
+      },
+    });
+  }
+
+  static async updateAccountStatus(id: string, accountStatus: AccountStatus) {
+    return prisma.user.update({
+      where: { id },
+      data: { accountStatus },
       select: publicUserSelect,
     });
   }

@@ -12,25 +12,54 @@ enum Role {
   CREATOR
 }
 
+// Creator management access. ACTIVE is the default for every user.
+// Only CREATOR rows are moved to BLOCKED. ADMIN is not blocked by this flow.
+enum AccountStatus {
+  ACTIVE
+  BLOCKED
+}
+
+// Generic creator timeline. Moderation AuditLog stays a decision record.
+// This log is the admin view of what a creator did and what an admin did to them.
+enum CreatorActivityAction {
+  REGISTERED
+  LOGGED_IN
+  SUBMISSION_UPLOADED
+  SUBMISSION_APPROVED
+  SUBMISSION_REJECTED
+  SUBMISSION_FLAGGED
+  SUBMISSION_DELETED
+  BLOCKED
+  UNBLOCKED
+  WARNED
+}
+
 model User {
-  id                   String       @id @default(uuid())
-  email                String       @unique
+  id                   String               @id @default(uuid())
+  email                String               @unique
   passwordHash         String
   name                 String
-  role                 Role         @default(CREATOR)
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
-  submissions          Submission[] @relation("CreatedByUser")
-  moderatedSubmissions Submission[] @relation("ModeratedByUser")
+  role                 Role                 @default(CREATOR)
+  accountStatus        AccountStatus        @default(ACTIVE)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  submissions          Submission[]         @relation("CreatedByUser")
+  moderatedSubmissions Submission[]         @relation("ModeratedByUser")
   auditLogs            AuditLog[]
   ratings              Rating[]
   comments             Comment[]
+  warningsReceived     CreatorWarning[]     @relation("WarningSubject")
+  warningsIssued       CreatorWarning[]     @relation("WarningIssuer")
+  activityAsSubject    CreatorActivityLog[] @relation("ActivitySubject")
+  activityPerformed    CreatorActivityLog[] @relation("ActivityActor")
 
   // handle and avatarUrl are domain-model PLANNED fields.
   // Persistence (nullability, uniqueness, @-prefix format) is NOT SPECIFIED
   // for this schema until a later decision (M02-P01-T05). Do not add without
   // an explicit roadmap task.
 
+  @@index([role, accountStatus])
+  @@index([role, createdAt])
   @@map("users")
 }
 
@@ -207,4 +236,41 @@ model Comment {
 
   @@index([submissionId, createdAt])
   @@map("comments")
+}
+
+// Administrative warning. No automatic block, threshold, or creator notification.
+// A product rule for those behaviors is NOT SPECIFIED.
+model CreatorWarning {
+  id         String   @id @default(uuid())
+  creatorId  String
+  creator    User     @relation("WarningSubject", fields: [creatorId], references: [id], onDelete: Cascade)
+  issuedById String
+  issuedBy   User     @relation("WarningIssuer", fields: [issuedById], references: [id], onDelete: Restrict)
+  reason     String   @db.Text
+  createdAt  DateTime @default(now())
+
+  @@index([creatorId, createdAt])
+  @@map("creator_warnings")
+}
+
+// Append-only creator timeline. relatedSubmissionId and relatedContestId are
+// plain ids, not foreign keys, so a deleted submission still leaves the event.
+// metadata must not contain passwords, JWTs, or storage credentials.
+model CreatorActivityLog {
+  id                  String                @id @default(uuid())
+  creatorId           String
+  creator             User                  @relation("ActivitySubject", fields: [creatorId], references: [id], onDelete: Cascade)
+  action              CreatorActivityAction
+  description         String?               @db.Text
+  metadata            Json?
+  relatedSubmissionId String?
+  relatedContestId    String?
+  performedByUserId   String?
+  performedBy         User?                 @relation("ActivityActor", fields: [performedByUserId], references: [id], onDelete: SetNull)
+  createdAt           DateTime              @default(now())
+
+  @@index([creatorId, createdAt])
+  @@index([relatedContestId])
+  @@index([relatedSubmissionId])
+  @@map("creator_activity_logs")
 }

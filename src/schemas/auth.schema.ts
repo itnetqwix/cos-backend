@@ -56,6 +56,11 @@ export const SwaggerUserSchema = {
       enum: ['ADMIN', 'CREATOR'],
       example: 'CREATOR',
     },
+    accountStatus: {
+      type: 'string',
+      enum: ['ACTIVE', 'BLOCKED'],
+      example: 'ACTIVE',
+    },
     createdAt: {
       type: 'string',
       format: 'date-time',

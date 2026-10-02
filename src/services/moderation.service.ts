@@ -1,6 +1,7 @@
 import {
   AuditAction,
   ContestStatus,
+  CreatorActivityAction,
   Prisma,
   Role,
   SubmissionStatus,
@@ -21,6 +22,7 @@ import {
   NotFoundError,
   ValidationError,
 } from '../utils/response.js';
+import { CreatorActivityService } from './creator-activity.service.js';
 
 /**
  * Moderation decisions (M07-P01-T04).
@@ -122,7 +124,7 @@ async function decide(
     metadata.reasonCode = reasonCode;
   }
 
-  return runTransaction(async (tx) => {
+  const decision = await runTransaction(async (tx) => {
     const submission = await SubmissionRepository.applyDecision(
       submissionId,
       {
@@ -145,6 +147,33 @@ async function decide(
     );
     return { submission, audit };
   });
+
+  const activityAction =
+    nextStatus === SubmissionStatus.APPROVED
+      ? CreatorActivityAction.SUBMISSION_APPROVED
+      : nextStatus === SubmissionStatus.REJECTED
+        ? CreatorActivityAction.SUBMISSION_REJECTED
+        : CreatorActivityAction.SUBMISSION_FLAGGED;
+
+  await CreatorActivityService.record({
+    creatorId: decision.submission.creatorId,
+    action: activityAction,
+    description:
+      nextStatus === SubmissionStatus.APPROVED
+        ? 'Submission approved'
+        : nextStatus === SubmissionStatus.REJECTED
+          ? 'Submission rejected'
+          : 'Submission flagged',
+    relatedSubmissionId: decision.submission.id,
+    relatedContestId: decision.submission.contestId,
+    performedByUserId: actor.id,
+    metadata: {
+      submissionTitle: decision.submission.title,
+      contestTitle: decision.submission.contest.title,
+    },
+  });
+
+  return decision;
 }
 
 export class ModerationService {
