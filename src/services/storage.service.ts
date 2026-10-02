@@ -7,6 +7,23 @@ import {
 import { ValidationError } from '../utils/response.js';
 
 /**
+ * Profile images reuse the same private storage adapter as contest videos.
+ * No image size or dimension rule is specified in source, so the only check
+ * is a displayable image content type. The bucket is not made public.
+ */
+export const AVATAR_CONTENT_TYPES = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+} as const;
+
+export type AllowedAvatarContentType = keyof typeof AVATAR_CONTENT_TYPES;
+
+const AVATAR_KEY_PATTERN =
+  /^avatars\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(jpg|png|webp|gif)$/i;
+
+/**
  * Object-storage port (M06-P02-T02).
  *
  * Contest / submission services must not import the AWS SDK.
@@ -102,6 +119,39 @@ export function isAllowedVideoContentType(
   );
 }
 
+export function isAllowedAvatarContentType(
+  contentType: string,
+): contentType is AllowedAvatarContentType {
+  return Object.prototype.hasOwnProperty.call(AVATAR_CONTENT_TYPES, contentType);
+}
+
+/**
+ * Backend-issued key. Clients cannot choose the path.
+ * Pattern: avatars/{creatorId}/{uuid}.{ext}
+ */
+export function buildAvatarObjectKey(creatorId: string, contentType: string): string {
+  if (!isAllowedAvatarContentType(contentType)) {
+    throw new ValidationError('Profile image must be a JPEG, PNG, WebP, or GIF');
+  }
+  return `avatars/${creatorId}/${randomUUID()}.${AVATAR_CONTENT_TYPES[contentType]}`;
+}
+
+export function parseAvatarObjectKey(
+  objectKey: string,
+): { creatorId: string; objectId: string; extension: string } | null {
+  const match = AVATAR_KEY_PATTERN.exec(objectKey);
+  if (!match) return null;
+  return {
+    creatorId: match[1],
+    objectId: match[2],
+    extension: match[3].toLowerCase(),
+  };
+}
+
+export function isSignableObjectKey(objectKey: string): boolean {
+  return Boolean(parseSubmissionObjectKey(objectKey) || parseAvatarObjectKey(objectKey));
+}
+
 let activeStorage: StorageService | null = null;
 
 export function setStorageService(storage: StorageService | null): void {
@@ -143,5 +193,28 @@ export async function playbackUrlForSubmission(
   } catch (error) {
     if (process.env.NODE_ENV === 'test') return storedVideoUrl;
     throw error;
+  }
+}
+
+/**
+ * Short-lived GET for a profile image key stored on the user.
+ * Missing storage or a failed signature becomes "no image" so the feed
+ * can fall back to initials. The raw key is not returned to clients.
+ */
+export async function signedAvatarUrl(
+  objectKey: string | null | undefined,
+): Promise<string | null> {
+  if (!objectKey || !parseAvatarObjectKey(objectKey)) return null;
+  let storage: StorageService;
+  try {
+    storage = getStorageService();
+  } catch {
+    return null;
+  }
+  if (!storage.createPresignedDownload) return null;
+  try {
+    return await storage.createPresignedDownload(objectKey);
+  } catch {
+    return null;
   }
 }

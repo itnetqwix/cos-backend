@@ -23,6 +23,8 @@ import {
   registerCreatorSwaggerSchema,
   loginSwaggerSchema,
   getMeSwaggerSchema,
+  updateMeSwaggerSchema,
+  presignAvatarSwaggerSchema,
 } from '../schemas/auth.schema.js';
 import {
   createContestSwaggerSchema,
@@ -144,6 +146,32 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     AuthController.getMe,
   );
 
+  // Creator profile edits are scoped to request.user.id.
+  // Email is not part of the body. Blocked creators are rejected.
+  const creatorGuards = [
+    fastify.authenticate,
+    authorizeRoles(Role.CREATOR),
+    requireActiveCreator,
+  ];
+
+  fastify.patch(
+    '/auth/me',
+    {
+      schema: updateMeSwaggerSchema,
+      onRequest: creatorGuards,
+    },
+    AuthController.updateMe,
+  );
+
+  fastify.post(
+    '/auth/me/avatar/presign',
+    {
+      schema: presignAvatarSwaggerSchema,
+      onRequest: creatorGuards,
+    },
+    AuthController.presignAvatar,
+  );
+
   // User listing is ADMIN only. Self-profile remains GET /auth/me.
   // -------------------------------------------------------------
 
@@ -236,13 +264,8 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // M06. CREATOR only. Presign + complete (no binary through Fastify).
   // The legacy binary ingest path is intentionally not registered.
   // Register /me before /:id. Moderation routes are section 7.
+  // creatorGuards is declared with the auth profile routes.
   // -------------------------------------------------------------
-
-  const creatorGuards = [
-    fastify.authenticate,
-    authorizeRoles(Role.CREATOR),
-    requireActiveCreator,
-  ];
 
   fastify.get(
     '/creator/contests',

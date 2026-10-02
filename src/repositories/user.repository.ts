@@ -7,6 +7,7 @@ const publicUserSelect = {
   name: true,
   role: true,
   accountStatus: true,
+  avatarObjectKey: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.UserSelect;
@@ -116,6 +117,21 @@ export class UserRepository {
     return prisma.user.update({
       where: { id },
       data: { accountStatus },
+      select: publicUserSelect,
+    });
+  }
+
+  /**
+   * Updates only the authenticated user's own row.
+   * Callers must pass the JWT user id, never a client-supplied user id.
+   */
+  static async updateOwnProfile(
+    id: string,
+    data: { name?: string; avatarObjectKey?: string | null },
+  ) {
+    return prisma.user.update({
+      where: { id },
+      data,
       select: publicUserSelect,
     });
   }

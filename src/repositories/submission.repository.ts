@@ -42,6 +42,7 @@ const judgingInclude = {
     select: {
       id: true,
       name: true,
+      avatarObjectKey: true,
     },
   },
   contest: {

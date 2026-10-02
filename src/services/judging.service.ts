@@ -11,7 +11,7 @@ import {
   SubmissionRepository,
 } from '../repositories/submission.repository.js';
 import { computeCommunityScore, CommunityScoreResult } from './community-score.js';
-import { playbackUrlForSubmission } from './storage.service.js';
+import { playbackUrlForSubmission, signedAvatarUrl } from './storage.service.js';
 import {
   ConflictError,
   ForbiddenError,
@@ -82,7 +82,7 @@ export interface JudgingQueueItem {
   totalVotes: number;
   status: SubmissionStatus;
   category: string | null;
-  creator: { id: string; name: string };
+  creator: { id: string; name: string; avatarUrl?: string | null };
   createdAt: Date;
 }
 
@@ -139,7 +139,15 @@ function assertVoter(voter: JudgingVoter | null): void {
   );
 }
 
-function toQueueItem(row: JudgingQueueRecord): JudgingQueueItem {
+function toQueueItem(
+  row: JudgingQueueRecord,
+  avatarUrl: string | null,
+): JudgingQueueItem {
+  const creator: JudgingQueueItem['creator'] = {
+    id: row.creator.id,
+    name: row.creator.name,
+  };
+  if (avatarUrl) creator.avatarUrl = avatarUrl;
   return {
     id: row.id,
     title: row.title,
@@ -152,7 +160,7 @@ function toQueueItem(row: JudgingQueueRecord): JudgingQueueItem {
     totalVotes: row.totalVotes,
     status: row.status,
     category: row.contest.category?.name ?? null,
-    creator: { id: row.creator.id, name: row.creator.name },
+    creator,
     createdAt: row.createdAt,
   };
 }
@@ -165,9 +173,18 @@ export class JudgingService {
     }
     assertViewableContest(contest.status);
     const rows = await SubmissionRepository.listApprovedForContest(contestId);
+    const avatarUrls = new Map<string, Promise<string | null>>();
+    const avatarFor = (objectKey: string | null | undefined) => {
+      if (!objectKey) return Promise.resolve(null);
+      const pending = avatarUrls.get(objectKey);
+      if (pending) return pending;
+      const next = signedAvatarUrl(objectKey);
+      avatarUrls.set(objectKey, next);
+      return next;
+    };
     const items = await Promise.all(
       rows.map(async (row) => ({
-        ...toQueueItem(row),
+        ...toQueueItem(row, await avatarFor(row.creator.avatarObjectKey)),
         videoUrl: await playbackUrlForSubmission(row.objectKey, row.videoUrl),
       })),
     );
