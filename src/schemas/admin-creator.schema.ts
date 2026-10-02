@@ -125,6 +125,189 @@ export const listCreatorsSwaggerSchema: FastifySchema = {
   },
 };
 
+const adminVideoSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    title: { type: 'string' },
+    status: { type: 'string' },
+    createdAt: { type: 'string' },
+    updatedAt: { type: 'string', nullable: true },
+    contestId: { type: 'string' },
+    contestTitle: { type: 'string' },
+    contestStatus: { type: 'string' },
+    communityScore: { type: 'number' },
+    totalVotes: { type: 'integer' },
+    durationSeconds: { type: 'integer', nullable: true },
+    videoUrl: { type: 'string', nullable: true },
+    thumbnailUrl: { type: 'string', nullable: true },
+  },
+};
+
+const participationVideoSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    title: { type: 'string' },
+    status: { type: 'string' },
+    createdAt: { type: 'string', nullable: true },
+    updatedAt: { type: 'string', nullable: true },
+    communityScore: { type: 'number' },
+    totalVotes: { type: 'integer' },
+  },
+};
+
+const issuedBySchema = {
+  type: 'object',
+  nullable: true,
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+    email: { type: 'string' },
+  },
+};
+
+const creatorProfileDataSchema = {
+  type: 'object',
+  properties: {
+    creator: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        email: { type: 'string' },
+        role: { type: 'string' },
+        accountStatus: { type: 'string' },
+        createdAt: { type: 'string' },
+        lastActivityAt: { type: 'string', nullable: true },
+        avatarUrl: { type: 'string', nullable: true },
+      },
+    },
+    stats: {
+      type: 'object',
+      properties: {
+        totalVideos: { type: 'integer' },
+        approvedVideos: { type: 'integer' },
+        pendingVideos: { type: 'integer' },
+        rejectedVideos: { type: 'integer' },
+        flaggedVideos: { type: 'integer' },
+        underModerationVideos: { type: 'integer' },
+        contestsParticipated: { type: 'integer' },
+        totalRatingsReceived: { type: 'integer' },
+        totalComments: { type: 'integer' },
+      },
+    },
+    warnings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          reason: { type: 'string' },
+          createdAt: { type: 'string' },
+          issuedBy: issuedBySchema,
+        },
+      },
+    },
+    submissions: { type: 'array', items: adminVideoSchema },
+  },
+};
+
+const creatorContestsDataSchema = {
+  type: 'object',
+  properties: {
+    creatorId: { type: 'string' },
+    contests: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          contestId: { type: 'string' },
+          title: { type: 'string' },
+          status: { type: 'string' },
+          submissionCount: { type: 'integer' },
+          firstSubmissionAt: { type: 'string', nullable: true },
+          latestSubmissionAt: { type: 'string', nullable: true },
+          submissions: { type: 'array', items: participationVideoSchema },
+        },
+      },
+    },
+  },
+};
+
+const creatorSubmissionsDataSchema = {
+  type: 'object',
+  properties: {
+    items: { type: 'array', items: adminVideoSchema },
+    pagination: paginationSchema,
+  },
+};
+
+const creatorActivityDataSchema = {
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          action: { type: 'string' },
+          description: { type: 'string', nullable: true },
+          relatedSubmissionId: { type: 'string', nullable: true },
+          relatedContestId: { type: 'string', nullable: true },
+          relatedSubmissionTitle: { type: 'string', nullable: true },
+          relatedContestTitle: { type: 'string', nullable: true },
+          performedBy: {
+            type: 'object',
+            nullable: true,
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              email: { type: 'string' },
+              role: { type: 'string' },
+            },
+          },
+          createdAt: { type: 'string' },
+        },
+      },
+    },
+    pagination: paginationSchema,
+  },
+};
+
+const contestParticipantsDataSchema = {
+  type: 'object',
+  properties: {
+    contest: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        title: { type: 'string' },
+        status: { type: 'string' },
+      },
+    },
+    participatingCreatorCount: { type: 'integer' },
+    creators: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          email: { type: 'string' },
+          accountStatus: { type: 'string' },
+          submissionCount: { type: 'integer' },
+          firstSubmissionAt: { type: 'string', nullable: true },
+          latestSubmissionAt: { type: 'string', nullable: true },
+          submissions: { type: 'array', items: participationVideoSchema },
+        },
+      },
+    },
+    pagination: paginationSchema,
+  },
+};
+
 export const getCreatorSwaggerSchema: FastifySchema = {
   tags: ['Admin'],
   summary: 'Get a creator and their submissions',
@@ -137,7 +320,10 @@ export const getCreatorSwaggerSchema: FastifySchema = {
     properties: { id: { type: 'string', format: 'uuid' } },
   },
   response: {
-    200: swaggerSuccessEnvelope({ type: 'object' }, 'Creator retrieved successfully'),
+    200: swaggerSuccessEnvelope(
+      creatorProfileDataSchema,
+      'Creator retrieved successfully',
+    ),
     401: swaggerErrorEnvelope('Unauthorized'),
     403: swaggerErrorEnvelope('Forbidden'),
     404: swaggerErrorEnvelope('Creator not found'),
@@ -147,6 +333,7 @@ export const getCreatorSwaggerSchema: FastifySchema = {
 export const creatorSubresourceSwaggerSchema = (
   summary: string,
   message: string,
+  dataSchema: Record<string, unknown>,
 ): FastifySchema => ({
   tags: ['Admin'],
   summary,
@@ -159,12 +346,30 @@ export const creatorSubresourceSwaggerSchema = (
   },
   querystring: adminQuerystring,
   response: {
-    200: swaggerSuccessEnvelope({ type: 'object' }, message),
+    200: swaggerSuccessEnvelope(dataSchema, message),
     401: swaggerErrorEnvelope('Unauthorized'),
     403: swaggerErrorEnvelope('Forbidden'),
     404: swaggerErrorEnvelope('Creator not found'),
   },
 });
+
+export const listAdminCreatorContestsSwaggerSchema = creatorSubresourceSwaggerSchema(
+  'List contests a creator has entered',
+  'Creator contests retrieved successfully',
+  creatorContestsDataSchema,
+);
+
+export const listCreatorSubmissionsSwaggerSchema = creatorSubresourceSwaggerSchema(
+  'List a creator submissions',
+  'Creator submissions retrieved successfully',
+  creatorSubmissionsDataSchema,
+);
+
+export const listCreatorActivitySwaggerSchema = creatorSubresourceSwaggerSchema(
+  'List creator activity',
+  'Creator activity retrieved successfully',
+  creatorActivityDataSchema,
+);
 
 export const warnCreatorSwaggerSchema: FastifySchema = {
   tags: ['Admin'],
@@ -185,7 +390,19 @@ export const warnCreatorSwaggerSchema: FastifySchema = {
     },
   },
   response: {
-    201: swaggerSuccessEnvelope({ type: 'object' }, 'Warning issued successfully'),
+    201: swaggerSuccessEnvelope(
+      {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          creatorId: { type: 'string' },
+          reason: { type: 'string' },
+          createdAt: { type: 'string' },
+          issuedBy: issuedBySchema,
+        },
+      },
+      'Warning issued successfully',
+    ),
     400: swaggerErrorEnvelope('Validation error'),
     401: swaggerErrorEnvelope('Unauthorized'),
     403: swaggerErrorEnvelope('Forbidden'),
@@ -213,7 +430,14 @@ export const creatorStatusSwaggerSchema: FastifySchema = {
   },
   response: {
     200: swaggerSuccessEnvelope(
-      { type: 'object' },
+      {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          accountStatus: { type: 'string' },
+          changed: { type: 'boolean' },
+        },
+      },
       'Creator status updated successfully',
     ),
     401: swaggerErrorEnvelope('Unauthorized'),
@@ -236,7 +460,7 @@ export const contestParticipantsSwaggerSchema: FastifySchema = {
   querystring: adminQuerystring,
   response: {
     200: swaggerSuccessEnvelope(
-      { type: 'object' },
+      contestParticipantsDataSchema,
       'Contest participants retrieved successfully',
     ),
     401: swaggerErrorEnvelope('Unauthorized'),
