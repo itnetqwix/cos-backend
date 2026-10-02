@@ -72,4 +72,27 @@ export class UserRepository {
 
     return { users, totalCount };
   }
+
+  static async listCreators() {
+    const where: Prisma.UserWhereInput = { role: Role.CREATOR };
+    const [users, totalCreators] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          ...publicUserSelect,
+          _count: { select: { submissions: true } },
+        },
+      }),
+      prisma.user.count({ where }),
+    ]);
+    return { users, totalCreators };
+  }
+
+  static async findCreatorById(id: string) {
+    return prisma.user.findFirst({
+      where: { id, role: Role.CREATOR },
+      select: publicUserSelect,
+    });
+  }
 }

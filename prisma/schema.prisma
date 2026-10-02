@@ -24,6 +24,7 @@ model User {
   moderatedSubmissions Submission[] @relation("ModeratedByUser")
   auditLogs            AuditLog[]
   ratings              Rating[]
+  comments             Comment[]
 
   // handle and avatarUrl are domain-model PLANNED fields.
   // Persistence (nullability, uniqueness, @-prefix format) is NOT SPECIFIED
@@ -126,6 +127,7 @@ model Submission {
   updatedAt       DateTime         @updatedAt
   ratings         Rating[]
   auditLogs       AuditLog[]
+  comments        Comment[]
 
   @@index([contestId, status])
   @@index([creatorId])
@@ -186,4 +188,23 @@ model Rating {
   @@index([submissionId])
   @@index([voterFingerprint, submissionId])
   @@map("ratings")
+}
+
+// Comments are stored on the submission, not the contest.
+// Guest comment authorship is NOT SPECIFIED in the product source.
+// authorId is required. Ordering and maximum length are NOT SPECIFIED;
+// the API uses newest-first and an engineering body cap.
+// onDelete Cascade removes comments with their submission or author.
+// It does not remove the contest or other creators' submissions.
+model Comment {
+  id           String     @id @default(uuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body         String     @db.Text
+  createdAt    DateTime   @default(now())
+
+  @@index([submissionId, createdAt])
+  @@map("comments")
 }

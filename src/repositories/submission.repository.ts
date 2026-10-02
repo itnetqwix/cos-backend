@@ -128,6 +128,18 @@ export class SubmissionRepository {
     });
   }
 
+  /**
+   * Removes one submission row.
+   * Prisma cascades ratings and comments.
+   * Audit logs keep their rows and set submissionId to null.
+   * The creator account, contest, and other submissions are not deleted.
+   * This method does not delete the S3 object. Physical media cleanup is
+   * not part of the storage port.
+   */
+  static async deleteById(id: string): Promise<void> {
+    await prisma.submission.delete({ where: { id } });
+  }
+
   static async findById(id: string): Promise<SubmissionRecord | null> {
     return prisma.submission.findUnique({
       where: { id },

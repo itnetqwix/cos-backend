@@ -1,6 +1,8 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { Role } from '@prisma/client';
+import { AdminCreatorController } from '../controllers/admin-creator.controller.js';
 import { AuthController } from '../controllers/auth.controller.js';
+import { CommentController } from '../controllers/comment.controller.js';
 import { ContestController } from '../controllers/contest.controller.js';
 import { ModerationController } from '../controllers/moderation.controller.js';
 import { SubmissionController } from '../controllers/submission.controller.js';
@@ -47,6 +49,15 @@ import {
   healthSwaggerSchema,
   rootSwaggerSchema,
 } from '../schemas/user.schema.js';
+import {
+  createCommentSwaggerSchema,
+  listCommentsSwaggerSchema,
+} from '../schemas/comment.schema.js';
+import {
+  deleteCreatorSubmissionSwaggerSchema,
+  getCreatorSwaggerSchema,
+  listCreatorsSwaggerSchema,
+} from '../schemas/admin-creator.schema.js';
 import { sendSuccess } from '../utils/response.js';
 import { SYSTEM_CONSTANTS, HTTP_STATUS } from '../config/constants.js';
 import {
@@ -275,6 +286,23 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     SubmissionController.getById,
   );
 
+  // Comments belong to the submission. GET is public.
+  // POST requires authentication. Guest authorship is NOT SPECIFIED.
+  fastify.get(
+    '/submissions/:id/comments',
+    { schema: listCommentsSwaggerSchema },
+    CommentController.list,
+  );
+
+  fastify.post(
+    '/submissions/:id/comments',
+    {
+      schema: createCommentSwaggerSchema,
+      onRequest: [fastify.authenticate],
+    },
+    CommentController.create,
+  );
+
   // -------------------------------------------------------------
   // 7. Moderation (/api/v1/admin/...)
   // ADMIN only. CREATOR is not granted.
@@ -318,6 +346,33 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       onRequest: moderatorGuards,
     },
     ModerationController.reject,
+  );
+
+  fastify.get(
+    '/admin/creators',
+    {
+      schema: listCreatorsSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    AdminCreatorController.list,
+  );
+
+  fastify.get(
+    '/admin/creators/:id',
+    {
+      schema: getCreatorSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    AdminCreatorController.getById,
+  );
+
+  fastify.delete(
+    '/admin/submissions/:id',
+    {
+      schema: deleteCreatorSubmissionSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    AdminCreatorController.deleteSubmission,
   );
 
   // -------------------------------------------------------------
