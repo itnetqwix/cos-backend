@@ -13,7 +13,11 @@ import { UserRepository } from '../repositories/user.repository.js';
 import { buildPaginationMeta, parsePaginationParams } from '../utils/pagination.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../utils/response.js';
 import { CreatorActivityService } from './creator-activity.service.js';
-import { playbackUrlForSubmission, signedAvatarUrl } from './storage.service.js';
+import {
+  isSignableObjectKey,
+  playbackUrlForSubmission,
+  signedAvatarUrl,
+} from './storage.service.js';
 
 /**
  * Admin directory of creator accounts, participation, warnings, and videos.
@@ -89,6 +93,7 @@ async function toVideo<
     durationSeconds?: number;
     objectKey?: string;
     videoUrl?: string;
+    thumbnailUrl?: string | null;
     contest: { title: string; status: string };
   },
 >(submission: T, withPlayback: boolean) {
@@ -108,7 +113,28 @@ async function toVideo<
       withPlayback && submission.objectKey && submission.videoUrl
         ? await playbackUrlForSubmission(submission.objectKey, submission.videoUrl)
         : null,
+    thumbnailUrl: await resolveThumbnailUrl(submission.thumbnailUrl),
   };
+}
+
+/**
+ * Stored poster when it is already an http(s) URL.
+ * A private object key is exchanged for a short-lived download URL.
+ * Anything else becomes null so the client can show a fallback
+ * without requesting a thumbnail per row or exposing a raw key.
+ */
+async function resolveThumbnailUrl(
+  value: string | null | undefined,
+): Promise<string | null> {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (!isSignableObjectKey(value)) return null;
+  try {
+    const signed = await playbackUrlForSubmission(value, value);
+    return /^https?:\/\//i.test(signed) ? signed : null;
+  } catch {
+    return null;
+  }
 }
 
 export class AdminCreatorService {

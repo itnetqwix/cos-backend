@@ -61,10 +61,12 @@ import {
 } from '../schemas/comment.schema.js';
 import {
   contestParticipantsSwaggerSchema,
-  creatorSubresourceSwaggerSchema,
   creatorStatusSwaggerSchema,
   deleteCreatorSubmissionSwaggerSchema,
   getCreatorSwaggerSchema,
+  listCreatorActivitySwaggerSchema,
+  listAdminCreatorContestsSwaggerSchema,
+  listCreatorSubmissionsSwaggerSchema,
   listCreatorsSwaggerSchema,
   warnCreatorSwaggerSchema,
 } from '../schemas/admin-creator.schema.js';
@@ -395,10 +397,7 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   fastify.get(
     '/admin/creators/:id/activity',
     {
-      schema: creatorSubresourceSwaggerSchema(
-        'List creator activity',
-        'Creator activity retrieved successfully',
-      ),
+      schema: listCreatorActivitySwaggerSchema,
       onRequest: moderatorGuards,
     },
     AdminCreatorController.activity,
@@ -407,10 +406,7 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   fastify.get(
     '/admin/creators/:id/contests',
     {
-      schema: creatorSubresourceSwaggerSchema(
-        'List contests a creator has entered',
-        'Creator contests retrieved successfully',
-      ),
+      schema: listAdminCreatorContestsSwaggerSchema,
       onRequest: moderatorGuards,
     },
     AdminCreatorController.contests,
@@ -419,10 +415,7 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   fastify.get(
     '/admin/creators/:id/submissions',
     {
-      schema: creatorSubresourceSwaggerSchema(
-        'List a creator submissions',
-        'Creator submissions retrieved successfully',
-      ),
+      schema: listCreatorSubmissionsSwaggerSchema,
       onRequest: moderatorGuards,
     },
     AdminCreatorController.submissions,
