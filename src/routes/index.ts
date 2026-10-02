@@ -7,7 +7,11 @@ import { ContestController } from '../controllers/contest.controller.js';
 import { ModerationController } from '../controllers/moderation.controller.js';
 import { SubmissionController } from '../controllers/submission.controller.js';
 import { UserController } from '../controllers/user.controller.js';
-import { authenticateOptional, authorizeRoles } from '../middleware/auth.middleware.js';
+import {
+  authenticateOptional,
+  authorizeRoles,
+  requireActiveCreator,
+} from '../middleware/auth.middleware.js';
 import { JudgingController } from '../controllers/judging.controller.js';
 import { LeaderboardController } from '../controllers/leaderboard.controller.js';
 import {
@@ -54,9 +58,13 @@ import {
   listCommentsSwaggerSchema,
 } from '../schemas/comment.schema.js';
 import {
+  contestParticipantsSwaggerSchema,
+  creatorSubresourceSwaggerSchema,
+  creatorStatusSwaggerSchema,
   deleteCreatorSubmissionSwaggerSchema,
   getCreatorSwaggerSchema,
   listCreatorsSwaggerSchema,
+  warnCreatorSwaggerSchema,
 } from '../schemas/admin-creator.schema.js';
 import { sendSuccess } from '../utils/response.js';
 import { SYSTEM_CONSTANTS, HTTP_STATUS } from '../config/constants.js';
@@ -230,7 +238,11 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // Register /me before /:id. Moderation routes are section 7.
   // -------------------------------------------------------------
 
-  const creatorGuards = [fastify.authenticate, authorizeRoles(Role.CREATOR)];
+  const creatorGuards = [
+    fastify.authenticate,
+    authorizeRoles(Role.CREATOR),
+    requireActiveCreator,
+  ];
 
   fastify.get(
     '/creator/contests',
@@ -355,6 +367,69 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       onRequest: moderatorGuards,
     },
     AdminCreatorController.list,
+  );
+
+  fastify.get(
+    '/admin/creators/:id/activity',
+    {
+      schema: creatorSubresourceSwaggerSchema(
+        'List creator activity',
+        'Creator activity retrieved successfully',
+      ),
+      onRequest: moderatorGuards,
+    },
+    AdminCreatorController.activity,
+  );
+
+  fastify.get(
+    '/admin/creators/:id/contests',
+    {
+      schema: creatorSubresourceSwaggerSchema(
+        'List contests a creator has entered',
+        'Creator contests retrieved successfully',
+      ),
+      onRequest: moderatorGuards,
+    },
+    AdminCreatorController.contests,
+  );
+
+  fastify.get(
+    '/admin/creators/:id/submissions',
+    {
+      schema: creatorSubresourceSwaggerSchema(
+        'List a creator submissions',
+        'Creator submissions retrieved successfully',
+      ),
+      onRequest: moderatorGuards,
+    },
+    AdminCreatorController.submissions,
+  );
+
+  fastify.post(
+    '/admin/creators/:id/warnings',
+    {
+      schema: warnCreatorSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    AdminCreatorController.warn,
+  );
+
+  fastify.patch(
+    '/admin/creators/:id/status',
+    {
+      schema: creatorStatusSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    AdminCreatorController.setStatus,
+  );
+
+  fastify.get(
+    '/admin/contests/:id/participants',
+    {
+      schema: contestParticipantsSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    AdminCreatorController.contestParticipants,
   );
 
   fastify.get(

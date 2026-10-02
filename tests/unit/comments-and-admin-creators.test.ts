@@ -4,7 +4,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Role } from '@prisma/client';
+import { AdminCreatorRepository } from '../../src/repositories/admin-creator.repository.js';
 import { CommentRepository } from '../../src/repositories/comment.repository.js';
+import { CreatorActivityRepository } from '../../src/repositories/creator-activity.repository.js';
+import { CreatorWarningRepository } from '../../src/repositories/creator-warning.repository.js';
 import { SubmissionRepository } from '../../src/repositories/submission.repository.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
 import { CommentService } from '../../src/services/comment.service.js';
@@ -23,6 +26,13 @@ const originals = {
   createComment: CommentRepository.create,
   listCreators: UserRepository.listCreators,
   findCreatorById: UserRepository.findCreatorById,
+  summary: AdminCreatorRepository.summary,
+  searchCreators: AdminCreatorRepository.searchCreators,
+  submissionStatsForCreators: AdminCreatorRepository.submissionStatsForCreators,
+  creatorStats: AdminCreatorRepository.creatorStats,
+  latestForCreators: CreatorActivityRepository.latestForCreators,
+  findLatest: CreatorActivityRepository.findLatest,
+  listWarnings: CreatorWarningRepository.listByCreator,
 };
 
 after(() => {
@@ -33,6 +43,13 @@ after(() => {
   CommentRepository.create = originals.createComment;
   UserRepository.listCreators = originals.listCreators;
   UserRepository.findCreatorById = originals.findCreatorById;
+  AdminCreatorRepository.summary = originals.summary;
+  AdminCreatorRepository.searchCreators = originals.searchCreators;
+  AdminCreatorRepository.submissionStatsForCreators = originals.submissionStatsForCreators;
+  AdminCreatorRepository.creatorStats = originals.creatorStats;
+  CreatorActivityRepository.latestForCreators = originals.latestForCreators;
+  CreatorActivityRepository.findLatest = originals.findLatest;
+  CreatorWarningRepository.listByCreator = originals.listWarnings;
 });
 
 describe('submission comments and admin creator management', { concurrency: false }, () => {
@@ -98,20 +115,50 @@ describe('submission comments and admin creator management', { concurrency: fals
   });
 
   it('lets an admin list creators and open one creator profile', async () => {
-    UserRepository.listCreators = async () => ({
+    AdminCreatorRepository.summary = async () => ({
       totalCreators: 1,
+      activeCreators: 1,
+      blockedCreators: 0,
+      totalVideos: 2,
+      approvedVideos: 2,
+      pendingVideos: 0,
+      rejectedVideos: 0,
+      flaggedVideos: 0,
+      underModerationVideos: 0,
+    });
+    AdminCreatorRepository.searchCreators = async () => ({
+      totalCount: 1,
       users: [
         {
           id: CREATOR,
           email: 'ada@example.com',
           name: 'Ada',
           role: Role.CREATOR,
+          accountStatus: 'ACTIVE' as const,
           createdAt: new Date('2026-10-01T00:00:00.000Z'),
-          updatedAt: new Date('2026-10-01T00:00:00.000Z'),
-          _count: { submissions: 2 },
         },
       ],
     });
+    AdminCreatorRepository.submissionStatsForCreators = async () => ({
+      byStatus: [
+        {
+          creatorId: CREATOR,
+          status: 'APPROVED' as const,
+          _count: { _all: 2 },
+        },
+      ],
+      byContest: [],
+      ratings: [],
+    });
+    CreatorActivityRepository.latestForCreators = async () => [];
+    AdminCreatorRepository.creatorStats = async () => ({
+      byStatus: [],
+      contestCount: 1,
+      ratings: { _sum: { totalVotes: 183 } },
+      comments: 0,
+    });
+    CreatorWarningRepository.listByCreator = async () => [];
+    CreatorActivityRepository.findLatest = async () => null;
     const list = await AdminCreatorService.list({ id: ADMIN, role: Role.ADMIN });
     assert.equal(list.totalCreators, 1);
     assert.equal(list.creators[0].email, 'ada@example.com');

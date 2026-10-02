@@ -1,6 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { Role } from '@prisma/client';
-import { sendError } from '../utils/response.js';
+import { assertCreatorAccountActive } from '../services/creator-account.service.js';
+import { AppError, sendError } from '../utils/response.js';
 import { HTTP_STATUS } from '../config/constants.js';
 
 /**
@@ -67,6 +68,32 @@ export function authorizeRoles(...allowedRoles: Role[]) {
 
 /** Pre-M03 name. Canonical export is `authorizeRoles`. */
 export const requireRoles = authorizeRoles;
+
+/**
+ * Rejects a CREATOR whose stored account status is BLOCKED.
+ *
+ * Attach after `authorizeRoles(Role.CREATOR)` on creator-only routes.
+ * ADMIN is not evaluated. The check reads the database so a block applies
+ * to tokens that were issued while the account was still active.
+ */
+export async function requireActiveCreator(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  if (reply.sent || !request.user || request.user.role !== Role.CREATOR) {
+    return;
+  }
+
+  try {
+    await assertCreatorAccountActive(request.user.id);
+  } catch (error) {
+    if (error instanceof AppError) {
+      sendError(reply, error.message, error.statusCode, null);
+      return;
+    }
+    throw error;
+  }
+}
 
 /**
  * Optional Bearer check for public judging (M08-P03-T03).

@@ -1,9 +1,11 @@
+import { CreatorActivityAction, Role } from '@prisma/client';
 import { FastifyInstance } from 'fastify';
 import { UserRepository } from '../repositories/user.repository.js';
 import { hashPassword, comparePassword } from '../utils/crypto.js';
 import { ConflictError, NotFoundError, UnauthorizedError } from '../utils/response.js';
 import { sanitizeUser } from '../utils/sanitize-user.js';
 import { RegisterCreatorInput, LoginInput } from '../schemas/auth.schema.js';
+import { CreatorActivityService } from './creator-activity.service.js';
 
 export class AuthService {
   /**
@@ -24,6 +26,13 @@ export class AuthService {
       email,
       passwordHash,
       name,
+    });
+
+    await CreatorActivityService.record({
+      creatorId: user.id,
+      action: CreatorActivityAction.REGISTERED,
+      description: 'Creator registered',
+      performedByUserId: user.id,
     });
 
     const token = fastify.jwt.sign({
@@ -49,6 +58,15 @@ export class AuthService {
     const isPasswordValid = await comparePassword(password, user.passwordHash);
     if (!isPasswordValid) {
       throw new UnauthorizedError('Invalid email or password');
+    }
+
+    if (user.role === Role.CREATOR) {
+      await CreatorActivityService.record({
+        creatorId: user.id,
+        action: CreatorActivityAction.LOGGED_IN,
+        description: 'Creator logged in',
+        performedByUserId: user.id,
+      });
     }
 
     const token = fastify.jwt.sign({

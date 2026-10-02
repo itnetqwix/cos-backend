@@ -140,6 +140,14 @@ export class SubmissionRepository {
     await prisma.submission.delete({ where: { id } });
   }
 
+  static async findTitlesByIds(ids: string[]) {
+    if (ids.length === 0) return [];
+    return prisma.submission.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, title: true },
+    });
+  }
+
   static async findById(id: string): Promise<SubmissionRecord | null> {
     return prisma.submission.findUnique({
       where: { id },
@@ -159,6 +167,49 @@ export class SubmissionRepository {
       where: { creatorId },
       include: submissionInclude,
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  static async pageByCreator(creatorId: string, skip: number, take: number) {
+    const where = { creatorId };
+    const [rows, totalCount] = await Promise.all([
+      prisma.submission.findMany({
+        where,
+        include: submissionInclude,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      }),
+      prisma.submission.count({ where }),
+    ]);
+    return { rows, totalCount };
+  }
+
+  /**
+   * One creator's submissions with contest identity.
+   * Scoped by creatorId (indexed). This is not a full-table read.
+   */
+  static async listCreatorParticipation(creatorId: string) {
+    return prisma.submission.findMany({
+      where: { creatorId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        contestId: true,
+        communityScore: true,
+        totalVotes: true,
+        contest: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
   }
 

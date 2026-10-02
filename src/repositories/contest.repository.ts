@@ -128,4 +128,12 @@ export class ContestRepository {
   static async deleteById(id: string): Promise<void> {
     await prisma.contest.delete({ where: { id } });
   }
+
+  static async findTitlesByIds(ids: string[]) {
+    if (ids.length === 0) return [];
+    return prisma.contest.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, title: true },
+    });
+  }
 }

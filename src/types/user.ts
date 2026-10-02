@@ -1,4 +1,4 @@
-import { Role } from '@prisma/client';
+import { AccountStatus, Role } from '@prisma/client';
 import {
   PaginationMeta,
   PaginationQuery,
@@ -10,6 +10,7 @@ export interface SanitizedUser {
   email: string;
   name: string;
   role: Role;
+  accountStatus: AccountStatus;
   createdAt: Date;
   updatedAt: Date;
 }

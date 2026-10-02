@@ -1,4 +1,4 @@
-import { Prisma, Role, SubmissionStatus } from '@prisma/client';
+import { CreatorActivityAction, Prisma, Role, SubmissionStatus } from '@prisma/client';
 import { VIDEO_CONSTRAINTS, VIDEO_CONTENT_TYPE_MESSAGE } from '../config/constants.js';
 import { ContestRepository } from '../repositories/contest.repository.js';
 import {
@@ -16,6 +16,8 @@ import {
   NotFoundError,
   ValidationError,
 } from '../utils/response.js';
+import { assertCreatorAccountActive } from './creator-account.service.js';
+import { CreatorActivityService } from './creator-activity.service.js';
 import {
   buildSubmissionObjectKey,
   getStorageService,
@@ -40,11 +42,11 @@ export interface SubmissionActor {
 const CREATOR_ONLY_MESSAGE =
   'Forbidden: User role does not have permission to access this resource';
 
-function assertCreator(actor: SubmissionActor): void {
-  if (actor.role === Role.CREATOR) {
-    return;
+async function assertCreator(actor: SubmissionActor): Promise<void> {
+  if (actor.role !== Role.CREATOR) {
+    throw new ForbiddenError(CREATOR_ONLY_MESSAGE);
   }
-  throw new ForbiddenError(CREATOR_ONLY_MESSAGE);
+  await assertCreatorAccountActive(actor.id);
 }
 
 function assertVideoConstraints(input: {
@@ -85,7 +87,7 @@ function resolveVideoUrl(objectKey: string): string {
 
 export class SubmissionService {
   static async presign(actor: SubmissionActor, input: PresignSubmissionInput) {
-    assertCreator(actor);
+    await assertCreator(actor);
     assertVideoConstraints({
       contentType: input.contentType,
       fileSizeBytes: input.fileSizeBytes,
@@ -120,7 +122,7 @@ export class SubmissionService {
     actor: SubmissionActor,
     input: CompleteSubmissionInput,
   ): Promise<{ submission: SubmissionRecord; created: boolean }> {
-    assertCreator(actor);
+    await assertCreator(actor);
     assertVideoConstraints({ durationSeconds: input.durationSeconds });
 
     const parsed = parseSubmissionObjectKey(input.objectKey);
@@ -168,6 +170,18 @@ export class SubmissionService {
 
     try {
       const submission = await SubmissionRepository.create(data);
+      await CreatorActivityService.record({
+        creatorId: actor.id,
+        action: CreatorActivityAction.SUBMISSION_UPLOADED,
+        description: 'Submission upload completed',
+        relatedSubmissionId: submission.id,
+        relatedContestId: submission.contestId,
+        performedByUserId: actor.id,
+        metadata: {
+          submissionTitle: submission.title,
+          contestTitle: submission.contest.title,
+        },
+      });
       return { submission, created: true };
     } catch (error) {
       if (
@@ -185,12 +199,12 @@ export class SubmissionService {
   }
 
   static async listMine(actor: SubmissionActor): Promise<SubmissionRecord[]> {
-    assertCreator(actor);
+    await assertCreator(actor);
     return SubmissionRepository.listByCreatorId(actor.id);
   }
 
   static async getById(actor: SubmissionActor, id: string): Promise<SubmissionRecord> {
-    assertCreator(actor);
+    await assertCreator(actor);
     const submission = await SubmissionRepository.findById(id);
     if (!submission || submission.creatorId !== actor.id) {
       throw new NotFoundError('Submission not found');
