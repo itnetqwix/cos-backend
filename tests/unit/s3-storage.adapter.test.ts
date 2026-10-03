@@ -8,9 +8,11 @@ import { ContestRepository } from '../../src/repositories/contest.repository.js'
 import { SubmissionRepository } from '../../src/repositories/submission.repository.js';
 import { JudgingService } from '../../src/services/judging.service.js';
 import {
+  buildPublicCdnMediaUrl,
   buildSubmissionObjectKey,
   parseSubmissionObjectKey,
   playbackUrlForSubmission,
+  PUBLIC_MEDIA_CACHE_CONTROL,
   setStorageService,
 } from '../../src/services/storage.service.js';
 
@@ -204,6 +206,58 @@ describe('M06-P02 S3 storage adapter', () => {
     } finally {
       ContestRepository.findById = originalFind;
       SubmissionRepository.listApprovedForContest = originalList;
+      setStorageService(null);
+    }
+  });
+
+  it('uses a stable CDN URL for public playback and keeps restricted playback signed', async () => {
+    const key = buildSubmissionObjectKey({
+      contestId: CONTEST,
+      creatorId: CREATOR,
+      contentType: 'video/mp4',
+      objectId: 'cccccccc-cccc-4ccc-8ccc-000000000001',
+    });
+    const signed: string[] = [];
+    setStorageService({
+      createPresignedUpload: async () => {
+        throw new Error('PUT is not used for playback');
+      },
+      createPresignedDownload: async (objectKey) => {
+        signed.push(objectKey);
+        return `https://ripskis-production-media.s3.us-east-2.amazonaws.com/${objectKey}?X-Amz-Signature=private`;
+      },
+    });
+    try {
+      const cdn = await playbackUrlForSubmission(key, 'https://example.com/stored.mp4', {
+        audience: 'public',
+        cdnBaseUrl: 'https://media.ripskis.com',
+      });
+      assert.equal(cdn, `https://media.ripskis.com/v1/${key}`);
+      assert.equal(cdn.includes('X-Amz-'), false);
+      assert.equal(cdn.includes('?'), false);
+      assert.equal(signed.length, 0);
+
+      const restricted = await playbackUrlForSubmission(key, 'https://example.com/stored.mp4', {
+        audience: 'restricted',
+        cdnBaseUrl: 'https://media.ripskis.com',
+      });
+      assert.match(restricted, /X-Amz-Signature=private/);
+      assert.deepEqual(signed, [key]);
+      assert.equal(buildPublicCdnMediaUrl('http://media.ripskis.com', key), null);
+      assert.equal(buildPublicCdnMediaUrl('https://media.ripskis.com?cache=1', key), null);
+      assert.equal(buildPublicCdnMediaUrl('https://media.ripskis.com', 'not-a-key'), null);
+      assert.equal(PUBLIC_MEDIA_CACHE_CONTROL, 'public, max-age=31536000, immutable');
+
+      const worker = readFileSync(
+        new URL('../../../infra/cloudflare/media-worker/src/index.js', import.meta.url),
+        'utf8',
+      );
+      assert.match(worker, /PUBLIC_MEDIA_CACHE_CONTROL|public, max-age=31536000, immutable/);
+      assert.match(worker, /Range/);
+      assert.match(worker, /206/);
+      assert.doesNotMatch(worker, /AKIA/);
+      assert.doesNotMatch(worker, /public-read/);
+    } finally {
       setStorageService(null);
     }
   });
