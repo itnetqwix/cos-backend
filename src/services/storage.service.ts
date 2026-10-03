@@ -4,6 +4,7 @@ import {
   VIDEO_CONTENT_TYPE_MESSAGE,
   type AllowedVideoContentType,
 } from '../config/constants.js';
+import { env } from '../config/env.js';
 import { ValidationError } from '../utils/response.js';
 
 /**
@@ -168,17 +169,68 @@ export function getStorageService(): StorageService {
 }
 
 /**
+ * Browser and Cloudflare cache header for an immutable approved video object.
+ * The media worker sets this. Fastify does not apply it to API JSON.
+ * Pending and rejected objects do not receive a public CDN URL.
+ */
+export const PUBLIC_MEDIA_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
+export type PlaybackAudience = 'public' | 'restricted';
+
+/**
+ * Stable CDN identity for one immutable object key.
+ * No signature, expiry, or cache-buster query is added.
+ * Returns null unless the base is https and the key is a backend-issued video key.
+ */
+export function buildPublicCdnMediaUrl(
+  cdnBaseUrl: string,
+  objectKey: string,
+): string | null {
+  if (!parseSubmissionObjectKey(objectKey)) return null;
+  const trimmed = cdnBaseUrl.trim();
+  if (!trimmed) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:') return null;
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) return null;
+  const prefix = `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`;
+  const encoded = objectKey
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+  return `${prefix}/v1/${encoded}`;
+}
+
+/**
  * Response-time playback URL. `objectKey` is the source of truth.
  * The stored `videoUrl` is only the fallback when this process has no
  * download signer.
  * Signed URLs are not written to PostgreSQL.
  * Playback TTL is `VIDEO_CONSTRAINTS.PRESIGN_EXPIRES_SECONDS` (900), the
  * same engineering default as upload presign. Source does not name a playback TTL.
+ *
+ * `audience: "public"` is approved judging and leaderboard playback only.
+ * When `MEDIA_CDN_BASE_URL` is set, that audience gets one stable CDN URL.
+ * Restricted caller paths keep a presigned GET so pending and rejected
+ * objects are not published on the media hostname.
  */
 export async function playbackUrlForSubmission(
   objectKey: string,
   storedVideoUrl: string,
+  options?: { audience?: PlaybackAudience; cdnBaseUrl?: string | null },
 ): Promise<string> {
+  const audience = options?.audience ?? 'restricted';
+  const cdnBase =
+    options?.cdnBaseUrl === undefined ? env.MEDIA_CDN_BASE_URL : options.cdnBaseUrl;
+  if (audience === 'public' && cdnBase) {
+    const cdnUrl = buildPublicCdnMediaUrl(cdnBase, objectKey);
+    if (cdnUrl) return cdnUrl;
+  }
+
   let storage: StorageService;
   try {
     storage = getStorageService();

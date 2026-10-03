@@ -185,7 +185,9 @@ export class JudgingService {
     const items = await Promise.all(
       rows.map(async (row) => ({
         ...toQueueItem(row, await avatarFor(row.creator.avatarObjectKey)),
-        videoUrl: await playbackUrlForSubmission(row.objectKey, row.videoUrl),
+        videoUrl: await playbackUrlForSubmission(row.objectKey, row.videoUrl, {
+          audience: 'public',
+        }),
       })),
     );
     return {

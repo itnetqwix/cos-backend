@@ -31,6 +31,11 @@
  * `S3StorageAdapter` refuses to sign when region/bucket are empty.
  * There is no silent local-filesystem fallback.
  *
+ * `MEDIA_CDN_BASE_URL` is optional. Empty keeps presigned S3 GET playback.
+ * A value is used only for approved public queue and leaderboard URLs.
+ * Set it only after `media.ripskis.com` is actually serving the media worker.
+ * Do not put AWS keys in this value.
+ *
  * `STORAGE_PROVIDER` is `s3`. There is no disk storage provider.
  * Missing AWS config does not fall back to local files.
  *
@@ -57,6 +62,12 @@ const envSchema = z.object({
   AWS_ACCESS_KEY_ID: z.string().default(''),
   AWS_SECRET_ACCESS_KEY: z.string().default(''),
   STORAGE_PROVIDER: z.enum(['s3']).default('s3'),
+  /**
+   * Public media hostname, for example `https://media.ripskis.com`.
+   * Empty means approved playback still uses a presigned S3 GET.
+   * Restricted creator, moderation, and admin playback always presigns.
+   */
+  MEDIA_CDN_BASE_URL: z.string().default(''),
   /**
    * Trusted reverse-proxy hops for Fastify `request.ip`.
    * 0 keeps the socket address (local and tests).

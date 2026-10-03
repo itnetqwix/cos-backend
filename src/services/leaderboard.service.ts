@@ -79,7 +79,9 @@ export class LeaderboardService {
         contestTitle: record.contest.title,
         title: record.title,
         description: record.description,
-        videoUrl: await playbackUrlForSubmission(record.objectKey, record.videoUrl),
+        videoUrl: await playbackUrlForSubmission(record.objectKey, record.videoUrl, {
+          audience: 'public',
+        }),
         thumbnailUrl: record.thumbnailUrl,
         durationSeconds: record.durationSeconds,
         tags: record.tags,
