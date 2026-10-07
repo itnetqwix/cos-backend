@@ -146,6 +146,8 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     listApproved: SubmissionRepository.listApprovedForContest,
     lock: RatingRepository.lockSubmission,
     findGuestVote: RatingRepository.findGuestVote,
+    listGuestRatings: RatingRepository.listGuestRatings,
+    updateGuestRating: RatingRepository.updateGuestRating,
     insert: RatingRepository.insert,
     writeScore: RatingRepository.writeScore,
   };
@@ -197,8 +199,25 @@ describe('M08 judging APIs', { concurrency: false }, () => {
       const found = memory.ratings.find(
         (row) => row.submissionId === submissionId && row.voterIpHash === voterIpHash,
       );
-      return found ? { id: found.id } : null;
+      return found ? { id: found.id, rating: found.rating } : null;
     }) as typeof RatingRepository.findGuestVote;
+
+    RatingRepository.listGuestRatings = (async (submissionIds: string[], voterIpHash: string) => {
+      return memory.ratings
+        .filter(
+          (row) => row.voterIpHash === voterIpHash && submissionIds.includes(row.submissionId),
+        )
+        .map((row) => ({ submissionId: row.submissionId, rating: row.rating }));
+    }) as typeof RatingRepository.listGuestRatings;
+
+    RatingRepository.updateGuestRating = (async (id: string, rating: number) => {
+      const row = memory.ratings.find((entry) => entry.id === id);
+      if (!row) {
+        throw new Error('rating not found');
+      }
+      row.rating = rating;
+      return { id: row.id, rating: row.rating };
+    }) as typeof RatingRepository.updateGuestRating;
 
     RatingRepository.insert = (async (data: InsertRatingData) => {
       const duplicate = memory.ratings.find(
@@ -241,6 +260,8 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     SubmissionRepository.listApprovedForContest = original.listApproved;
     RatingRepository.lockSubmission = original.lock;
     RatingRepository.findGuestVote = original.findGuestVote;
+    RatingRepository.listGuestRatings = original.listGuestRatings;
+    RatingRepository.updateGuestRating = original.updateGuestRating;
     RatingRepository.insert = original.insert;
     RatingRepository.writeScore = original.writeScore;
     setJudgingTransactionRunner(null);
@@ -393,12 +414,12 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
     assert.deepEqual(Object.keys(body).sort(), ENVELOPE_KEYS);
-    assert.deepEqual(body.data, {
-      previousScore: 0,
-      newScore: 5,
-      delta: 5,
-      totalVotes: 1,
-    });
+    assert.equal(body.data.previousScore, 0);
+    assert.equal(body.data.newScore, 5);
+    assert.equal(body.data.delta, 5);
+    assert.equal(body.data.totalVotes, 1);
+    assert.equal(body.data.viewerRating, 5);
+    assert.equal(body.data.ratingId, memory.ratings[0].id);
     assert.equal(memory.ratings[0].userId, null);
     assert.equal(memory.ratings[0].voterFingerprint, null);
     assert.equal(row.communityScore, 5);
@@ -417,19 +438,38 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     }
   });
 
-  it('rejects a second rating for the same video from the same IP identifier', async () => {
+  it('updates an existing rating for the same video and IP without a second row', async () => {
     const before = memory.ratings.length;
+    const row = memory.submissions.get(VIDEO_A)!;
+    const votesBefore = row.totalVotes;
     const res = await app.inject({
       method: 'POST',
       url: rateUrl(),
       payload: { rating: 4, voterFingerprint: 'device-a' },
     });
     const body = JSON.parse(res.payload);
-    assert.equal(res.statusCode, 409);
-    assert.equal(body.success, false);
-    assert.equal(body.message, 'You have already rated this video.');
+    assert.equal(res.statusCode, 200);
+    assert.equal(body.success, true);
+    assert.equal(body.data.viewerRating, 4);
+    assert.equal(body.data.totalVotes, votesBefore);
     assert.equal(memory.ratings.length, before);
+    assert.equal(memory.ratings.filter((rating) => rating.submissionId === VIDEO_A).length, 1);
     assert.equal(JSON.stringify(body).includes('127.0.0.1'), false);
+
+    const queue = await app.inject({ method: 'GET', url: `/api/v1/contests/${CONTEST_A}/queue` });
+    const item = JSON.parse(queue.payload).data.items.find(
+      (entry: { id: string }) => entry.id === VIDEO_A,
+    );
+    assert.equal(item.viewerRating, 4);
+    const other = await app.inject({
+      method: 'GET',
+      url: `/api/v1/contests/${CONTEST_A}/queue`,
+      remoteAddress: '203.0.113.91',
+    });
+    const hidden = JSON.parse(other.payload).data.items.find(
+      (entry: { id: string }) => entry.id === VIDEO_A,
+    );
+    assert.equal(hidden.viewerRating, null);
   });
 
   it('allows the same IP identifier to rate a different video', async () => {
@@ -465,13 +505,12 @@ describe('M08 judging APIs', { concurrency: false }, () => {
         payload: { rating: 1 },
       }),
     ]);
-    const statuses = [first.statusCode, second.statusCode].sort();
-    assert.deepEqual(statuses, [200, 409]);
+    assert.equal(first.statusCode, 200);
+    assert.equal(second.statusCode, 200);
+    const rows = memory.ratings.filter((rating) => rating.submissionId === VIDEO_B);
+    assert.equal(rows.length, 1);
     assert.equal(row.totalVotes, 1);
-    const accepted = [first, second].find((response) => response.statusCode === 200);
-    const duplicate = [first, second].find((response) => response.statusCode === 409);
-    assert.equal(JSON.parse(duplicate!.payload).message, 'You have already rated this video.');
-    assert.equal(row.communityScore, JSON.parse(accepted!.payload).data.newScore);
+    assert.equal(row.communityScore, rows[0].rating);
   });
 
   it('rounds 4.7 / 2 votes / rating 3 to 4.1', async () => {
@@ -485,12 +524,12 @@ describe('M08 judging APIs', { concurrency: false }, () => {
       payload: { rating: 3 },
     });
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(JSON.parse(res.payload).data, {
-      previousScore: 4.7,
-      newScore: 4.1,
-      delta: -0.6,
-      totalVotes: 3,
-    });
+    const data = JSON.parse(res.payload).data;
+    assert.equal(data.previousScore, 4.7);
+    assert.equal(data.newScore, 4.1);
+    assert.equal(data.delta, -0.6);
+    assert.equal(data.totalVotes, 3);
+    assert.equal(data.viewerRating, 3);
   });
 
   it('rejects ratings when the contest is outside ACTIVE or JUDGING', async () => {
@@ -576,7 +615,7 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     assert.equal(invalid.statusCode, 401);
     assert.deepEqual(Object.keys(JSON.parse(invalid.payload)).sort(), ENVELOPE_KEYS);
 
-    for (const rating of [0, 6, 1.5]) {
+    for (const rating of [0, 11, 1.5]) {
       const res = await app.inject({
         method: 'POST',
         url: rateUrl(),
@@ -587,6 +626,35 @@ describe('M08 judging APIs', { concurrency: false }, () => {
       assert.equal(body.success, false);
       assert.equal(body.data, null);
     }
+  });
+
+  it('accepts 1 and 10 and keeps a historical score in the running average', async () => {
+    memory.contests.set(CONTEST_A, contestRow(CONTEST_A, ContestStatus.ACTIVE));
+    const row = memory.submissions.get(VIDEO_A)!;
+    row.status = SubmissionStatus.APPROVED;
+    row.communityScore = 5;
+    row.totalVotes = 1;
+
+    const one = await app.inject({
+      method: 'POST',
+      url: rateUrl(),
+      remoteAddress: '203.0.113.81',
+      payload: { rating: 1 },
+    });
+    assert.equal(one.statusCode, 200);
+
+    const ten = await app.inject({
+      method: 'POST',
+      url: rateUrl(),
+      remoteAddress: '203.0.113.82',
+      payload: { rating: 10 },
+    });
+    assert.equal(ten.statusCode, 200);
+    const body = JSON.parse(ten.payload);
+    assert.equal(body.success, true);
+    assert.equal(body.data.totalVotes, 3);
+    assert.equal(body.data.newScore, 5.3);
+    assert.equal(row.communityScore, 5.3);
   });
 
 });

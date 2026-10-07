@@ -29,6 +29,7 @@ function toQueueItemView(item: JudgingQueueItem) {
     tags: item.tags,
     communityScore: item.communityScore,
     totalVotes: item.totalVotes,
+    viewerRating: item.viewerRating,
     status: item.status,
     category: item.category,
     creator: item.creator,
@@ -44,7 +45,7 @@ export class JudgingController {
    */
   static async queue(request: FastifyRequest, reply: FastifyReply) {
     const { id } = contestIdParamSchema.parse(request.params);
-    const queue = await JudgingService.getQueue(id);
+    const queue = await JudgingService.getQueue(id, hashVoterIp(clientIp(request)));
     return sendSuccess(
       reply,
       {
@@ -81,6 +82,8 @@ export class JudgingController {
         newScore: score.newScore,
         delta: score.delta,
         totalVotes: score.totalVotes,
+        ratingId: score.ratingId,
+        viewerRating: score.viewerRating,
       },
       'Rating recorded',
       HTTP_STATUS.OK,

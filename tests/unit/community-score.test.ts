@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeCommunityScore } from '../../src/services/community-score.js';
+import {
+  computeCommunityScore,
+  computeUpdatedCommunityScore,
+} from '../../src/services/community-score.js';
 
 /**
  * BR-VOTE-03 fixtures (M08-P02-T02 / M08-P05-T01).
@@ -46,5 +49,15 @@ describe('community score formula', () => {
     assert.equal(afterThree.newScore, 3);
     assert.equal(afterThree.delta, -0.7);
     assert.equal(afterThree.totalVotes, 4);
+  });
+
+  it('replaces one rating without adding a vote', () => {
+    const score = computeUpdatedCommunityScore(8, 1, 8, 9);
+    assert.equal(score.newScore, 9);
+    assert.equal(score.delta, 1);
+    assert.equal(score.totalVotes, 1);
+    const shared = computeUpdatedCommunityScore(8, 2, 8, 10);
+    assert.equal(shared.newScore, 9);
+    assert.equal(shared.totalVotes, 2);
   });
 });

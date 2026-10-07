@@ -6,8 +6,8 @@ import { assertRatingValue } from '../../src/services/judging.service.js';
 import { ValidationError } from '../../src/utils/response.js';
 
 describe('rating schema', () => {
-  it('accepts integers 1 through 5', () => {
-    for (const rating of [1, 2, 3, 4, 5]) {
+  it('accepts integers 1 through 10, including historical 1–5 values', () => {
+    for (const rating of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
       const parsed = rateBodySchema.parse({ rating });
       assert.equal(parsed.rating, rating);
       assert.equal(parsed.voterFingerprint, undefined);
@@ -20,8 +20,8 @@ describe('rating schema', () => {
     assert.throws(() => rateBodySchema.parse({ rating: 4, voterFingerprint: '   ' }), ZodError);
   });
 
-  it('rejects values outside 1–5, non-integers, and non-numbers', () => {
-    for (const rating of [0, 6, -1, 1.5, 4.2, '5', null, true]) {
+  it('rejects 0, 11, decimals, and non-numbers', () => {
+    for (const rating of [0, 11, -1, 1.5, 4.2, 10.5, '5', null, true]) {
       assert.throws(() => rateBodySchema.parse({ rating }), ZodError);
     }
   });
@@ -37,11 +37,12 @@ describe('rating schema', () => {
     );
   });
 
-  it('service validation matches the 1–5 integer rule', () => {
-    assert.doesNotThrow(() => assertRatingValue(1));
-    assert.doesNotThrow(() => assertRatingValue(5));
+  it('service validation accepts 1 through 10 and rejects 0, 11, and decimals', () => {
+    for (const rating of [1, 5, 10]) {
+      assert.doesNotThrow(() => assertRatingValue(rating));
+    }
     assert.throws(() => assertRatingValue(0), ValidationError);
-    assert.throws(() => assertRatingValue(6), ValidationError);
+    assert.throws(() => assertRatingValue(11), ValidationError);
     assert.throws(() => assertRatingValue(1.5), ValidationError);
   });
 });

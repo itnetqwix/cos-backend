@@ -10,7 +10,11 @@ import {
   JudgingQueueRecord,
   SubmissionRepository,
 } from '../repositories/submission.repository.js';
-import { computeCommunityScore, CommunityScoreResult } from './community-score.js';
+import {
+  computeCommunityScore,
+  computeUpdatedCommunityScore,
+  CommunityScoreResult,
+} from './community-score.js';
 import { playbackUrlForSubmission, signedAvatarUrl } from './storage.service.js';
 import {
   ConflictError,
@@ -37,8 +41,10 @@ import {
  *
  * voterFingerprint is optional client metadata. It is not the vote key.
  *
- * One guest rating is allowed per submission and hashed client IP.
- * The same identifier may rate a different video. A repeat is 409.
+ * One current rating is stored per submission and hashed client IP.
+ * A later rating from that identifier updates the same row.
+ * The same identifier may rate a different video.
+ * Two first-time inserts that hit the unique index still return 409.
  *
  * Queue order is createdAt then id ascending. That is display order.
  * Ranking by communityScore is M09 and is not done here.
@@ -80,6 +86,7 @@ export interface JudgingQueueItem {
   tags: string[];
   communityScore: number;
   totalVotes: number;
+  viewerRating: number | null;
   status: SubmissionStatus;
   category: string | null;
   creator: { id: string; name: string; avatarUrl?: string | null };
@@ -106,9 +113,13 @@ export function setJudgingTransactionRunner(runner: TransactionRunner | null): v
     runner ?? ((fn) => prisma.$transaction(fn, { maxWait: 10000, timeout: 30000 }));
 }
 
+export const RATING_MIN = 1;
+export const RATING_MAX = 10;
+
+/** New ratings are integers 1–10. Stored historical 1–5 rows are not rewritten. */
 export function assertRatingValue(rating: number): void {
-  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-    throw new ValidationError('Rating must be an integer from 1 to 5');
+  if (!Number.isInteger(rating) || rating < RATING_MIN || rating > RATING_MAX) {
+    throw new ValidationError('Rating must be an integer from 1 to 10');
   }
 }
 
@@ -127,6 +138,11 @@ export function assertViewableContest(status: ContestStatus): void {
 }
 
 export const ALREADY_RATED_MESSAGE = 'You have already rated this video.';
+
+export interface RateSubmissionResult extends CommunityScoreResult {
+  ratingId: string;
+  viewerRating: number;
+}
 
 function isUniqueConflict(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
@@ -158,6 +174,7 @@ function toQueueItem(
     tags: row.tags,
     communityScore: row.communityScore,
     totalVotes: row.totalVotes,
+    viewerRating: null,
     status: row.status,
     category: row.contest.category?.name ?? null,
     creator,
@@ -166,7 +183,10 @@ function toQueueItem(
 }
 
 export class JudgingService {
-  static async getQueue(contestId: string): Promise<JudgingQueueView> {
+  static async getQueue(
+    contestId: string,
+    voterIpHash?: string | null,
+  ): Promise<JudgingQueueView> {
     const contest = await ContestRepository.findById(contestId);
     if (!contest) {
       throw new NotFoundError('Contest not found');
@@ -190,16 +210,28 @@ export class JudgingService {
         }),
       })),
     );
+    const viewerRatings = voterIpHash
+      ? await RatingRepository.listGuestRatings(
+          items.map((item) => item.id),
+          voterIpHash,
+        )
+      : [];
+    const viewerRatingBySubmission = new Map(
+      viewerRatings.map((row) => [row.submissionId, row.rating]),
+    );
     return {
       contestId: contest.id,
       status: contest.status,
       ratingOpen: VOTING_CONTEST_STATUSES.has(contest.status),
       autoAdvanceDelayMs: contest.autoAdvanceDelayMs,
-      items,
+      items: items.map((item) => ({
+        ...item,
+        viewerRating: viewerRatingBySubmission.get(item.id) ?? null,
+      })),
     };
   }
 
-  static async rateSubmission(input: RateSubmissionInput): Promise<CommunityScoreResult> {
+  static async rateSubmission(input: RateSubmissionInput): Promise<RateSubmissionResult> {
     assertVoter(input.voter);
     assertRatingValue(input.rating);
 
@@ -223,7 +255,34 @@ export class JudgingService {
         tx,
       );
       if (existing) {
-        throw new ConflictError(ALREADY_RATED_MESSAGE);
+        if (existing.rating === input.rating) {
+          return {
+            previousScore: locked.communityScore,
+            newScore: locked.communityScore,
+            delta: 0,
+            totalVotes: locked.totalVotes,
+            ratingId: existing.id,
+            viewerRating: existing.rating,
+          };
+        }
+        const score = computeUpdatedCommunityScore(
+          locked.communityScore,
+          locked.totalVotes,
+          existing.rating,
+          input.rating,
+        );
+        await RatingRepository.updateGuestRating(existing.id, input.rating, tx);
+        await RatingRepository.writeScore(
+          locked.id,
+          score.newScore,
+          score.totalVotes,
+          tx,
+        );
+        return {
+          ...score,
+          ratingId: existing.id,
+          viewerRating: input.rating,
+        };
       }
 
       const score = computeCommunityScore(
@@ -238,8 +297,9 @@ export class JudgingService {
         voterIpHash: input.voterIpHash,
         rating: input.rating,
       };
+      let created: { id: string; rating: number };
       try {
-        await RatingRepository.insert(ratingRow, tx);
+        created = await RatingRepository.insert(ratingRow, tx);
       } catch (error) {
         if (isUniqueConflict(error)) {
           throw new ConflictError(ALREADY_RATED_MESSAGE);
@@ -247,7 +307,11 @@ export class JudgingService {
         throw error;
       }
       await RatingRepository.writeScore(locked.id, score.newScore, score.totalVotes, tx);
-      return score;
+      return {
+        ...score,
+        ratingId: created.id,
+        viewerRating: created.rating,
+      };
     });
   }
 }

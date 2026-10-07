@@ -73,10 +73,34 @@ export class RatingRepository {
     submissionId: string,
     voterIpHash: string,
     tx: Prisma.TransactionClient = prisma,
-  ): Promise<{ id: string } | null> {
+  ): Promise<{ id: string; rating: number } | null> {
     return tx.rating.findFirst({
       where: { submissionId, voterIpHash },
-      select: { id: true },
+      select: { id: true, rating: true },
+    });
+  }
+
+  static async listGuestRatings(
+    submissionIds: string[],
+    voterIpHash: string,
+    tx: Prisma.TransactionClient = prisma,
+  ): Promise<Array<{ submissionId: string; rating: number }>> {
+    if (submissionIds.length === 0 || !voterIpHash) return [];
+    return tx.rating.findMany({
+      where: { voterIpHash, submissionId: { in: submissionIds } },
+      select: { submissionId: true, rating: true },
+    });
+  }
+
+  static async updateGuestRating(
+    id: string,
+    rating: number,
+    tx: Prisma.TransactionClient = prisma,
+  ): Promise<{ id: string; rating: number }> {
+    return tx.rating.update({
+      where: { id },
+      data: { rating },
+      select: { id: true, rating: true },
     });
   }
 
