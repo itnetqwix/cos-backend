@@ -204,7 +204,8 @@ model AuditLog {
 // voterIpHash is an HMAC of the normalized client IP. It is not the raw IP.
 // Uniqueness is (submissionId, voterIpHash): one guest identifier per video.
 // PostgreSQL unique indexes allow multiple NULLs, so older rows stay valid.
-// rating is an integer 1–5, enforced in Zod and JudgingService.
+// New ratings are integers 1–10, enforced in Zod and JudgingService.
+// There is no database CHECK, so historical 1–5 rows stay valid. Do not migrate them.
 model Rating {
   id               String     @id @default(uuid())
   submissionId     String

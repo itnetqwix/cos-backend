@@ -14,10 +14,14 @@ import { swaggerErrorEnvelope, swaggerSuccessEnvelope } from './auth.schema.js';
  * Authenticated ADMIN and CREATOR are 403. An invalid token is 401.
  *
  * voterFingerprint is optional. The fingerprint algorithm is NOT SPECIFIED.
- * The field is stored as sent and is not required. There is no uniqueness
- * rule, so a second rating from the same viewer is a new vote.
+ * The field is stored as sent and is not the uniqueness key.
+ * One current rating is stored per submission and hashed client IP.
+ * A later rating updates that row. Vote count does not increase.
+ * Two first-time inserts that hit the unique index still return 409.
  *
- * Rate success data is previousScore, newScore, delta, totalVotes.
+ * Queue items include viewerRating: the caller's rating, or null.
+ * Rate success data is previousScore, newScore, delta, totalVotes,
+ * ratingId, and viewerRating.
  */
 
 export const contestIdParamSchema = z.object({
@@ -32,10 +36,10 @@ export const rateParamsSchema = z.object({
 export const rateBodySchema = z
   .object({
     rating: z
-      .number({ error: 'Rating must be an integer from 1 to 5' })
-      .int('Rating must be an integer from 1 to 5')
-      .min(1, 'Rating must be an integer from 1 to 5')
-      .max(5, 'Rating must be an integer from 1 to 5'),
+      .number({ error: 'Rating must be an integer from 1 to 10' })
+      .int('Rating must be an integer from 1 to 10')
+      .min(1, 'Rating must be an integer from 1 to 10')
+      .max(10, 'Rating must be an integer from 1 to 10'),
     voterFingerprint: z
       .string()
       .trim()
@@ -59,6 +63,7 @@ const queueItemSchema = {
     tags: { type: 'array', items: { type: 'string' } },
     communityScore: { type: 'number' },
     totalVotes: { type: 'integer' },
+    viewerRating: { type: 'integer', nullable: true, minimum: 1, maximum: 10 },
     status: { type: 'string', example: 'APPROVED' },
     category: { type: 'string', nullable: true },
     creator: {
@@ -91,6 +96,8 @@ const rateDataSchema = {
     newScore: { type: 'number', example: 5 },
     delta: { type: 'number', example: 5 },
     totalVotes: { type: 'integer', example: 1 },
+    ratingId: { type: 'string' },
+    viewerRating: { type: 'integer', minimum: 1, maximum: 10, example: 5 },
   },
 };
 
@@ -132,11 +139,12 @@ export const rateSubmissionSwaggerSchema: FastifySchema = {
     'Auth is optional. Anonymous visitors may rate (no creator registration). ' +
     'Guests rate without a token. An authenticated ADMIN or CREATOR is 403. ' +
     'An invalid Bearer token is 401. voterFingerprint is optional metadata. ' +
-    'A second rating for the same video from the same hashed client IP is rejected. ' +
-    'The same identifier may rate a different video. Contest must be ACTIVE or JUDGING. Submission must be APPROVED. ' +
-    'Returns previousScore, newScore, delta, and totalVotes. newScore is rounded to 1 decimal. ' +
+    'A later rating for the same video from the same hashed client IP updates that row and does not add a vote. ' +
+    'The same identifier may rate a different video. A simultaneous first insert that loses the unique index is 409. ' +
+    'Contest must be ACTIVE or JUDGING. Submission must be APPROVED. ' +
+    'Returns previousScore, newScore, delta, totalVotes, ratingId, and viewerRating. newScore is rounded to 1 decimal. ' +
     'M12-P01-T02 applies a per-IP engineering rate limit (RATE_LIMIT_DEFAULTS.RATING_MAX per RATING_TIME_WINDOW_MS). ' +
-    'The numeric ceiling is an engineering default. Duplicate-vote detection remains NOT SPECIFIED.',
+    'The numeric ceiling is an engineering default. Uniqueness stays (submissionId, voterIpHash).',
   params: {
     type: 'object',
     required: ['id', 'videoId'],
@@ -150,7 +158,7 @@ export const rateSubmissionSwaggerSchema: FastifySchema = {
     required: ['rating'],
     additionalProperties: false,
     properties: {
-      rating: { type: 'integer', minimum: 1, maximum: 5 },
+      rating: { type: 'integer', minimum: 1, maximum: 10 },
       voterFingerprint: { type: 'string', minLength: 1, maxLength: 256 },
     },
   },
@@ -160,9 +168,9 @@ export const rateSubmissionSwaggerSchema: FastifySchema = {
       ...swaggerSuccessEnvelope(rateDataSchema, 'Rating recorded'),
     },
     400: {
-      description: 'Rating is not an integer from 1 to 5',
+      description: 'Rating is not an integer from 1 to 10',
       ...swaggerErrorEnvelope('Validation error', [
-        { field: 'rating', message: 'Rating must be an integer from 1 to 5' },
+        { field: 'rating', message: 'Rating must be an integer from 1 to 10' },
       ]),
     },
     401: {

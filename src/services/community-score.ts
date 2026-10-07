@@ -38,3 +38,27 @@ export function computeCommunityScore(
     totalVotes: previousVotes + 1,
   };
 }
+
+/**
+ * Replace one viewer's rating without adding a vote.
+ * NewScore = round((PreviousScore * totalVotes - previousRating + rating) / totalVotes, 1)
+ */
+export function computeUpdatedCommunityScore(
+  previousScore: number,
+  totalVotes: number,
+  previousRating: number,
+  rating: number,
+): CommunityScoreResult {
+  const votes = totalVotes > 0 ? totalVotes : 1;
+  const previousTenths = toTenths(previousScore);
+  const numerator = previousTenths * votes - toTenths(previousRating) + toTenths(rating);
+  const newTenths = Math.round(numerator / votes);
+  const newScore = newTenths / 10;
+
+  return {
+    previousScore: previousTenths / 10,
+    newScore,
+    delta: (newTenths - previousTenths) / 10,
+    totalVotes: votes,
+  };
+}
