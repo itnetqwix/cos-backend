@@ -5,6 +5,7 @@ const commentInclude = {
     select: {
       id: true,
       name: true,
+      avatarObjectKey: true,
     },
   },
 } as const;
@@ -18,6 +19,7 @@ export type CommentRecord = {
   author: {
     id: string;
     name: string;
+    avatarObjectKey: string | null;
   };
 };
 

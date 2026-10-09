@@ -199,3 +199,52 @@ export const rateSubmissionSwaggerSchema: FastifySchema = {
     },
   },
 };
+
+export const voterParamsSchema = z.object({
+  id: z.string().uuid('Submission ID must be a valid UUID format'),
+});
+
+const voterViewSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string', nullable: true },
+    avatarUrl: { type: 'string', nullable: true },
+    rating: { type: 'integer' },
+    createdAt: { type: 'string' },
+  },
+};
+
+export const listVotersSwaggerSchema: FastifySchema = {
+  tags: ['Judging'],
+  summary: 'List voters for an approved submission',
+  description:
+    'Public. Returns ratings for this submission only. Guests have name null. Email, IP hash, and fingerprint are not returned. Newest first. page and limit use the shared pagination defaults.',
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+    },
+  },
+  querystring: {
+    type: 'object',
+    properties: {
+      page: { type: 'integer', minimum: 1 },
+      limit: { type: 'integer', minimum: 1 },
+    },
+  },
+  response: {
+    200: swaggerSuccessEnvelope(
+      {
+        type: 'object',
+        properties: {
+          items: { type: 'array', items: voterViewSchema },
+          pagination: { type: 'object' },
+        },
+      },
+      'Voters retrieved successfully',
+    ),
+    404: swaggerErrorEnvelope('Submission not found'),
+  },
+};

@@ -14,8 +14,10 @@ import {
 } from '../middleware/auth.middleware.js';
 import { JudgingController } from '../controllers/judging.controller.js';
 import { LeaderboardController } from '../controllers/leaderboard.controller.js';
+import { VoterController } from '../controllers/voter.controller.js';
 import {
   judgingQueueSwaggerSchema,
+  listVotersSwaggerSchema,
   rateSubmissionSwaggerSchema,
 } from '../schemas/judging.schema.js';
 import { getLeaderboardSwaggerSchema } from '../schemas/leaderboard.schema.js';
@@ -338,6 +340,12 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       onRequest: [fastify.authenticate],
     },
     CommentController.create,
+  );
+
+  fastify.get(
+    '/submissions/:id/voters',
+    { schema: listVotersSwaggerSchema },
+    VoterController.list,
   );
 
   // -------------------------------------------------------------

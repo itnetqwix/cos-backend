@@ -70,7 +70,7 @@ describe('submission comments and admin creator management', { concurrency: fals
           authorId: CREATOR,
           body: 'Nice',
           createdAt: new Date('2026-10-02T00:00:00.000Z'),
-          author: { id: CREATOR, name: 'Ada' },
+          author: { id: CREATOR, name: 'Ada', avatarObjectKey: null },
         },
       ];
     };
@@ -92,7 +92,7 @@ describe('submission comments and admin creator management', { concurrency: fals
         authorId: data.authorId,
         body: data.body,
         createdAt: new Date('2026-10-02T00:00:00.000Z'),
-        author: { id: data.authorId, name: 'Ada' },
+        author: { id: data.authorId, name: 'Ada', avatarObjectKey: null },
       };
     };
 
