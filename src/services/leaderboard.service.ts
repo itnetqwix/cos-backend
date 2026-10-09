@@ -1,7 +1,7 @@
 import { ContestStatus } from '@prisma/client';
 import { ContestRepository } from '../repositories/contest.repository.js';
 import { SubmissionRepository } from '../repositories/submission.repository.js';
-import { playbackUrlForSubmission } from './storage.service.js';
+import { playbackUrlForSubmission, signedAvatarUrl } from './storage.service.js';
 import { NotFoundError } from '../utils/response.js';
 
 export interface LeaderboardItemView {
@@ -21,6 +21,7 @@ export interface LeaderboardItemView {
   creator: {
     id: string;
     name: string;
+    avatarUrl: string | null;
   };
 }
 
@@ -91,6 +92,7 @@ export class LeaderboardService {
         creator: {
           id: record.creator.id,
           name: record.creator.name,
+          avatarUrl: await signedAvatarUrl(record.creator.avatarObjectKey),
         },
       })),
     );

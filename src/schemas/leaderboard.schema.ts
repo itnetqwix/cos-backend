@@ -59,6 +59,7 @@ const leaderboardItemSchema = {
       properties: {
         id: { type: 'string', example: 'u2b07384-d113-4a6c-9c09-7708579d4693' },
         name: { type: 'string', example: 'Kai Tanaka' },
+        avatarUrl: { type: 'string', nullable: true },
       },
     },
   },

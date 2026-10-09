@@ -5,9 +5,11 @@ import {
   createCommentBodySchema,
 } from '../schemas/comment.schema.js';
 import { CommentRecord, CommentService } from '../services/comment.service.js';
+import { signedAvatarUrl } from '../services/storage.service.js';
 import { sendSuccess } from '../utils/response.js';
 
-function toCommentView(comment: CommentRecord) {
+async function toCommentView(comment: CommentRecord) {
+  const avatarUrl = await signedAvatarUrl(comment.author.avatarObjectKey);
   return {
     id: comment.id,
     submissionId: comment.submissionId,
@@ -16,6 +18,7 @@ function toCommentView(comment: CommentRecord) {
     author: {
       id: comment.author.id,
       name: comment.author.name,
+      ...(avatarUrl ? { avatarUrl } : {}),
     },
   };
 }
@@ -30,7 +33,7 @@ export class CommentController {
     const comments = await CommentService.listForSubmission(id);
     return sendSuccess(
       reply,
-      comments.map(toCommentView),
+      await Promise.all(comments.map(toCommentView)),
       'Comments retrieved successfully',
       HTTP_STATUS.OK,
     );
@@ -50,7 +53,7 @@ export class CommentController {
     });
     return sendSuccess(
       reply,
-      toCommentView(comment),
+      await toCommentView(comment),
       'Comment created',
       HTTP_STATUS.CREATED,
     );

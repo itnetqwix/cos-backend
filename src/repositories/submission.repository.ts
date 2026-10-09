@@ -69,6 +69,7 @@ const leaderboardInclude = {
     select: {
       id: true,
       name: true,
+      avatarObjectKey: true,
     },
   },
   contest: {

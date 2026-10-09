@@ -72,6 +72,7 @@ function mockSubmission(
     creator: {
       id: 'creator-1',
       name: 'Creator One',
+      avatarObjectKey: null,
     },
     contest: {
       id: CONTEST_ID,

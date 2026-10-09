@@ -102,7 +102,7 @@ function toLeaderboardRecord(s: MemorySubmission): LeaderboardRecord {
     totalVotes: s.totalVotes,
     createdAt: s.createdAt,
     updatedAt: s.createdAt,
-    creator: { id: 'creator-uuid', name: 'Creator Name' },
+    creator: { id: 'creator-uuid', name: 'Creator Name', avatarObjectKey: null },
     contest: {
       id: s.contestId,
       title: 'Ripskis Open',

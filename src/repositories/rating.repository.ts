@@ -130,6 +130,41 @@ export class RatingRepository {
     });
   }
 
+  static async listForSubmission(
+    submissionId: string,
+    skip: number,
+    take: number,
+    tx: Prisma.TransactionClient = prisma,
+  ): Promise<{
+    total: number;
+    rows: Array<{
+      id: string;
+      rating: number;
+      createdAt: Date;
+      user: { id: string; name: string; avatarObjectKey: string | null } | null;
+    }>;
+  }> {
+    const where = { submissionId };
+    const [total, rows] = await Promise.all([
+      tx.rating.count({ where }),
+      tx.rating.findMany({
+        where,
+        skip,
+        take,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          rating: true,
+          createdAt: true,
+          user: {
+            select: { id: true, name: true, avatarObjectKey: true },
+          },
+        },
+      }),
+    ]);
+    return { total, rows };
+  }
+
   static async writeScore(
     submissionId: string,
     communityScore: number,
