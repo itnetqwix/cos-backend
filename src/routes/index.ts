@@ -85,6 +85,15 @@ import {
   searchFriendsSwaggerSchema,
   sendFriendRequestSwaggerSchema,
 } from '../schemas/friendship.schema.js';
+import { ChatController } from '../controllers/chat.controller.js';
+import {
+  chatStreamSwaggerSchema,
+  listChatConversationsSwaggerSchema,
+  listChatMessagesSwaggerSchema,
+  markChatReadSwaggerSchema,
+  presignChatAttachmentSwaggerSchema,
+  sendChatMessageSwaggerSchema,
+} from '../schemas/chat.schema.js';
 
 import { sendSuccess } from '../utils/response.js';
 import { SYSTEM_CONSTANTS, HTTP_STATUS } from '../config/constants.js';
@@ -260,6 +269,44 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       onRequest: [fastify.authenticate, authorizeRoles(Role.ADMIN)],
     },
     UserController.getUserById,
+  );
+
+  // Creator chat. Same creatorGuards as friends. Guests and ADMIN are denied.
+  // Pending friendships cannot send or read messages.
+  fastify.get(
+    '/chat/conversations',
+    { schema: listChatConversationsSwaggerSchema, onRequest: creatorGuards },
+    ChatController.list,
+  );
+
+  fastify.get(
+    '/chat/stream',
+    { schema: chatStreamSwaggerSchema, onRequest: creatorGuards },
+    ChatController.stream,
+  );
+
+  fastify.post(
+    '/chat/attachments/presign',
+    { schema: presignChatAttachmentSwaggerSchema, onRequest: creatorGuards },
+    ChatController.presign,
+  );
+
+  fastify.get(
+    '/chat/conversations/:id/messages',
+    { schema: listChatMessagesSwaggerSchema, onRequest: creatorGuards },
+    ChatController.messages,
+  );
+
+  fastify.post(
+    '/chat/conversations/:id/messages',
+    { schema: sendChatMessageSwaggerSchema, onRequest: creatorGuards },
+    ChatController.send,
+  );
+
+  fastify.post(
+    '/chat/conversations/:id/read',
+    { schema: markChatReadSwaggerSchema, onRequest: creatorGuards },
+    ChatController.read,
   );
 
   // -------------------------------------------------------------
