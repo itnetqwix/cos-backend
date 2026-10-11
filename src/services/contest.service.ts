@@ -21,6 +21,17 @@ import {
   assertContestTransition,
   contestDeletionBlockReason,
 } from './contest-lifecycle.js';
+import {
+  DEFAULT_CONTEST_TIMEZONE,
+  assertChronologicalSchedule,
+  isValidIanaTimeZone,
+} from './contest-schedule.js';
+import {
+  buildBannerObjectKey,
+  getStorageService,
+  parseBannerObjectKey,
+} from './storage.service.js';
+import { PresignContestBannerInput } from '../schemas/contest.schema.js';
 import { z } from 'zod';
 
 /**
@@ -30,6 +41,7 @@ import { z } from 'zod';
  */
 
 export interface ContestActor {
+  id?: string;
   role: Role;
 }
 
@@ -38,9 +50,12 @@ const CONFIGURATION_KEYS = [
   'description',
   'tagline',
   'bannerUrl',
+  'bannerObjectKey',
   'thumbnailUrl',
+  'timezone',
   'startDate',
   'endDate',
+  'votingClosesAt',
   'prizeSummary',
   'rules',
   'autoAdvanceDelayMs',
@@ -136,6 +151,25 @@ function changesConfiguration(input: UpdateContestInput): boolean {
   return CONFIGURATION_KEYS.some((key) => input[key] !== undefined);
 }
 
+function resolveTimezone(value: string | undefined): string {
+  if (value === undefined) return DEFAULT_CONTEST_TIMEZONE;
+  if (!isValidIanaTimeZone(value)) {
+    throw new ValidationError('timezone must be an IANA time zone identifier');
+  }
+  return value.trim();
+}
+
+function resolveBannerObjectKey(
+  value: string | null | undefined,
+): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (!parseBannerObjectKey(value)) {
+    throw new ValidationError('Contest banner reference is not valid');
+  }
+  return value;
+}
+
 export class ContestService {
   static async list(actor: ContestActor, query: ListContestsQueryInput) {
     assertContestManager(actor);
@@ -150,24 +184,50 @@ export class ContestService {
 
     const startDate = new Date(input.startDate);
     const endDate = new Date(input.endDate);
-    if (endDate.getTime() <= startDate.getTime()) {
-      throw new ValidationError('endDate must be after startDate');
-    }
+    const votingClosesAt =
+      input.votingClosesAt === undefined || input.votingClosesAt === null
+        ? null
+        : new Date(input.votingClosesAt);
+    assertChronologicalSchedule({
+      submissionOpenAt: startDate,
+      submissionDeadlineAt: endDate,
+      votingClosesAt,
+    });
 
     const categoryId = await resolveCategoryId(input.categoryId, input.category);
+    const bannerObjectKey = resolveBannerObjectKey(input.bannerObjectKey) ?? null;
 
     return ContestRepository.create({
       categoryId: categoryId ?? null,
       title: input.title,
       description: input.description,
       tagline: blankToNull(input.tagline),
-      bannerUrl: blankToNull(input.bannerUrl),
+      bannerUrl: bannerObjectKey ? null : blankToNull(input.bannerUrl),
+      bannerObjectKey,
       thumbnailUrl: blankToNull(input.thumbnailUrl),
+      timezone: resolveTimezone(input.timezone),
       startDate,
       endDate,
+      votingClosesAt,
       prizeSummary: input.prizeSummary ?? null,
       rules: input.rules === undefined ? null : input.rules,
       autoAdvanceDelayMs: input.autoAdvanceDelayMs ?? 1800,
+    });
+  }
+
+  /**
+   * ADMIN only. Issues a private PUT URL. Does not persist the banner.
+   * The contest row stores the object key when create or update receives it.
+   */
+  static async presignBanner(actor: ContestActor, input: PresignContestBannerInput) {
+    assertContestManager(actor);
+    if (!actor.id) {
+      throw new ForbiddenError('Forbidden: authenticated admin is required');
+    }
+    const objectKey = buildBannerObjectKey(actor.id, input.contentType);
+    return getStorageService().createPresignedUpload({
+      objectKey,
+      contentType: input.contentType,
     });
   }
 
@@ -189,23 +249,40 @@ export class ContestService {
 
     const startDate = input.startDate ? new Date(input.startDate) : existing.startDate;
     const endDate = input.endDate ? new Date(input.endDate) : existing.endDate;
-    if (
-      (input.startDate !== undefined || input.endDate !== undefined) &&
-      endDate.getTime() <= startDate.getTime()
-    ) {
-      throw new ValidationError('endDate must be after startDate');
-    }
+    const votingClosesAt =
+      input.votingClosesAt === undefined
+        ? existing.votingClosesAt
+        : input.votingClosesAt === null
+          ? null
+          : new Date(input.votingClosesAt);
+    assertChronologicalSchedule({
+      submissionOpenAt: startDate,
+      submissionDeadlineAt: endDate,
+      votingClosesAt,
+    });
 
     const data: UpdateContestData = {};
 
     if (input.title !== undefined) data.title = input.title;
     if (input.description !== undefined) data.description = input.description;
     if (input.tagline !== undefined) data.tagline = blankToNull(input.tagline);
-    if (input.bannerUrl !== undefined) data.bannerUrl = blankToNull(input.bannerUrl);
+    if (input.bannerObjectKey !== undefined) {
+      const bannerObjectKey = resolveBannerObjectKey(input.bannerObjectKey) ?? null;
+      data.bannerObjectKey = bannerObjectKey;
+      if (bannerObjectKey) {
+        data.bannerUrl = null;
+      } else if (input.bannerUrl !== undefined) {
+        data.bannerUrl = blankToNull(input.bannerUrl);
+      }
+    } else if (input.bannerUrl !== undefined) {
+      data.bannerUrl = blankToNull(input.bannerUrl);
+    }
     if (input.thumbnailUrl !== undefined)
       data.thumbnailUrl = blankToNull(input.thumbnailUrl);
+    if (input.timezone !== undefined) data.timezone = resolveTimezone(input.timezone);
     if (input.startDate !== undefined) data.startDate = startDate;
     if (input.endDate !== undefined) data.endDate = endDate;
+    if (input.votingClosesAt !== undefined) data.votingClosesAt = votingClosesAt;
     if (input.prizeSummary !== undefined) data.prizeSummary = input.prizeSummary;
     if (input.rules !== undefined) data.rules = input.rules;
     if (input.autoAdvanceDelayMs !== undefined) {

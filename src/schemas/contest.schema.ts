@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import { FastifySchema } from 'fastify';
+import { VIDEO_CONSTRAINTS } from '../config/constants.js';
+import {
+  SUBMISSION_DEADLINE_AFTER_OPENING,
+  VOTING_CLOSURE_AFTER_DEADLINE,
+  isValidIanaTimeZone,
+} from '../services/contest-schedule.js';
+import { AVATAR_CONTENT_TYPES } from '../services/storage.service.js';
 import { swaggerErrorEnvelope, swaggerSuccessEnvelope } from './auth.schema.js';
 
 /**
@@ -14,12 +21,12 @@ import { swaggerErrorEnvelope, swaggerSuccessEnvelope } from './auth.schema.js';
  * Evaluation criteria are NOT SPECIFIED as a column. Unknown keys, including
  * `criteria` / `scoringCriteria`, are rejected.
  *
- * `endDate` must be later than `startDate` so the documented submission window
- * (`startDate <= now <= endDate`) can exist.
- *
- * Optional creator-facing fields collected by the admin form and stored on
- * Contest: tagline, bannerUrl, thumbnailUrl. Prize breakdown, media
- * constraints, and votingCloseDate are still not columns.
+ * `startDate` is submission opening. `endDate` is the submission deadline.
+ * Both are absolute timestamps. `timezone` is the IANA zone used to enter them.
+ * `votingClosesAt` is optional so contests created before the column existed
+ * stay valid. When it is sent, it must be strictly after `endDate`.
+ * `bannerObjectKey` is a backend-issued private object key. `bannerUrl` remains
+ * the legacy external URL and is not a place to store an expiring presigned URL.
  */
 
 export const CONTEST_STATUSES = [
@@ -41,6 +48,31 @@ const isoDateTimeSchema = z.string().refine((value) => {
 const rulesSchema = z.union([z.string(), z.array(z.string())]);
 
 const optionalVisualText = z.string().trim().max(2000).nullable().optional();
+
+const timezoneSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .refine(isValidIanaTimeZone, 'timezone must be an IANA time zone identifier');
+
+const bannerObjectKeySchema = z.string().trim().min(1).max(512).nullable().optional();
+
+export const presignContestBannerSchema = z
+  .object({
+    contentType: z.string().trim().min(1),
+    fileSizeBytes: z
+      .number()
+      .int()
+      .min(1, 'Contest banner file is empty')
+      .max(
+        VIDEO_CONSTRAINTS.MAX_FILE_SIZE_BYTES,
+        'Contest banner must be 100MB or smaller',
+      ),
+  })
+  .strict();
+
+export type PresignContestBannerInput = z.infer<typeof presignContestBannerSchema>;
 
 const categorySlugSchema = z
   .string()
@@ -69,18 +101,30 @@ export const createContestSchema = z
     description: z.string().trim().min(1, 'Description is required'),
     tagline: optionalVisualText,
     bannerUrl: optionalVisualText,
+    bannerObjectKey: bannerObjectKeySchema,
     thumbnailUrl: optionalVisualText,
+    timezone: timezoneSchema.optional(),
     startDate: isoDateTimeSchema,
     endDate: isoDateTimeSchema,
+    votingClosesAt: isoDateTimeSchema.nullable().optional(),
     prizeSummary: z.string().nullable().optional(),
     rules: rulesSchema.nullable().optional(),
     autoAdvanceDelayMs: z.number().int().positive().optional(),
   })
   .strict()
   .refine((value) => Date.parse(value.endDate) > Date.parse(value.startDate), {
-    message: 'endDate must be after startDate',
+    message: SUBMISSION_DEADLINE_AFTER_OPENING,
     path: ['endDate'],
   })
+  .refine(
+    (value) =>
+      value.votingClosesAt == null ||
+      Date.parse(value.votingClosesAt) > Date.parse(value.endDate),
+    {
+      message: VOTING_CLOSURE_AFTER_DEADLINE,
+      path: ['votingClosesAt'],
+    },
+  )
   .refine((value) => !(value.categoryId && value.category), {
     message: 'Provide either categoryId or category, not both',
     path: ['category'],
@@ -94,9 +138,12 @@ export const updateContestSchema = z
     description: z.string().trim().min(1, 'Description is required').optional(),
     tagline: optionalVisualText,
     bannerUrl: optionalVisualText,
+    bannerObjectKey: bannerObjectKeySchema,
     thumbnailUrl: optionalVisualText,
+    timezone: timezoneSchema.optional(),
     startDate: isoDateTimeSchema.optional(),
     endDate: isoDateTimeSchema.optional(),
+    votingClosesAt: isoDateTimeSchema.nullable().optional(),
     prizeSummary: z.string().nullable().optional(),
     rules: rulesSchema.nullable().optional(),
     autoAdvanceDelayMs: z.number().int().positive().optional(),
@@ -111,7 +158,27 @@ export const updateContestSchema = z
   .refine((value) => !(value.categoryId && value.category), {
     message: 'Provide either categoryId or category, not both',
     path: ['category'],
-  });
+  })
+  .refine(
+    (value) =>
+      value.startDate === undefined ||
+      value.endDate === undefined ||
+      Date.parse(value.endDate) > Date.parse(value.startDate),
+    {
+      message: SUBMISSION_DEADLINE_AFTER_OPENING,
+      path: ['endDate'],
+    },
+  )
+  .refine(
+    (value) =>
+      value.votingClosesAt == null ||
+      value.endDate === undefined ||
+      Date.parse(value.votingClosesAt) > Date.parse(value.endDate),
+    {
+      message: VOTING_CLOSURE_AFTER_DEADLINE,
+      path: ['votingClosesAt'],
+    },
+  );
 
 export type UpdateContestInput = z.infer<typeof updateContestSchema>;
 
@@ -151,10 +218,13 @@ const contestViewSchema = {
     description: { type: 'string' },
     tagline: { type: 'string', nullable: true },
     bannerUrl: { type: 'string', nullable: true },
+    bannerObjectKey: { type: 'string', nullable: true },
     thumbnailUrl: { type: 'string', nullable: true },
     status: { type: 'string', enum: [...CONTEST_STATUSES] },
+    timezone: { type: 'string', example: 'Asia/Kolkata' },
     startDate: { type: 'string', format: 'date-time' },
     endDate: { type: 'string', format: 'date-time' },
+    votingClosesAt: { type: 'string', format: 'date-time', nullable: true },
     prizeSummary: { type: 'string', nullable: true },
     rules: {
       anyOf: [
@@ -185,9 +255,12 @@ const contestWriteBody = {
     description: { type: 'string' },
     tagline: { type: 'string', nullable: true },
     bannerUrl: { type: 'string', nullable: true },
+    bannerObjectKey: { type: 'string', nullable: true },
     thumbnailUrl: { type: 'string', nullable: true },
+    timezone: { type: 'string' },
     startDate: { type: 'string', format: 'date-time' },
     endDate: { type: 'string', format: 'date-time' },
+    votingClosesAt: { type: 'string', format: 'date-time', nullable: true },
     prizeSummary: { type: 'string', nullable: true },
     rules: {},
     autoAdvanceDelayMs: { type: 'integer' },
@@ -269,7 +342,7 @@ export const createContestSwaggerSchema: FastifySchema = {
   tags: ['Contests'],
   summary: 'Create a contest',
   description:
-    'Creates a DRAFT contest. Auth: ADMIN. Status cannot be set on create. endDate must be after startDate. autoAdvanceDelayMs defaults to 1800.',
+    'Creates a DRAFT contest. Auth: ADMIN. Status cannot be set on create. Submission deadline must be after submission opening. When votingClosesAt is sent, it must be after the submission deadline. timezone defaults to Asia/Kolkata. autoAdvanceDelayMs defaults to 1800.',
   security: [{ bearerAuth: [] }],
   body: {
     ...contestWriteBody,
@@ -424,6 +497,55 @@ export const deleteContestSwaggerSchema: FastifySchema = {
     409: {
       description: 'Contest state does not allow deletion',
       ...swaggerErrorEnvelope('Active contests cannot be deleted'),
+    },
+  },
+};
+
+export const presignContestBannerSwaggerSchema: FastifySchema = {
+  tags: ['Contests'],
+  summary: 'Presign a contest banner upload',
+  description:
+    'ADMIN only. Returns a short-lived PUT URL for a backend-issued private object key. The image bytes go directly to S3. AWS credentials are not included. The key is stored only when the contest create or update payload includes bannerObjectKey. The bucket is not made public.',
+  security: [{ bearerAuth: [] }],
+  body: {
+    type: 'object',
+    required: ['contentType', 'fileSizeBytes'],
+    properties: {
+      contentType: {
+        type: 'string',
+        enum: Object.keys(AVATAR_CONTENT_TYPES),
+      },
+      fileSizeBytes: { type: 'integer', minimum: 1 },
+    },
+  },
+  response: {
+    200: {
+      description: 'Presigned upload',
+      ...swaggerSuccessEnvelope(
+        {
+          type: 'object',
+          properties: {
+            uploadUrl: { type: 'string' },
+            objectKey: { type: 'string' },
+            headers: { type: 'object', additionalProperties: { type: 'string' } },
+            expiresInSeconds: { type: 'integer' },
+            method: { type: 'string', example: 'PUT' },
+          },
+        },
+        'Presigned contest banner upload URL created',
+      ),
+    },
+    400: {
+      description: 'Invalid image',
+      ...swaggerErrorEnvelope('Validation error'),
+    },
+    401: {
+      description: 'Missing or invalid token',
+      ...swaggerErrorEnvelope('Unauthorized'),
+    },
+    403: {
+      description: 'Wrong role',
+      ...swaggerErrorEnvelope('Forbidden'),
     },
   },
 };

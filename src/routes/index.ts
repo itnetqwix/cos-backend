@@ -32,6 +32,7 @@ import {
   createContestSwaggerSchema,
   deleteContestSwaggerSchema,
   getContestSwaggerSchema,
+  presignContestBannerSwaggerSchema,
   getCreatorContestSwaggerSchema,
   listContestsSwaggerSchema,
   listCreatorContestsSwaggerSchema,
@@ -234,6 +235,15 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       onRequest: contestGuards,
     },
     ContestController.create,
+  );
+
+  fastify.post(
+    '/contests/banners/presign',
+    {
+      schema: presignContestBannerSwaggerSchema,
+      onRequest: contestGuards,
+    },
+    ContestController.presignBanner,
   );
 
   fastify.get(

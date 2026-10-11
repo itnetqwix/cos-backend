@@ -28,9 +28,12 @@ export interface CreateContestData {
   description: string;
   tagline: string | null;
   bannerUrl: string | null;
+  bannerObjectKey: string | null;
   thumbnailUrl: string | null;
+  timezone: string;
   startDate: Date;
   endDate: Date;
+  votingClosesAt: Date | null;
   prizeSummary: string | null;
   rules: Prisma.InputJsonValue | null;
   autoAdvanceDelayMs: number;
@@ -42,10 +45,13 @@ export type UpdateContestData = {
   description?: string;
   tagline?: string | null;
   bannerUrl?: string | null;
+  bannerObjectKey?: string | null;
   thumbnailUrl?: string | null;
   status?: ContestStatus;
+  timezone?: string;
   startDate?: Date;
   endDate?: Date;
+  votingClosesAt?: Date | null;
   prizeSummary?: string | null;
   rules?: Prisma.InputJsonValue | null;
   autoAdvanceDelayMs?: number;
@@ -65,9 +71,12 @@ export class ContestRepository {
         description: data.description,
         tagline: data.tagline,
         bannerUrl: data.bannerUrl,
+        bannerObjectKey: data.bannerObjectKey,
         thumbnailUrl: data.thumbnailUrl,
+        timezone: data.timezone,
         startDate: data.startDate,
         endDate: data.endDate,
+        votingClosesAt: data.votingClosesAt,
         prizeSummary: data.prizeSummary,
         rules: data.rules === null ? Prisma.JsonNull : data.rules,
         autoAdvanceDelayMs: data.autoAdvanceDelayMs,
@@ -104,10 +113,13 @@ export class ContestRepository {
         description: data.description,
         tagline: data.tagline,
         bannerUrl: data.bannerUrl,
+        bannerObjectKey: data.bannerObjectKey,
         thumbnailUrl: data.thumbnailUrl,
         status: data.status,
+        timezone: data.timezone,
         startDate: data.startDate,
         endDate: data.endDate,
+        votingClosesAt: data.votingClosesAt,
         prizeSummary: data.prizeSummary,
         rules:
           data.rules === undefined
