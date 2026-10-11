@@ -51,20 +51,22 @@ function createMemory(): Memory {
 
 function contestRow(
   id: string,
-  organizationId: string,
+  _organizationId: string,
   status: ContestStatus,
   title = 'Ripskis Open',
 ): ContestRecord {
   const now = new Date('2026-09-01T00:00:00.000Z');
   return {
     id,
-    organizationId,
     categoryId: 'cat-1',
     title,
     description: 'Contest description',
     tagline: null,
     bannerUrl: null,
+    bannerObjectKey: null,
     thumbnailUrl: null,
+    timezone: 'Asia/Kolkata',
+    votingClosesAt: null,
     status,
     startDate: now,
     endDate: new Date('2026-12-01T00:00:00.000Z'),
@@ -74,11 +76,6 @@ function contestRow(
     createdAt: now,
     updatedAt: now,
     category: { id: 'cat-1', name: 'Comedy Skit', slug: 'comedy-skit', description: null },
-    organization: {
-      id: organizationId,
-      name: organizationId === ORG_A ? 'Ripskis' : 'Other Org',
-      slug: organizationId === ORG_A ? 'ripskis' : 'other-org',
-    },
   };
 }
 

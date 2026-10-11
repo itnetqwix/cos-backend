@@ -1,7 +1,12 @@
 import { ContestStatus } from '@prisma/client';
 import { ContestRepository } from '../repositories/contest.repository.js';
 import { SubmissionRepository } from '../repositories/submission.repository.js';
-import { playbackUrlForSubmission, signedAvatarUrl } from './storage.service.js';
+import {
+  playbackUrlForSubmission,
+  resolveContestBannerUrl,
+  signedAvatarUrl,
+} from './storage.service.js';
+import { DEFAULT_CONTEST_TIMEZONE } from './contest-schedule.js';
 import { NotFoundError } from '../utils/response.js';
 
 export interface LeaderboardItemView {
@@ -29,7 +34,15 @@ export interface ContestLeaderboardView {
   contest: {
     id: string;
     title: string;
+    description: string;
+    tagline: string | null;
+    bannerUrl: string | null;
     status: ContestStatus;
+    timezone: string;
+    startDate: string;
+    endDate: string;
+    votingClosesAt: string | null;
+    prizeSummary: string | null;
     category?: {
       id: string;
       name: string;
@@ -108,7 +121,20 @@ export class LeaderboardService {
       contest: {
         id: contest.id,
         title: contest.title,
+        description: contest.description,
+        tagline: contest.tagline,
+        bannerUrl: await resolveContestBannerUrl(
+          contest.bannerObjectKey,
+          contest.bannerUrl,
+        ),
         status: contest.status,
+        timezone: contest.timezone || DEFAULT_CONTEST_TIMEZONE,
+        startDate: contest.startDate.toISOString(),
+        endDate: contest.endDate.toISOString(),
+        votingClosesAt: contest.votingClosesAt
+          ? contest.votingClosesAt.toISOString()
+          : null,
+        prizeSummary: contest.prizeSummary,
         category: contest.category
           ? {
               id: contest.category.id,

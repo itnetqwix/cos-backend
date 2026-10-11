@@ -25,6 +25,18 @@ const AVATAR_KEY_PATTERN =
   /^avatars\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(jpg|png|webp|gif)$/i;
 
 /**
+ * Contest banners reuse the avatar image types and the private bucket.
+ * No separate image-size rule is specified, so the existing media ceiling
+ * (`VIDEO_CONSTRAINTS.MAX_FILE_SIZE_BYTES`, 100MB) is the size limit.
+ */
+export const BANNER_CONTENT_TYPES = AVATAR_CONTENT_TYPES;
+
+export type AllowedBannerContentType = AllowedAvatarContentType;
+
+const BANNER_KEY_PATTERN =
+  /^contest-banners\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(jpg|png|webp|gif)$/i;
+
+/**
  * Object-storage port (M06-P02-T02).
  *
  * Contest / submission services must not import the AWS SDK.
@@ -149,8 +161,35 @@ export function parseAvatarObjectKey(
   };
 }
 
+/**
+ * Backend-issued key. Clients cannot choose the path.
+ * Pattern: contest-banners/{adminId}/{uuid}.{ext}
+ */
+export function buildBannerObjectKey(adminId: string, contentType: string): string {
+  if (!isAllowedAvatarContentType(contentType)) {
+    throw new ValidationError('Contest banner must be a JPEG, PNG, WebP, or GIF');
+  }
+  return `contest-banners/${adminId}/${randomUUID()}.${AVATAR_CONTENT_TYPES[contentType]}`;
+}
+
+export function parseBannerObjectKey(
+  objectKey: string,
+): { adminId: string; objectId: string; extension: string } | null {
+  const match = BANNER_KEY_PATTERN.exec(objectKey);
+  if (!match) return null;
+  return {
+    adminId: match[1],
+    objectId: match[2],
+    extension: match[3].toLowerCase(),
+  };
+}
+
 export function isSignableObjectKey(objectKey: string): boolean {
-  return Boolean(parseSubmissionObjectKey(objectKey) || parseAvatarObjectKey(objectKey));
+  return Boolean(
+    parseSubmissionObjectKey(objectKey) ||
+    parseAvatarObjectKey(objectKey) ||
+    parseBannerObjectKey(objectKey),
+  );
 }
 
 let activeStorage: StorageService | null = null;
@@ -253,10 +292,11 @@ export async function playbackUrlForSubmission(
  * Missing storage or a failed signature becomes "no image" so the feed
  * can fall back to initials. The raw key is not returned to clients.
  */
-export async function signedAvatarUrl(
+async function signedObjectUrl(
   objectKey: string | null | undefined,
+  matches: (key: string) => boolean,
 ): Promise<string | null> {
-  if (!objectKey || !parseAvatarObjectKey(objectKey)) return null;
+  if (!objectKey || !matches(objectKey)) return null;
   let storage: StorageService;
   try {
     storage = getStorageService();
@@ -269,4 +309,32 @@ export async function signedAvatarUrl(
   } catch {
     return null;
   }
+}
+
+export async function signedAvatarUrl(
+  objectKey: string | null | undefined,
+): Promise<string | null> {
+  return signedObjectUrl(objectKey, (key) => Boolean(parseAvatarObjectKey(key)));
+}
+
+/**
+ * Short-lived GET for a contest banner key. The raw key is stored on the
+ * contest. A missing signer falls back to the legacy banner URL, never to
+ * the object key itself.
+ */
+export async function signedBannerUrl(
+  objectKey: string | null | undefined,
+): Promise<string | null> {
+  return signedObjectUrl(objectKey, (key) => Boolean(parseBannerObjectKey(key)));
+}
+
+export async function resolveContestBannerUrl(
+  objectKey: string | null | undefined,
+  legacyBannerUrl: string | null | undefined,
+): Promise<string | null> {
+  if (objectKey && parseBannerObjectKey(objectKey)) {
+    return signedBannerUrl(objectKey);
+  }
+  const legacy = legacyBannerUrl?.trim();
+  return legacy ? legacy : null;
 }

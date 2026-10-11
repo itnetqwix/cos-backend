@@ -6,13 +6,17 @@ import {
   contestIdParamSchema,
   createContestSchema,
   listContestsQuerySchema,
+  presignContestBannerSchema,
   updateContestSchema,
 } from '../schemas/contest.schema.js';
 import { sendSuccess } from '../utils/response.js';
 import { HTTP_STATUS } from '../config/constants.js';
+import { DEFAULT_CONTEST_TIMEZONE } from '../services/contest-schedule.js';
+import { resolveContestBannerUrl } from '../services/storage.service.js';
 
 function actorFromRequest(request: FastifyRequest) {
   return {
+    id: request.user.id,
     role: request.user.role,
   };
 }
@@ -21,7 +25,11 @@ function iso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-export function toContestView(contest: ContestRecord) {
+export async function toContestView(contest: ContestRecord) {
+  const bannerUrl = await resolveContestBannerUrl(
+    contest.bannerObjectKey,
+    contest.bannerUrl,
+  );
   return {
     id: contest.id,
     categoryId: contest.categoryId,
@@ -29,11 +37,14 @@ export function toContestView(contest: ContestRecord) {
     title: contest.title,
     description: contest.description,
     tagline: contest.tagline,
-    bannerUrl: contest.bannerUrl,
+    bannerUrl,
+    bannerObjectKey: contest.bannerObjectKey ?? null,
     thumbnailUrl: contest.thumbnailUrl,
     status: contest.status,
+    timezone: contest.timezone || DEFAULT_CONTEST_TIMEZONE,
     startDate: iso(contest.startDate),
     endDate: iso(contest.endDate),
+    votingClosesAt: contest.votingClosesAt ? iso(contest.votingClosesAt) : null,
     prizeSummary: contest.prizeSummary,
     rules: contest.rules,
     autoAdvanceDelayMs: contest.autoAdvanceDelayMs,
@@ -51,7 +62,7 @@ export class ContestController {
     const contests = await ContestService.list(actorFromRequest(request), query);
     return sendSuccess(
       reply,
-      contests.map(toContestView),
+      await Promise.all(contests.map((contest) => toContestView(contest))),
       'Contests retrieved successfully',
       HTTP_STATUS.OK,
     );
@@ -68,7 +79,7 @@ export class ContestController {
     const contests = await ContestService.listActive();
     return sendSuccess(
       reply,
-      contests.map(toContestView),
+      await Promise.all(contests.map((contest) => toContestView(contest))),
       'Active contests retrieved successfully',
       HTTP_STATUS.OK,
     );
@@ -82,7 +93,7 @@ export class ContestController {
     const contest = await ContestService.create(actorFromRequest(request), body);
     return sendSuccess(
       reply,
-      toContestView(contest),
+      await toContestView(contest),
       'Contest created successfully',
       HTTP_STATUS.CREATED,
     );
@@ -96,7 +107,7 @@ export class ContestController {
     const contest = await ContestService.getById(actorFromRequest(request), id);
     return sendSuccess(
       reply,
-      toContestView(contest),
+      await toContestView(contest),
       'Contest retrieved successfully',
       HTTP_STATUS.OK,
     );
@@ -111,7 +122,7 @@ export class ContestController {
     const contest = await ContestService.update(actorFromRequest(request), id, body);
     return sendSuccess(
       reply,
-      toContestView(contest),
+      await toContestView(contest),
       'Contest updated successfully',
       HTTP_STATUS.OK,
     );
@@ -127,8 +138,19 @@ export class ContestController {
     const contests = await ContestService.listForCreator(actorFromRequest(request));
     return sendSuccess(
       reply,
-      contests.map(toContestView),
+      await Promise.all(contests.map((contest) => toContestView(contest))),
       'Contests retrieved successfully',
+      HTTP_STATUS.OK,
+    );
+  }
+
+  static async presignBanner(request: FastifyRequest, reply: FastifyReply) {
+    const body = presignContestBannerSchema.parse(request.body);
+    const signed = await ContestService.presignBanner(actorFromRequest(request), body);
+    return sendSuccess(
+      reply,
+      signed,
+      'Presigned contest banner upload URL created',
       HTTP_STATUS.OK,
     );
   }
@@ -138,7 +160,7 @@ export class ContestController {
     const contest = await ContestService.getForCreator(actorFromRequest(request), id);
     return sendSuccess(
       reply,
-      toContestView(contest),
+      await toContestView(contest),
       'Contest retrieved successfully',
       HTTP_STATUS.OK,
     );
@@ -148,7 +170,7 @@ export class ContestController {
     const contests = await ContestService.listViewable();
     return sendSuccess(
       reply,
-      contests.map(toContestView),
+      await Promise.all(contests.map((contest) => toContestView(contest))),
       'Viewable contests retrieved successfully',
       HTTP_STATUS.OK,
     );

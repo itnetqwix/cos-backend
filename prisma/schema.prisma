@@ -106,10 +106,16 @@ model Contest {
   // Prize breakdown beyond prizeSummary remains NOT SPECIFIED.
   tagline            String?
   bannerUrl          String?
+  // Stable private-bucket key. Display URLs are signed at read time.
+  bannerObjectKey    String?
   thumbnailUrl       String?
   status             ContestStatus @default(DRAFT)
+  // IANA zone used to interpret and display the schedule. Instants stay UTC.
+  timezone           String        @default("Asia/Kolkata")
   startDate          DateTime
   endDate            DateTime
+  // Null on contests created before voting closure was stored separately.
+  votingClosesAt     DateTime?
   prizeSummary       String?
   rules              Json?
   autoAdvanceDelayMs Int           @default(1800)

@@ -13,13 +13,15 @@ function mockContest(status: ContestStatus = ContestStatus.ACTIVE): ContestRecor
   const now = new Date('2026-09-01T00:00:00.000Z');
   return {
     id: CONTEST_ID,
-    organizationId: ORG_ID,
     categoryId: 'cat-1',
     title: 'Ripskis Comedy Challenge',
     description: 'Create the funniest video',
     tagline: null,
     bannerUrl: null,
+    bannerObjectKey: null,
     thumbnailUrl: null,
+    timezone: 'Asia/Kolkata',
+    votingClosesAt: null,
     status,
     startDate: now,
     endDate: new Date('2026-12-01T00:00:00.000Z'),
@@ -33,11 +35,6 @@ function mockContest(status: ContestStatus = ContestStatus.ACTIVE): ContestRecor
       name: 'VFX Skit',
       slug: 'vfx-skit',
       description: 'VFX Skits',
-    },
-    organization: {
-      id: ORG_ID,
-      name: 'Ripskis',
-      slug: 'ripskis',
     },
   };
 }

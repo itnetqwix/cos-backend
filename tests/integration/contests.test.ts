@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { FastifyInstance } from 'fastify';
 import { ContestStatus, Prisma, Role } from '@prisma/client';
 import { buildApp } from '../../src/app.js';
+import { setStorageService } from '../../src/services/storage.service.js';
+import {
+  SUBMISSION_DEADLINE_AFTER_OPENING,
+  VOTING_CLOSURE_AFTER_DEADLINE,
+} from '../../src/services/contest-schedule.js';
 import { CategoryRepository, CategoryRecord } from '../../src/repositories/category.repository.js';
 import {
   ContestListFilters,
@@ -109,10 +114,13 @@ describe('M05 contest APIs', { concurrency: false }, () => {
         description: data.description,
         tagline: data.tagline,
         bannerUrl: data.bannerUrl,
+        bannerObjectKey: data.bannerObjectKey,
         thumbnailUrl: data.thumbnailUrl,
         status: ContestStatus.DRAFT,
+        timezone: data.timezone,
         startDate: data.startDate,
         endDate: data.endDate,
+        votingClosesAt: data.votingClosesAt,
         prizeSummary: data.prizeSummary,
         rules: data.rules === null ? null : (data.rules as Prisma.JsonValue),
         autoAdvanceDelayMs: data.autoAdvanceDelayMs,
@@ -491,5 +499,221 @@ describe('M05 contest APIs', { concurrency: false }, () => {
     });
     assert.equal(creator.statusCode, 403);
     assert.equal(memory.contests.has(active.id), true);
+  });
+
+  it('rejects equal or reversed schedule instants and stores a valid timezone', async () => {
+    memory = createMemory();
+    const headers = { authorization: `Bearer ${token(Role.ADMIN)}` };
+
+    const equal = await app.inject({
+      method: 'POST',
+      url: '/api/v1/contests',
+      headers,
+      payload: {
+        ...createBody,
+        startDate: '2026-10-11T18:30:00.000Z',
+        endDate: '2026-10-11T18:30:00.000Z',
+      },
+    });
+    assert.equal(equal.statusCode, 400);
+    const equalBody = JSON.parse(equal.payload);
+    assert.equal(equalBody.errors[0].field, 'endDate');
+    assert.equal(equalBody.errors[0].message, SUBMISSION_DEADLINE_AFTER_OPENING);
+
+    const reversed = await app.inject({
+      method: 'POST',
+      url: '/api/v1/contests',
+      headers,
+      payload: {
+        ...createBody,
+        endDate: '2026-09-01T00:00:00.000Z',
+      },
+    });
+    assert.equal(reversed.statusCode, 400);
+
+    const voting = await app.inject({
+      method: 'POST',
+      url: '/api/v1/contests',
+      headers,
+      payload: {
+        ...createBody,
+        votingClosesAt: '2026-10-31T00:00:00.000Z',
+      },
+    });
+    assert.equal(voting.statusCode, 400);
+    const votingBody = JSON.parse(voting.payload);
+    assert.equal(votingBody.errors[0].field, 'votingClosesAt');
+    assert.equal(votingBody.errors[0].message, VOTING_CLOSURE_AFTER_DEADLINE);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/contests',
+      headers,
+      payload: {
+        ...createBody,
+        timezone: 'America/New_York',
+        votingClosesAt: '2026-11-02T00:00:00.000Z',
+      },
+    });
+    assert.equal(created.statusCode, 201);
+    const body = JSON.parse(created.payload).data;
+    assert.equal(body.timezone, 'America/New_York');
+    assert.equal(body.votingClosesAt, '2026-11-02T00:00:00.000Z');
+    assert.equal(body.bannerObjectKey, null);
+
+    const edited = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/contests/${body.id}`,
+      headers,
+      payload: { endDate: '2026-11-02T00:00:00.000Z' },
+    });
+    assert.equal(edited.statusCode, 400);
+    assert.match(JSON.parse(edited.payload).message, new RegExp(VOTING_CLOSURE_AFTER_DEADLINE));
+  });
+
+  it('stores a banner object key, signs it for guests, and can replace it', async () => {
+    memory = createMemory();
+    setStorageService({
+      createPresignedUpload: async ({ objectKey, contentType }) => ({
+        uploadUrl: `https://example.invalid/${objectKey}`,
+        objectKey,
+        headers: { 'Content-Type': contentType },
+        expiresInSeconds: 900,
+        method: 'PUT',
+      }),
+      createPresignedDownload: async (objectKey) =>
+        `https://example.invalid/get/${objectKey}?sig=1`,
+    });
+    try {
+      const headers = { authorization: `Bearer ${token(Role.ADMIN)}` };
+      const presign = await app.inject({
+        method: 'POST',
+        url: '/api/v1/contests/banners/presign',
+        headers,
+        payload: { contentType: 'image/png', fileSizeBytes: 2048 },
+      });
+      assert.equal(presign.statusCode, 200);
+      const upload = JSON.parse(presign.payload).data;
+      assert.match(upload.objectKey, /^contest-banners\/.+\/.+\.png$/);
+      assert.equal(upload.method, 'PUT');
+      assert.equal(upload.uploadUrl.includes('X-Amz-Credential'), false);
+
+      const tooLarge = await app.inject({
+        method: 'POST',
+        url: '/api/v1/contests/banners/presign',
+        headers,
+        payload: { contentType: 'image/png', fileSizeBytes: 100 * 1024 * 1024 + 1 },
+      });
+      assert.equal(tooLarge.statusCode, 400);
+
+      const created = await app.inject({
+        method: 'POST',
+        url: '/api/v1/contests',
+        headers,
+        payload: {
+          ...createBody,
+          bannerObjectKey: upload.objectKey,
+          bannerUrl: 'https://images.example.com/ignored.jpg',
+        },
+      });
+      assert.equal(created.statusCode, 201);
+      const contest = JSON.parse(created.payload).data;
+      assert.equal(contest.bannerObjectKey, upload.objectKey);
+      assert.equal(contest.bannerUrl, `https://example.invalid/get/${upload.objectKey}?sig=1`);
+      assert.equal(memory.contests.get(contest.id)?.bannerUrl, null);
+      assert.equal(contest.timezone, 'Asia/Kolkata');
+
+      const guest = await app.inject({
+        method: 'GET',
+        url: '/api/v1/contests/viewable',
+      });
+      assert.equal(guest.statusCode, 200);
+
+      const creator = await app.inject({
+        method: 'GET',
+        url: `/api/v1/creator/contests/${contest.id}`,
+        headers: {
+          authorization: `Bearer ${token(Role.CREATOR, 'dddddddd-dddd-4ddd-8ddd-0000000000dd')}`,
+        },
+      });
+      assert.equal(creator.statusCode, 200);
+      assert.equal(JSON.parse(creator.payload).data.bannerUrl, contest.bannerUrl);
+
+      const replaced = await app.inject({
+        method: 'POST',
+        url: '/api/v1/contests/banners/presign',
+        headers,
+        payload: { contentType: 'image/jpeg', fileSizeBytes: 1000 },
+      });
+      const nextKey = JSON.parse(replaced.payload).data.objectKey;
+      const updated = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/contests/${contest.id}`,
+        headers,
+        payload: { bannerObjectKey: nextKey },
+      });
+      assert.equal(updated.statusCode, 200);
+      assert.equal(JSON.parse(updated.payload).data.bannerObjectKey, nextKey);
+      assert.notEqual(nextKey, upload.objectKey);
+
+      const removed = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/contests/${contest.id}`,
+        headers,
+        payload: { bannerObjectKey: null, bannerUrl: null },
+      });
+      assert.equal(removed.statusCode, 200);
+      assert.equal(JSON.parse(removed.payload).data.bannerObjectKey, null);
+      assert.equal(JSON.parse(removed.payload).data.bannerUrl, null);
+
+      const invalid = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/contests/${contest.id}`,
+        headers,
+        payload: { bannerObjectKey: 'avatars/not-a-banner.png' },
+      });
+      assert.equal(invalid.statusCode, 400);
+    } finally {
+      setStorageService(null);
+    }
+  });
+
+  it('returns a legacy contest when banner and voting closure were never set', async () => {
+    memory = createMemory();
+    const id = 'bbbbbbbb-bbbb-4bbb-8bbb-000000000099';
+    const now = new Date('2026-10-02T00:00:00.000Z');
+    memory.contests.set(id, {
+      id,
+      categoryId: null,
+      category: null,
+      title: 'Legacy Contest',
+      description: 'Stored before banner keys existed.',
+      tagline: null,
+      bannerUrl: 'https://images.example.com/legacy.jpg',
+      bannerObjectKey: null,
+      thumbnailUrl: null,
+      status: ContestStatus.ACTIVE,
+      timezone: 'Asia/Kolkata',
+      startDate: new Date('2026-10-01T00:00:00.000Z'),
+      endDate: new Date('2026-10-31T00:00:00.000Z'),
+      votingClosesAt: null,
+      prizeSummary: null,
+      rules: null,
+      autoAdvanceDelayMs: 1800,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/contests/${id}`,
+      headers: { authorization: `Bearer ${token(Role.ADMIN)}` },
+    });
+    assert.equal(res.statusCode, 200);
+    const contest = JSON.parse(res.payload).data;
+    assert.equal(contest.bannerUrl, 'https://images.example.com/legacy.jpg');
+    assert.equal(contest.bannerObjectKey, null);
+    assert.equal(contest.votingClosesAt, null);
+    assert.equal(contest.timezone, 'Asia/Kolkata');
   });
 });
