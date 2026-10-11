@@ -1,15 +1,22 @@
 import { Prisma } from '@prisma/client';
 import {
   CreatorSearchHit,
+  FriendProfileUser,
   FriendshipRecord,
   FriendshipRepository,
 } from '../repositories/friendship.repository.js';
+import { SubmissionRepository } from '../repositories/submission.repository.js';
 import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
   ValidationError,
 } from '../utils/response.js';
+import {
+  playbackUrlForSubmission,
+  resolveThumbnailUrl,
+  signedAvatarUrl,
+} from './storage.service.js';
 
 /**
  * Creator friends.
@@ -209,4 +216,122 @@ export class FriendshipService {
     }
     await FriendshipRepository.deleteById(friendshipId);
   }
+
+  static async getFriendProfile(
+    actorId: string,
+    identifier: string,
+  ): Promise<FriendProfileResult> {
+    let friendId: string | null = null;
+
+    // Check if identifier is a friendshipId
+    const friendshipRow = await FriendshipRepository.findById(identifier);
+    if (friendshipRow && involves(friendshipRow, actorId)) {
+      if (friendshipRow.status !== 'ACCEPTED') {
+        throw new ForbiddenError('You can only view profiles of accepted friends');
+      }
+      friendId = otherUser(friendshipRow, actorId).id;
+    } else {
+      // Check if identifier is target user's id
+      const pair = canonicalPair(actorId, identifier);
+      if (pair) {
+        const pairRow = await FriendshipRepository.findPair(
+          pair.userLowId,
+          pair.userHighId,
+        );
+        if (pairRow && involves(pairRow, actorId)) {
+          if (pairRow.status !== 'ACCEPTED') {
+            throw new ForbiddenError('You can only view profiles of accepted friends');
+          }
+          friendId = identifier;
+        }
+      }
+    }
+
+    if (!friendId) {
+      throw new NotFoundError('Friend profile not found');
+    }
+
+    const friendUser = await FriendshipRepository.findActiveFriendUser(friendId);
+    if (!friendUser) {
+      throw new NotFoundError('Creator not found');
+    }
+
+    const avatarUrl = await signedAvatarUrl(friendUser.avatarObjectKey);
+
+    // Fetch friend's non-deleted, APPROVED submissions only
+    const submissions = await SubmissionRepository.listApprovedByCreatorId(friendId);
+
+    const mappedSubmissions: FriendProfileSubmissionView[] = await Promise.all(
+      submissions.map(async (sub) => ({
+        id: sub.id,
+        title: sub.title,
+        description: sub.description,
+        durationSeconds: sub.durationSeconds,
+        communityScore: sub.communityScore,
+        totalVotes: sub.totalVotes,
+        createdAt: sub.createdAt.toISOString(),
+        contestId: sub.contestId,
+        contestTitle: sub.contest.title,
+        category: sub.contest.category?.name ?? null,
+        videoUrl: await playbackUrlForSubmission(sub.objectKey, sub.videoUrl),
+        thumbnailUrl: await resolveThumbnailUrl(sub.thumbnailUrl),
+      })),
+    );
+
+    const totalVotes = mappedSubmissions.reduce((acc, sub) => acc + sub.totalVotes, 0);
+    const avgScore =
+      mappedSubmissions.length > 0
+        ? Number(
+            (
+              mappedSubmissions.reduce((acc, sub) => acc + sub.communityScore, 0) /
+              mappedSubmissions.length
+            ).toFixed(2),
+          )
+        : 0;
+
+    return {
+      friend: {
+        id: friendUser.id,
+        name: friendUser.name,
+        avatarUrl: avatarUrl ?? null,
+        createdAt: friendUser.createdAt.toISOString(),
+      },
+      stats: {
+        totalSubmissions: mappedSubmissions.length,
+        totalVotes,
+        communityScore: avgScore,
+      },
+      submissions: mappedSubmissions,
+    };
+  }
+}
+
+export interface FriendProfileSubmissionView {
+  id: string;
+  title: string;
+  description: string | null;
+  durationSeconds: number;
+  communityScore: number;
+  totalVotes: number;
+  createdAt: string;
+  contestId: string;
+  contestTitle: string;
+  category: string | null;
+  videoUrl: string;
+  thumbnailUrl: string | null;
+}
+
+export interface FriendProfileResult {
+  friend: {
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+    createdAt: string;
+  };
+  stats: {
+    totalSubmissions: number;
+    totalVotes: number;
+    communityScore: number;
+  };
+  submissions: FriendProfileSubmissionView[];
 }

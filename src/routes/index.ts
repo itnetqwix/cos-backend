@@ -78,12 +78,14 @@ import {
 import {
   acceptFriendRequestSwaggerSchema,
   cancelFriendRequestSwaggerSchema,
+  getFriendProfileSwaggerSchema,
   listFriendsSwaggerSchema,
   rejectFriendRequestSwaggerSchema,
   removeFriendSwaggerSchema,
   searchFriendsSwaggerSchema,
   sendFriendRequestSwaggerSchema,
 } from '../schemas/friendship.schema.js';
+
 import { sendSuccess } from '../utils/response.js';
 import { SYSTEM_CONSTANTS, HTTP_STATUS } from '../config/constants.js';
 import {
@@ -190,7 +192,7 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
 
   // Creator friends. Same creatorGuards as profile and submissions.
   // ADMIN and guests are not granted these routes.
-  // Register /friends/search and /friends/requests before /friends/:id.
+  // Register /friends/search, /friends/:id/profile, and /friends/requests before /friends/:id.
   fastify.get(
     '/friends',
     { schema: listFriendsSwaggerSchema, onRequest: creatorGuards },
@@ -201,6 +203,12 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     '/friends/search',
     { schema: searchFriendsSwaggerSchema, onRequest: creatorGuards },
     FriendshipController.search,
+  );
+
+  fastify.get(
+    '/friends/:id/profile',
+    { schema: getFriendProfileSwaggerSchema, onRequest: creatorGuards },
+    FriendshipController.getProfile,
   );
 
   fastify.post(

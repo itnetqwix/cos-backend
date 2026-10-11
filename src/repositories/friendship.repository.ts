@@ -7,6 +7,13 @@ const personSelect = {
   avatarObjectKey: true,
 } satisfies Prisma.UserSelect;
 
+const friendProfileUserSelect = {
+  id: true,
+  name: true,
+  avatarObjectKey: true,
+  createdAt: true,
+} satisfies Prisma.UserSelect;
+
 const friendshipInclude = {
   userLow: { select: personSelect },
   userHigh: { select: personSelect },
@@ -18,11 +25,22 @@ export type FriendshipRecord = Prisma.FriendshipGetPayload<{
 
 export type CreatorSearchHit = Prisma.UserGetPayload<{ select: typeof personSelect }>;
 
+export type FriendProfileUser = Prisma.UserGetPayload<{
+  select: typeof friendProfileUserSelect;
+}>;
+
 export class FriendshipRepository {
   static async findActiveCreator(id: string): Promise<CreatorSearchHit | null> {
     return prisma.user.findFirst({
       where: { id, role: Role.CREATOR, accountStatus: AccountStatus.ACTIVE },
       select: personSelect,
+    });
+  }
+
+  static async findActiveFriendUser(id: string): Promise<FriendProfileUser | null> {
+    return prisma.user.findFirst({
+      where: { id, role: Role.CREATOR, accountStatus: AccountStatus.ACTIVE },
+      select: friendProfileUserSelect,
     });
   }
 

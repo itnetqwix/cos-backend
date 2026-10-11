@@ -203,6 +203,18 @@ export class SubmissionRepository {
     });
   }
 
+  static async listApprovedByCreatorId(creatorId: string): Promise<SubmissionRecord[]> {
+    return prisma.submission.findMany({
+      where: {
+        creatorId,
+        status: SubmissionStatus.APPROVED,
+        ...notDeleted,
+      },
+      include: submissionInclude,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   static async pageByCreator(creatorId: string, skip: number, take: number) {
     const where = { creatorId };
     const [rows, totalCount] = await Promise.all([

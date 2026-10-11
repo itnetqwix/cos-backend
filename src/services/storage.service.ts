@@ -338,3 +338,23 @@ export async function resolveContestBannerUrl(
   const legacy = legacyBannerUrl?.trim();
   return legacy ? legacy : null;
 }
+
+/**
+ * Stored poster when it is already an http(s) URL.
+ * A private object key is exchanged for a short-lived download URL.
+ * Anything else becomes null so the client can show a fallback
+ * without requesting a thumbnail per row or exposing a raw key.
+ */
+export async function resolveThumbnailUrl(
+  value: string | null | undefined,
+): Promise<string | null> {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (!isSignableObjectKey(value)) return null;
+  try {
+    const signed = await playbackUrlForSubmission(value, value);
+    return /^https?:\/\//i.test(signed) ? signed : null;
+  } catch {
+    return null;
+  }
+}

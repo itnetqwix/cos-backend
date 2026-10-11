@@ -173,3 +173,65 @@ export const removeFriendSwaggerSchema: FastifySchema = {
     409: swaggerErrorEnvelope('Only accepted friends can be removed'),
   },
 };
+
+const friendSubmissionSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    title: { type: 'string' },
+    description: { type: 'string', nullable: true },
+    durationSeconds: { type: 'integer' },
+    communityScore: { type: 'number' },
+    totalVotes: { type: 'integer' },
+    createdAt: { type: 'string', format: 'date-time' },
+    contestId: { type: 'string', format: 'uuid' },
+    contestTitle: { type: 'string' },
+    category: { type: 'string', nullable: true },
+    videoUrl: { type: 'string' },
+    thumbnailUrl: { type: 'string', nullable: true },
+  },
+};
+
+const friendProfileDataSchema = {
+  type: 'object',
+  properties: {
+    friend: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        name: { type: 'string' },
+        avatarUrl: { type: 'string', nullable: true },
+        createdAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    stats: {
+      type: 'object',
+      properties: {
+        totalSubmissions: { type: 'integer' },
+        totalVotes: { type: 'integer' },
+        communityScore: { type: 'number' },
+      },
+    },
+    submissions: {
+      type: 'array',
+      items: friendSubmissionSchema,
+    },
+  },
+};
+
+export const getFriendProfileSwaggerSchema: FastifySchema = {
+  tags: ['Friends'],
+  summary: 'Get public profile and approved submissions for an accepted friend',
+  description: `${creatorOnly} Only accepted friends can view this profile. Shows only approved, non-deleted submissions. Never exposes email or private creator data.`,
+  security: [{ bearerAuth: [] }],
+  params: idParams,
+  response: {
+    200: swaggerSuccessEnvelope(
+      friendProfileDataSchema,
+      'Friend profile retrieved successfully',
+    ),
+    401: swaggerErrorEnvelope('Unauthorized'),
+    403: swaggerErrorEnvelope('Forbidden'),
+    404: swaggerErrorEnvelope('Friend profile not found'),
+  },
+};

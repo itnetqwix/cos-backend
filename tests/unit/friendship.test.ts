@@ -38,8 +38,11 @@ function row(status: 'PENDING' | 'ACCEPTED', requesterId: string) {
   };
 }
 
+import { SubmissionRepository } from '../../src/repositories/submission.repository.js';
+
 const originals = {
   findActiveCreator: FriendshipRepository.findActiveCreator,
+  findActiveFriendUser: FriendshipRepository.findActiveFriendUser,
   searchCreators: FriendshipRepository.searchCreators,
   findPair: FriendshipRepository.findPair,
   findByPairs: FriendshipRepository.findByPairs,
@@ -50,9 +53,15 @@ const originals = {
   deleteById: FriendshipRepository.deleteById,
 };
 
+const submissionOriginals = {
+  listApprovedByCreatorId: SubmissionRepository.listApprovedByCreatorId,
+};
+
 after(() => {
   Object.assign(FriendshipRepository, originals);
+  Object.assign(SubmissionRepository, submissionOriginals);
 });
+
 
 describe('creator friendships', { concurrency: false }, () => {
   it('stores one ordered pair and rejects a self pair in the migration', () => {
@@ -210,6 +219,76 @@ describe('creator friendships', { concurrency: false }, () => {
     assert.equal(hits[0].friendshipId, ROW_ID);
     assert.equal('email' in hits[0], false);
   });
+
+  it('returns friend profile and approved submissions for accepted friends without private fields', async () => {
+    FriendshipRepository.findById = async (id: string) =>
+      id === ROW_ID ? row('ACCEPTED', ME) : null;
+    FriendshipRepository.findActiveFriendUser = async () => ({
+      id: THEM,
+      name: 'Bea',
+      avatarObjectKey: null,
+      createdAt: new Date('2026-10-10T12:00:00.000Z'),
+    });
+    SubmissionRepository.listApprovedByCreatorId = async () => [
+      {
+        id: 'sub-1',
+        contestId: 'contest-1',
+        creatorId: THEM,
+        title: 'Epic Trick',
+        description: 'First attempt',
+        videoUrl: 'https://example.com/video.mp4',
+        objectKey: 'contests/contest-1/creators/' + THEM + '/sub-1.mp4',
+        thumbnailUrl: 'https://example.com/thumb.jpg',
+        durationSeconds: 15,
+        status: 'APPROVED',
+        rejectionReason: null,
+        moderatedById: null,
+        moderatedAt: null,
+        tags: ['park'],
+        communityScore: 8.5,
+        totalVotes: 12,
+        deletedAt: null,
+        deletedById: null,
+        createdAt: new Date('2026-10-11T10:00:00.000Z'),
+        updatedAt: new Date('2026-10-11T10:00:00.000Z'),
+        contest: {
+          id: 'contest-1',
+          title: 'Street Skating 2026',
+          status: 'ACTIVE',
+          category: { id: 'cat-1', name: 'Street', slug: 'street' },
+        },
+      } as any,
+    ];
+
+    const profile = await FriendshipService.getFriendProfile(ME, ROW_ID);
+    assert.equal(profile.friend.id, THEM);
+    assert.equal(profile.friend.name, 'Bea');
+    assert.equal('email' in profile.friend, false);
+    assert.equal(profile.stats.totalSubmissions, 1);
+    assert.equal(profile.stats.totalVotes, 12);
+    assert.equal(profile.stats.communityScore, 8.5);
+    assert.equal(profile.submissions.length, 1);
+    assert.equal(profile.submissions[0].title, 'Epic Trick');
+    assert.equal(profile.submissions[0].contestTitle, 'Street Skating 2026');
+    assert.equal(profile.submissions[0].category, 'Street');
+    assert.equal('objectKey' in profile.submissions[0], false);
+    assert.equal('rejectionReason' in profile.submissions[0], false);
+  });
+
+  it('rejects friend profile request if friendship is pending or missing', async () => {
+    FriendshipRepository.findById = async () => row('PENDING', ME);
+    await assert.rejects(
+      () => FriendshipService.getFriendProfile(ME, ROW_ID),
+      (err: unknown) => err instanceof ForbiddenError,
+    );
+
+    FriendshipRepository.findById = async () => null;
+    FriendshipRepository.findPair = async () => null;
+    await assert.rejects(
+      () => FriendshipService.getFriendProfile(ME, 'missing-id'),
+      (err: unknown) => err instanceof NotFoundError,
+    );
+  });
 });
 
 describe('creator friendship routes deny guests and admins', { concurrency: false }, () => {
@@ -229,6 +308,7 @@ describe('creator friendship routes deny guests and admins', { concurrency: fals
   const guarded = [
     ['GET', '/api/v1/friends'],
     ['GET', '/api/v1/friends/search?q=ada'],
+    ['GET', `/api/v1/friends/${ROW_ID}/profile`],
     ['POST', '/api/v1/friends/requests'],
     ['POST', `/api/v1/friends/requests/${ROW_ID}/accept`],
     ['POST', `/api/v1/friends/requests/${ROW_ID}/reject`],
@@ -270,7 +350,8 @@ describe('creator friendship routes deny guests and admins', { concurrency: fals
     const end = routes.indexOf('// User listing is ADMIN only.');
     const block = routes.slice(start, end);
     assert.match(block, /authorizeRoles\(Role\.CREATOR\)|onRequest: creatorGuards/);
-    assert.equal(block.match(/onRequest: creatorGuards/g)?.length, 7);
+    assert.equal(block.match(/onRequest: creatorGuards/g)?.length, 8);
     assert.doesNotMatch(block, /Role\.ADMIN/);
   });
 });
+
