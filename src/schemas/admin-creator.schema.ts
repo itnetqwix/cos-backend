@@ -141,6 +141,15 @@ const adminVideoSchema = {
     durationSeconds: { type: 'integer', nullable: true },
     videoUrl: { type: 'string', nullable: true },
     thumbnailUrl: { type: 'string', nullable: true },
+    deletedAt: { type: 'string', nullable: true },
+    deletedBy: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+      },
+    },
   },
 };
 
@@ -154,6 +163,15 @@ const participationVideoSchema = {
     updatedAt: { type: 'string', nullable: true },
     communityScore: { type: 'number' },
     totalVotes: { type: 'integer' },
+    deletedAt: { type: 'string', nullable: true },
+    deletedBy: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+      },
+    },
   },
 };
 

@@ -27,7 +27,11 @@ export class VoterService {
     limit: number,
   ): Promise<{ items: PublicVoter[]; total: number }> {
     const submission = await SubmissionRepository.findById(submissionId);
-    if (!submission || submission.status !== SubmissionStatus.APPROVED) {
+    if (
+      !submission ||
+      submission.deletedAt ||
+      submission.status !== SubmissionStatus.APPROVED
+    ) {
       throw new NotFoundError('Submission not found');
     }
 

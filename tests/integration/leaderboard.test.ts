@@ -97,6 +97,8 @@ function toLeaderboardRecord(s: MemorySubmission): LeaderboardRecord {
     tags: s.tags,
     communityScore: s.communityScore,
     totalVotes: s.totalVotes,
+    deletedAt: null,
+    deletedById: null,
     createdAt: s.createdAt,
     updatedAt: s.createdAt,
     creator: { id: 'creator-uuid', name: 'Creator Name', avatarObjectKey: null },

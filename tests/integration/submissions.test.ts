@@ -116,6 +116,9 @@ describe('M06 submission APIs', { concurrency: false }, () => {
         tags: data.tags,
         communityScore: 0,
         totalVotes: 0,
+        deletedAt: null,
+        deletedById: null,
+        deletedBy: null,
         createdAt: now,
         updatedAt: now,
         contest: contest

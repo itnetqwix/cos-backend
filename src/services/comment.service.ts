@@ -31,7 +31,7 @@ export function normalizeCommentBody(body: string): string {
 export class CommentService {
   static async listForSubmission(submissionId: string): Promise<CommentRecord[]> {
     const submission = await SubmissionRepository.findById(submissionId);
-    if (!submission) {
+    if (!submission || submission.deletedAt) {
       throw new NotFoundError('Submission not found');
     }
     return CommentRepository.listBySubmissionId(submissionId);
@@ -49,7 +49,7 @@ export class CommentService {
     }
     const body = normalizeCommentBody(input.body);
     const submission = await SubmissionRepository.findById(input.submissionId);
-    if (!submission) {
+    if (!submission || submission.deletedAt) {
       throw new NotFoundError('Submission not found');
     }
     return CommentRepository.create({

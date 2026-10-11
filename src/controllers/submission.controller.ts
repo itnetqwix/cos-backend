@@ -107,4 +107,22 @@ export class SubmissionController {
       HTTP_STATUS.OK,
     );
   }
+
+  /**
+   * DELETE /api/v1/submissions/:id
+   */
+  static async remove(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = submissionIdParamSchema.parse(request.params);
+    const result = await SubmissionService.remove(actorFromRequest(request), id);
+    return sendSuccess(
+      reply,
+      {
+        id: result.id,
+        deleted: result.deleted,
+        deletedAt: iso(result.deletedAt),
+      },
+      'Submission deleted successfully',
+      HTTP_STATUS.OK,
+    );
+  }
 }

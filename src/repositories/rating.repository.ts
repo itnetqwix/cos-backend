@@ -55,6 +55,7 @@ export class RatingRepository {
       INNER JOIN "contests" c ON c.id = s."contestId"
       WHERE s.id = ${submissionId}
         AND s."contestId" = ${contestId}
+        AND s."deletedAt" IS NULL
       FOR UPDATE OF s, c
     `;
     const row = rows[0];

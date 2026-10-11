@@ -90,6 +90,9 @@ function assertModeratorOnly(actor: ModerationActor): void {
 }
 
 function assertModeratable(submission: SubmissionRecord): void {
+  if (submission.deletedAt) {
+    throw new ConflictError('Deleted submissions cannot be moderated');
+  }
   if (CLOSED_CONTEST_STATUSES.has(submission.contest.status)) {
     throw new ConflictError('Closed contests are read-only historical records');
   }

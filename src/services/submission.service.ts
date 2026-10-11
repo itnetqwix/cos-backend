@@ -150,6 +150,9 @@ export class SubmissionService {
 
     const existing = await SubmissionRepository.findByObjectKey(input.objectKey);
     if (existing) {
+      if (existing.deletedAt) {
+        throw new ConflictError('objectKey is already registered');
+      }
       if (existing.creatorId === actor.id) {
         return { submission: existing, created: false };
       }
@@ -189,7 +192,7 @@ export class SubmissionService {
         error.code === 'P2002'
       ) {
         const raced = await SubmissionRepository.findByObjectKey(input.objectKey);
-        if (raced && raced.creatorId === actor.id) {
+        if (raced && !raced.deletedAt && raced.creatorId === actor.id) {
           return { submission: raced, created: false };
         }
         throw new ConflictError('objectKey is already registered');
@@ -206,10 +209,54 @@ export class SubmissionService {
   static async getById(actor: SubmissionActor, id: string): Promise<SubmissionRecord> {
     await assertCreator(actor);
     const submission = await SubmissionRepository.findById(id);
-    if (!submission || submission.creatorId !== actor.id) {
+    if (!submission || submission.creatorId !== actor.id || submission.deletedAt) {
       throw new NotFoundError('Submission not found');
     }
     return submission;
+  }
+
+  /**
+   * Creator soft delete. Another creator's id is 404.
+   * A second delete of the same row succeeds and keeps the original timestamp.
+   * Ratings, the submission row, and the S3 object are not removed.
+   */
+  static async remove(actor: SubmissionActor, id: string) {
+    await assertCreator(actor);
+    const existing = await SubmissionRepository.findById(id);
+    if (!existing || existing.creatorId !== actor.id) {
+      throw new NotFoundError('Submission not found');
+    }
+    if (existing.deletedAt) {
+      return {
+        id: existing.id,
+        deleted: true,
+        deletedAt: existing.deletedAt,
+      };
+    }
+    const deleted = await SubmissionRepository.softDeleteOwned(id, actor.id);
+    const row = deleted ?? (await SubmissionRepository.findById(id));
+    if (!row || row.creatorId !== actor.id || !row.deletedAt) {
+      throw new NotFoundError('Submission not found');
+    }
+    if (deleted) {
+      await CreatorActivityService.record({
+        creatorId: actor.id,
+        action: CreatorActivityAction.SUBMISSION_DELETED,
+        description: 'Submission deleted by creator',
+        relatedSubmissionId: row.id,
+        relatedContestId: row.contestId,
+        performedByUserId: actor.id,
+        metadata: {
+          submissionTitle: row.title,
+          contestTitle: row.contest.title,
+        },
+      });
+    }
+    return {
+      id: row.id,
+      deleted: true,
+      deletedAt: row.deletedAt,
+    };
   }
 }
 
