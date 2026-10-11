@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { Role } from '@prisma/client';
 import { AdminCreatorController } from '../controllers/admin-creator.controller.js';
+import { FriendshipController } from '../controllers/friendship.controller.js';
 import { AuthController } from '../controllers/auth.controller.js';
 import { CommentController } from '../controllers/comment.controller.js';
 import { ContestController } from '../controllers/contest.controller.js';
@@ -74,6 +75,15 @@ import {
   listCreatorsSwaggerSchema,
   warnCreatorSwaggerSchema,
 } from '../schemas/admin-creator.schema.js';
+import {
+  acceptFriendRequestSwaggerSchema,
+  cancelFriendRequestSwaggerSchema,
+  listFriendsSwaggerSchema,
+  rejectFriendRequestSwaggerSchema,
+  removeFriendSwaggerSchema,
+  searchFriendsSwaggerSchema,
+  sendFriendRequestSwaggerSchema,
+} from '../schemas/friendship.schema.js';
 import { sendSuccess } from '../utils/response.js';
 import { SYSTEM_CONSTANTS, HTTP_STATUS } from '../config/constants.js';
 import {
@@ -176,6 +186,51 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       onRequest: creatorGuards,
     },
     AuthController.presignAvatar,
+  );
+
+  // Creator friends. Same creatorGuards as profile and submissions.
+  // ADMIN and guests are not granted these routes.
+  // Register /friends/search and /friends/requests before /friends/:id.
+  fastify.get(
+    '/friends',
+    { schema: listFriendsSwaggerSchema, onRequest: creatorGuards },
+    FriendshipController.list,
+  );
+
+  fastify.get(
+    '/friends/search',
+    { schema: searchFriendsSwaggerSchema, onRequest: creatorGuards },
+    FriendshipController.search,
+  );
+
+  fastify.post(
+    '/friends/requests',
+    { schema: sendFriendRequestSwaggerSchema, onRequest: creatorGuards },
+    FriendshipController.send,
+  );
+
+  fastify.post(
+    '/friends/requests/:id/accept',
+    { schema: acceptFriendRequestSwaggerSchema, onRequest: creatorGuards },
+    FriendshipController.accept,
+  );
+
+  fastify.post(
+    '/friends/requests/:id/reject',
+    { schema: rejectFriendRequestSwaggerSchema, onRequest: creatorGuards },
+    FriendshipController.reject,
+  );
+
+  fastify.delete(
+    '/friends/requests/:id',
+    { schema: cancelFriendRequestSwaggerSchema, onRequest: creatorGuards },
+    FriendshipController.cancel,
+  );
+
+  fastify.delete(
+    '/friends/:id',
+    { schema: removeFriendSwaggerSchema, onRequest: creatorGuards },
+    FriendshipController.remove,
   );
 
   // User listing is ADMIN only. Self-profile remains GET /auth/me.

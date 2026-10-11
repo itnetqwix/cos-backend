@@ -53,6 +53,8 @@ model User {
   warningsIssued       CreatorWarning[]     @relation("WarningIssuer")
   activityAsSubject    CreatorActivityLog[] @relation("ActivitySubject")
   activityPerformed    CreatorActivityLog[] @relation("ActivityActor")
+  friendshipsAsLow     Friendship[]         @relation("FriendshipLow")
+  friendshipsAsHigh    Friendship[]         @relation("FriendshipHigh")
 
   // Private storage key for the creator profile image.
   // The API returns a short-lived presigned avatarUrl. That URL is not stored.
@@ -289,4 +291,32 @@ model CreatorActivityLog {
   @@index([relatedContestId])
   @@index([relatedSubmissionId])
   @@map("creator_activity_logs")
+}
+
+// Creator friends. One row per unordered pair of users.
+// userLowId is the smaller id so the unique pair cannot be stored twice.
+// requesterId is always one of those two ids (enforced in the migration CHECK).
+// It has no third foreign key, so deleting a user cascades once through low or high.
+// Contest, submission, rating, and leaderboard rows are not related.
+// Chat and media sharing are not part of this model.
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+}
+
+model Friendship {
+  id          String           @id @default(uuid())
+  userLowId   String
+  userHighId  String
+  requesterId String
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  userLow     User             @relation("FriendshipLow", fields: [userLowId], references: [id], onDelete: Cascade)
+  userHigh    User             @relation("FriendshipHigh", fields: [userHighId], references: [id], onDelete: Cascade)
+
+  @@unique([userLowId, userHighId])
+  @@index([userLowId, status])
+  @@index([userHighId, status])
+  @@map("friendships")
 }
