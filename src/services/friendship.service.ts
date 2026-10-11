@@ -26,7 +26,7 @@ import {
  * - Result cap is 20. A product page size is NOT SPECIFIED.
  * - BLOCKED creators are omitted. Friending a blocked account is NOT SPECIFIED.
  * - Reject, cancel, and unfriend delete the row so either creator can request again.
- * - Chat and media sharing are out of scope.
+ * - Chat is ChatService. These request rules do not read or write messages.
  */
 
 export type FriendDirection = 'INCOMING' | 'OUTGOING';

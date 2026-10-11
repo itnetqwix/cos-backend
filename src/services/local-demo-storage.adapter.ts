@@ -10,8 +10,10 @@ import { VIDEO_CONSTRAINTS, VIDEO_CONTENT_TYPE_MESSAGE } from '../config/constan
 import { ValidationError } from '../utils/response.js';
 import {
   isAllowedAvatarContentType,
+  isAllowedChatContentType,
   isAllowedVideoContentType,
   parseAvatarObjectKey,
+  parseChatAttachmentKey,
   parseSubmissionObjectKey,
   PresignedUploadRequest,
   PresignedUploadResult,
@@ -140,7 +142,8 @@ export class LocalDemoStorageAdapter implements StorageService {
   ): Promise<PresignedUploadResult> {
     const isAvatar = Boolean(parseAvatarObjectKey(request.objectKey));
     const isSubmission = Boolean(parseSubmissionObjectKey(request.objectKey));
-    if (!isAvatar && !isSubmission) {
+    const isChat = Boolean(parseChatAttachmentKey(request.objectKey));
+    if (!isAvatar && !isSubmission && !isChat) {
       throw new ValidationError('objectKey is not a backend-issued submission key');
     }
     if (isSubmission && !isAllowedVideoContentType(request.contentType)) {
@@ -148,6 +151,11 @@ export class LocalDemoStorageAdapter implements StorageService {
     }
     if (isAvatar && !isAllowedAvatarContentType(request.contentType)) {
       throw new ValidationError('Profile image must be a JPEG, PNG, WebP, or GIF');
+    }
+    if (isChat && !isAllowedChatContentType(request.contentType)) {
+      throw new ValidationError(
+        'Attachment must be a JPEG, PNG, WebP, GIF, MP4, WebM, or MOV',
+      );
     }
 
     const expiresInSeconds = VIDEO_CONSTRAINTS.PRESIGN_EXPIRES_SECONDS;
@@ -183,7 +191,10 @@ export class LocalDemoStorageAdapter implements StorageService {
   }
 
   private resolveObjectPath(objectKey: string): string {
-    const parsed = parseSubmissionObjectKey(objectKey) ?? parseAvatarObjectKey(objectKey);
+    const parsed =
+      parseSubmissionObjectKey(objectKey) ??
+      parseAvatarObjectKey(objectKey) ??
+      parseChatAttachmentKey(objectKey);
     if (!parsed) {
       throw new DemoMediaError('Upload key is not a submission object', 400);
     }

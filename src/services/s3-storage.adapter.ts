@@ -18,6 +18,7 @@ export interface S3StorageAdapterOptions {
     key: string;
     contentType: string;
     expiresIn: number;
+    contentLength?: number;
   }) => Promise<string>;
   signGetObject?: (input: {
     bucket: string;
@@ -74,11 +75,12 @@ export class S3StorageAdapter implements StorageService {
     return new S3StorageAdapter({
       region: env.AWS_REGION,
       bucket: env.AWS_S3_BUCKET,
-      signPutObject: async ({ bucket, key, contentType, expiresIn }) => {
+      signPutObject: async ({ bucket, key, contentType, expiresIn, contentLength }) => {
         const command = new PutObjectCommand({
           Bucket: bucket,
           Key: key,
           ContentType: contentType,
+          ...(contentLength !== undefined ? { ContentLength: contentLength } : {}),
         });
         return getSignedUrl(s3, command, { expiresIn });
       },
@@ -101,6 +103,7 @@ export class S3StorageAdapter implements StorageService {
       key: request.objectKey,
       contentType: request.contentType,
       expiresIn: expiresInSeconds,
+      contentLength: request.contentLength,
     });
 
     return {

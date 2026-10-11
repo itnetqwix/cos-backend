@@ -37,6 +37,70 @@ const BANNER_KEY_PATTERN =
   /^contest-banners\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(jpg|png|webp|gif)$/i;
 
 /**
+ * Private chat objects. The bucket stays private. Clients receive a presigned
+ * PUT, then a presigned GET. A public CDN URL is not issued for these keys.
+ * Pattern: chat/{friendshipId}/{senderId}/{uuid}.{ext}
+ */
+const CHAT_KEY_PATTERN =
+  /^chat\/([0-9a-f-]{36})\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(jpg|png|webp|gif|mp4|webm|mov)$/i;
+
+export const CHAT_ATTACHMENT_CONTENT_TYPES = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+} as const;
+
+export type AllowedChatContentType = keyof typeof CHAT_ATTACHMENT_CONTENT_TYPES;
+
+export function isAllowedChatContentType(
+  contentType: string,
+): contentType is AllowedChatContentType {
+  return Object.prototype.hasOwnProperty.call(CHAT_ATTACHMENT_CONTENT_TYPES, contentType);
+}
+
+export function chatAttachmentKind(
+  contentType: AllowedChatContentType,
+): 'IMAGE' | 'VIDEO' {
+  return contentType.startsWith('image/') ? 'IMAGE' : 'VIDEO';
+}
+
+export function buildChatAttachmentKey(parts: {
+  friendshipId: string;
+  senderId: string;
+  contentType: string;
+  objectId?: string;
+}): string {
+  if (!isAllowedChatContentType(parts.contentType)) {
+    throw new ValidationError(
+      'Attachment must be a JPEG, PNG, WebP, GIF, MP4, WebM, or MOV',
+    );
+  }
+  const objectId = parts.objectId ?? randomUUID();
+  const extension = CHAT_ATTACHMENT_CONTENT_TYPES[parts.contentType];
+  return `chat/${parts.friendshipId}/${parts.senderId}/${objectId}.${extension}`;
+}
+
+export function parseChatAttachmentKey(objectKey: string): {
+  friendshipId: string;
+  senderId: string;
+  objectId: string;
+  extension: string;
+} | null {
+  const match = CHAT_KEY_PATTERN.exec(objectKey);
+  if (!match) return null;
+  return {
+    friendshipId: match[1],
+    senderId: match[2],
+    objectId: match[3],
+    extension: match[4].toLowerCase(),
+  };
+}
+
+/**
  * Object-storage port (M06-P02-T02).
  *
  * Contest / submission services must not import the AWS SDK.
@@ -46,6 +110,8 @@ const BANNER_KEY_PATTERN =
 export interface PresignedUploadRequest {
   objectKey: string;
   contentType: string;
+  /** When set, the signed PUT is bound to this byte length. */
+  contentLength?: number;
 }
 
 export interface PresignedUploadResult {
@@ -188,7 +254,8 @@ export function isSignableObjectKey(objectKey: string): boolean {
   return Boolean(
     parseSubmissionObjectKey(objectKey) ||
     parseAvatarObjectKey(objectKey) ||
-    parseBannerObjectKey(objectKey),
+    parseBannerObjectKey(objectKey) ||
+    parseChatAttachmentKey(objectKey),
   );
 }
 

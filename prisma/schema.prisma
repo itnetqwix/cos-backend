@@ -55,6 +55,8 @@ model User {
   activityPerformed    CreatorActivityLog[] @relation("ActivityActor")
   friendshipsAsLow     Friendship[]         @relation("FriendshipLow")
   friendshipsAsHigh    Friendship[]         @relation("FriendshipHigh")
+  chatMessagesSent     ChatMessage[]        @relation("ChatMessageSender")
+  chatReads            ChatRead[]           @relation("ChatReadUser")
 
   // Private storage key for the creator profile image.
   // The API returns a short-lived presigned avatarUrl. That URL is not stored.
@@ -298,7 +300,7 @@ model CreatorActivityLog {
 // requesterId is always one of those two ids (enforced in the migration CHECK).
 // It has no third foreign key, so deleting a user cascades once through low or high.
 // Contest, submission, rating, and leaderboard rows are not related.
-// Chat and media sharing are not part of this model.
+// Chat rows reference this friendship and are deleted with it.
 enum FriendshipStatus {
   PENDING
   ACCEPTED
@@ -314,9 +316,49 @@ model Friendship {
   updatedAt   DateTime         @updatedAt
   userLow     User             @relation("FriendshipLow", fields: [userLowId], references: [id], onDelete: Cascade)
   userHigh    User             @relation("FriendshipHigh", fields: [userHighId], references: [id], onDelete: Cascade)
+  chatMessages ChatMessage[]
+  chatReads    ChatRead[]
 
   @@unique([userLowId, userHighId])
   @@index([userLowId, status])
   @@index([userHighId, status])
   @@map("friendships")
+}
+
+// One-to-one creator chat. Only an accepted friendship may have messages.
+// The migration trigger enforces that the sender is one of the two friends.
+// A separate product limit for body length is NOT SPECIFIED. The column check
+// uses 2000 characters, the same engineering default as ChatService.
+enum ChatAttachmentKind {
+  IMAGE
+  VIDEO
+}
+
+model ChatMessage {
+  id              String              @id @default(uuid())
+  friendshipId    String
+  senderId        String
+  body            String?             @db.Text
+  attachmentKey   String?             @unique
+  attachmentKind  ChatAttachmentKind?
+  attachmentMime  String?
+  attachmentBytes Int?
+  createdAt       DateTime            @default(now())
+  friendship      Friendship          @relation(fields: [friendshipId], references: [id], onDelete: Cascade)
+  sender          User                @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([friendshipId, createdAt])
+  @@map("chat_messages")
+}
+
+// lastReadAt is the newest moment this creator has seen the conversation.
+model ChatRead {
+  friendshipId String
+  userId       String
+  lastReadAt   DateTime   @default(now())
+  friendship   Friendship @relation(fields: [friendshipId], references: [id], onDelete: Cascade)
+  user         User       @relation("ChatReadUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([friendshipId, userId])
+  @@map("chat_reads")
 }
