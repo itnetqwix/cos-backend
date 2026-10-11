@@ -82,31 +82,47 @@ export class ChatController {
     if (reply.sent) return;
     const userId = actorId(request);
     reply.hijack();
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'X-Accel-Buffering': 'no',
-    });
-    reply.raw.write('retry: 3000\n\n');
-
     let closed = false;
-    const unsubscribe = subscribeChat(userId, (event) => {
-      if (closed) return;
-      reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-    });
-    const timer = setInterval(() => {
-      if (!closed) reply.raw.write(': ping\n\n');
-    }, 25000);
-    timer.unref();
-
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let unsubscribe = () => {};
     const close = () => {
       if (closed) return;
       closed = true;
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
       unsubscribe();
     };
+    const write = (chunk: string) => {
+      if (closed || reply.raw.writableEnded || reply.raw.destroyed) {
+        close();
+        return;
+      }
+      try {
+        reply.raw.write(chunk);
+      } catch {
+        close();
+      }
+    };
+
+    reply.raw.on('error', close);
+    if (!reply.raw.headersSent) {
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'X-Accel-Buffering': 'no',
+      });
+    }
+    write('retry: 3000\n\n');
+
+    unsubscribe = subscribeChat(userId, (event) => {
+      write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    });
+    timer = setInterval(() => {
+      write(': ping\n\n');
+    }, 25000);
+    timer.unref();
+
     request.raw.on('close', close);
     reply.raw.on('close', close);
   }
