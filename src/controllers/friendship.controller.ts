@@ -135,4 +135,15 @@ export class FriendshipController {
     await FriendshipService.remove(actorId(request), id);
     return sendSuccess(reply, null, 'Friend removed', HTTP_STATUS.OK);
   }
+
+  static async getProfile(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = friendshipIdParamSchema.parse(request.params);
+    const profile = await FriendshipService.getFriendProfile(actorId(request), id);
+    return sendSuccess(
+      reply,
+      profile,
+      'Friend profile retrieved successfully',
+      HTTP_STATUS.OK,
+    );
+  }
 }
