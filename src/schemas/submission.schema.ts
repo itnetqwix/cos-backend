@@ -223,7 +223,7 @@ export const completeSubmissionSwaggerSchema: FastifySchema = {
 export const listMySubmissionsSwaggerSchema: FastifySchema = {
   tags: ['Submissions'],
   summary: 'List the authenticated creator submissions',
-  description: `${creatorOnlyDescription} Returns only rows owned by the JWT user id.`,
+  description: `${creatorOnlyDescription} Returns only active rows owned by the JWT user id. Soft-deleted rows are omitted.`,
   security: [{ bearerAuth: [] }],
   response: {
     200: {
@@ -240,6 +240,56 @@ export const listMySubmissionsSwaggerSchema: FastifySchema = {
     403: {
       description: 'Wrong role',
       ...swaggerErrorEnvelope('Forbidden'),
+    },
+  },
+};
+
+const deletedSubmissionSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'deleted', 'deletedAt'],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    deleted: { type: 'boolean' },
+    deletedAt: { type: 'string' },
+  },
+};
+
+export const deleteMySubmissionSwaggerSchema: FastifySchema = {
+  tags: ['Submissions'],
+  summary: 'Soft-delete one of the authenticated creator submissions',
+  description: `${creatorOnlyDescription} Deletes only a submission owned by the JWT user. Another creator's id is 404. Repeating the delete is successful and keeps the original deletedAt. The row, ratings, and stored video are kept. Admin hard delete stays DELETE /admin/submissions/:id.`,
+  security: [{ bearerAuth: [] }],
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+    },
+  },
+  response: {
+    200: {
+      description: 'Submission soft-deleted',
+      ...swaggerSuccessEnvelope(
+        deletedSubmissionSchema,
+        'Submission deleted successfully',
+      ),
+    },
+    400: {
+      description: 'Invalid id',
+      ...swaggerErrorEnvelope('Validation error'),
+    },
+    401: {
+      description: 'Missing or invalid token',
+      ...swaggerErrorEnvelope('Unauthorized'),
+    },
+    403: {
+      description: 'Wrong role',
+      ...swaggerErrorEnvelope('Forbidden'),
+    },
+    404: {
+      description: 'Submission not found',
+      ...swaggerErrorEnvelope('Submission not found'),
     },
   },
 };

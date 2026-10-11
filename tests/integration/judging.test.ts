@@ -127,6 +127,8 @@ function toQueueRecord(row: MemorySubmission, contest: ContestRecord): JudgingQu
     tags: ['sketch'],
     communityScore: row.communityScore,
     totalVotes: row.totalVotes,
+    deletedAt: null,
+    deletedById: null,
     createdAt: row.createdAt,
     updatedAt: row.createdAt,
     creator: { id: CREATOR_ID, name: 'Ada Creator' },

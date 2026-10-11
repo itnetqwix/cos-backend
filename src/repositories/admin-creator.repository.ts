@@ -170,6 +170,8 @@ export class AdminCreatorRepository {
           updatedAt: true,
           communityScore: true,
           totalVotes: true,
+          deletedAt: true,
+          deletedBy: { select: { id: true, name: true } },
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),

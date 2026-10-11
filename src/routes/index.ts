@@ -48,6 +48,7 @@ import {
 } from '../schemas/moderation.schema.js';
 import {
   completeSubmissionSwaggerSchema,
+  deleteMySubmissionSwaggerSchema,
   getSubmissionSwaggerSchema,
   listMySubmissionsSwaggerSchema,
   presignSubmissionSwaggerSchema,
@@ -333,6 +334,15 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       onRequest: creatorGuards,
     },
     SubmissionController.getById,
+  );
+
+  fastify.delete(
+    '/submissions/:id',
+    {
+      schema: deleteMySubmissionSwaggerSchema,
+      onRequest: creatorGuards,
+    },
+    SubmissionController.remove,
   );
 
   // Comments belong to the submission. GET is public.

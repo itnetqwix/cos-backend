@@ -45,6 +45,7 @@ model User {
   updatedAt            DateTime             @updatedAt
   submissions          Submission[]         @relation("CreatedByUser")
   moderatedSubmissions Submission[]         @relation("ModeratedByUser")
+  deletedSubmissions   Submission[]         @relation("DeletedByUser")
   auditLogs            AuditLog[]
   ratings              Rating[]
   comments             Comment[]
@@ -161,6 +162,11 @@ model Submission {
   tags            String[]
   communityScore  Float            @default(0)
   totalVotes      Int              @default(0)
+  // Creator soft delete. Null means the row is still active.
+  // The row, its ratings, and the S3 object are kept.
+  deletedAt       DateTime?
+  deletedById     String?
+  deletedBy       User?            @relation("DeletedByUser", fields: [deletedById], references: [id], onDelete: SetNull)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   ratings         Rating[]

@@ -94,6 +94,8 @@ async function toVideo<
     objectKey?: string;
     videoUrl?: string;
     thumbnailUrl?: string | null;
+    deletedAt?: Date | null;
+    deletedBy?: { id: string; name: string } | null;
     contest: { title: string; status: string };
   },
 >(submission: T, withPlayback: boolean) {
@@ -103,6 +105,8 @@ async function toVideo<
     status: submission.status,
     createdAt: submission.createdAt,
     updatedAt: submission.updatedAt,
+    deletedAt: submission.deletedAt ?? null,
+    deletedBy: submission.deletedBy ?? null,
     contestId: submission.contestId,
     contestTitle: submission.contest.title,
     contestStatus: submission.contest.status,
@@ -212,7 +216,7 @@ export class AdminCreatorService {
       AdminCreatorRepository.creatorStats(creatorId),
       CreatorWarningRepository.listByCreator(creatorId),
       CreatorActivityRepository.findLatest(creatorId),
-      SubmissionRepository.listByCreatorId(creatorId),
+      SubmissionRepository.listByCreatorId(creatorId, { includeDeleted: true }),
     ]);
 
     const counts = videoCounts();
@@ -276,6 +280,8 @@ export class AdminCreatorService {
           updatedAt: Date;
           communityScore: number;
           totalVotes: number;
+          deletedAt: Date | null;
+          deletedBy: { id: string; name: string } | null;
         }>;
       }
     >();
@@ -307,6 +313,8 @@ export class AdminCreatorService {
         updatedAt: row.updatedAt,
         communityScore: row.communityScore,
         totalVotes: row.totalVotes,
+        deletedAt: row.deletedAt,
+        deletedBy: row.deletedBy,
       });
     }
 
@@ -529,6 +537,8 @@ export class AdminCreatorService {
               updatedAt: submission.updatedAt,
               communityScore: submission.communityScore,
               totalVotes: submission.totalVotes,
+              deletedAt: submission.deletedAt,
+              deletedBy: submission.deletedBy,
             }),
           ),
         };

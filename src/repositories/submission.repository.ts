@@ -17,7 +17,16 @@ const submissionInclude = {
       },
     },
   },
+  deletedBy: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
 } satisfies Prisma.SubmissionInclude;
+
+/** Rows a creator or the public can still see. Admins pass includeDeleted. */
+const notDeleted = { deletedAt: null } satisfies Prisma.SubmissionWhereInput;
 
 export type SubmissionRecord = Prisma.SubmissionGetPayload<{
   include: typeof submissionInclude;
@@ -142,6 +151,22 @@ export class SubmissionRepository {
     await prisma.submission.delete({ where: { id } });
   }
 
+  /**
+   * Marks one owned submission deleted. Ratings and the S3 object stay.
+   * Returns null when the row is missing, owned by someone else, or already deleted.
+   */
+  static async softDeleteOwned(
+    id: string,
+    creatorId: string,
+  ): Promise<SubmissionRecord | null> {
+    const updated = await prisma.submission.updateMany({
+      where: { id, creatorId, deletedAt: null },
+      data: { deletedAt: new Date(), deletedById: creatorId },
+    });
+    if (updated.count === 0) return null;
+    return this.findById(id);
+  }
+
   static async findTitlesByIds(ids: string[]) {
     if (ids.length === 0) return [];
     return prisma.submission.findMany({
@@ -164,9 +189,15 @@ export class SubmissionRepository {
     });
   }
 
-  static async listByCreatorId(creatorId: string): Promise<SubmissionRecord[]> {
+  static async listByCreatorId(
+    creatorId: string,
+    options?: { includeDeleted?: boolean },
+  ): Promise<SubmissionRecord[]> {
     return prisma.submission.findMany({
-      where: { creatorId },
+      where: {
+        creatorId,
+        ...(options?.includeDeleted ? {} : notDeleted),
+      },
       include: submissionInclude,
       orderBy: { createdAt: 'desc' },
     });
@@ -203,6 +234,10 @@ export class SubmissionRepository {
         contestId: true,
         communityScore: true,
         totalVotes: true,
+        deletedAt: true,
+        deletedBy: {
+          select: { id: true, name: true },
+        },
         contest: {
           select: {
             id: true,
@@ -222,6 +257,7 @@ export class SubmissionRepository {
     return prisma.submission.findMany({
       where: {
         status: SubmissionStatus.PENDING_REVIEW,
+        ...notDeleted,
       },
       include: queueInclude,
       orderBy: { createdAt: 'asc' },
@@ -251,6 +287,9 @@ export class SubmissionRepository {
     ) {
       throw new ConflictError('Closed contests are read-only historical records');
     }
+    if (current.deletedAt) {
+      throw new ConflictError('Deleted submissions cannot be moderated');
+    }
     if (current.status !== SubmissionStatus.PENDING_REVIEW) {
       throw new ConflictError(
         `Invalid submission status transition from ${current.status}`,
@@ -279,6 +318,7 @@ export class SubmissionRepository {
       where: {
         contestId,
         status: SubmissionStatus.APPROVED,
+        ...notDeleted,
       },
       include: judgingInclude,
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -299,6 +339,7 @@ export class SubmissionRepository {
       where: {
         contestId,
         status: SubmissionStatus.APPROVED,
+        ...notDeleted,
         ...(category && category !== 'ALL'
           ? {
               OR: [
