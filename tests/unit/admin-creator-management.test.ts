@@ -374,12 +374,12 @@ describe('admin creator management', { concurrency: false }, () => {
     SubmissionRepository.findById = async (id) =>
       id === VIDEO
         ? ({
-            id,
-            creatorId: CREATOR,
-            contestId: CONTEST,
-            title: 'Bit',
-            contest: { title: 'Open Mic' },
-          } as never)
+          id,
+          creatorId: CREATOR,
+          contestId: CONTEST,
+          title: 'Bit',
+          contest: { title: 'Open Mic' },
+        } as never)
         : null;
     SubmissionRepository.deleteById = async (id) => {
       deleted = id;

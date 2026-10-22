@@ -7,7 +7,10 @@ import {
   submissionIdParamSchema,
 } from '../schemas/submission.schema.js';
 import { SubmissionService } from '../services/submission.service.js';
-import { playbackUrlForSubmission } from '../services/storage.service.js';
+import {
+  playbackUrlForSubmission,
+  resolveThumbnailUrl,
+} from '../services/storage.service.js';
 import { sendSuccess } from '../utils/response.js';
 
 function actorFromRequest(request: FastifyRequest) {
@@ -31,7 +34,7 @@ export async function toSubmissionView(submission: SubmissionRecord) {
     description: submission.description,
     videoUrl: await playbackUrlForSubmission(submission.objectKey, submission.videoUrl),
     objectKey: submission.objectKey,
-    thumbnailUrl: submission.thumbnailUrl,
+    thumbnailUrl: await resolveThumbnailUrl(submission.thumbnailUrl),
     durationSeconds: submission.durationSeconds,
     status: submission.status,
     rejectionReason: submission.rejectionReason,
@@ -42,6 +45,16 @@ export async function toSubmissionView(submission: SubmissionRecord) {
     totalVotes: submission.totalVotes,
     createdAt: iso(submission.createdAt),
     updatedAt: iso(submission.updatedAt),
+    categoryId: submission.categoryId ?? null,
+    otherCategoryLabel: submission.otherCategoryLabel ?? null,
+    videoCategory: submission.videoCategory
+      ? {
+          id: submission.videoCategory.id,
+          name: submission.videoCategory.name,
+          slug: submission.videoCategory.slug,
+          isActive: submission.videoCategory.isActive,
+        }
+      : null,
     contest: submission.contest,
   };
 }

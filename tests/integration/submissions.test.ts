@@ -123,19 +123,19 @@ describe('M06 submission APIs', { concurrency: false }, () => {
         updatedAt: now,
         contest: contest
           ? {
-              id: contest.id,
-              title: contest.title,
-              status: contest.status,
-              category: contest.category
-                ? { id: contest.category.id, name: contest.category.name, slug: contest.category.slug }
-                : null,
-            }
+            id: contest.id,
+            title: contest.title,
+            status: contest.status,
+            category: contest.category
+              ? { id: contest.category.id, name: contest.category.name, slug: contest.category.slug }
+              : null,
+          }
           : {
-              id: data.contestId,
-              title: 'Unknown',
-              status: ContestStatus.ACTIVE,
-              category: null,
-            },
+            id: data.contestId,
+            title: 'Unknown',
+            status: ContestStatus.ACTIVE,
+            category: null,
+          },
       };
       memory.seq += 1;
       memory.submissions.set(row.id, row);
@@ -228,6 +228,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
         description: 'Late night VFX skit',
         durationSeconds: 42,
         tags: ['#ViralComedy'],
+        otherCategoryLabel: 'Stand-up',
       },
     });
     assert.equal(complete.statusCode, 201);
@@ -248,6 +249,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
         objectKey: presignBody.data.objectKey,
         title: 'Quantum Coffee Spill',
         durationSeconds: 42,
+        otherCategoryLabel: 'Stand-up',
       },
     });
     assert.equal(retry.statusCode, 200);
@@ -421,6 +423,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
         objectKey: stolenKey,
         title: 'Stolen',
         durationSeconds: 10,
+        otherCategoryLabel: 'Stand-up',
       },
     });
     assert.equal(stolen.statusCode, 403);
@@ -440,6 +443,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
         objectKey: ownKey,
         title: 'Mine',
         durationSeconds: 12,
+        otherCategoryLabel: 'Stand-up',
       },
     });
     assert.equal(created.statusCode, 201);

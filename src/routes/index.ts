@@ -7,6 +7,20 @@ import { CommentController } from '../controllers/comment.controller.js';
 import { ContestController } from '../controllers/contest.controller.js';
 import { ModerationController } from '../controllers/moderation.controller.js';
 import { SubmissionController } from '../controllers/submission.controller.js';
+import { NotificationController } from '../controllers/notification.controller.js';
+import { VideoCategoryController } from '../controllers/video-category.controller.js';
+import {
+  listNotificationsSwaggerSchema,
+  markAllNotificationsReadSwaggerSchema,
+  markNotificationReadSwaggerSchema,
+} from '../schemas/notification.schema.js';
+import {
+  createVideoCategorySwaggerSchema,
+  deleteVideoCategorySwaggerSchema,
+  listActiveVideoCategoriesSwaggerSchema,
+  listAdminVideoCategoriesSwaggerSchema,
+  updateVideoCategorySwaggerSchema,
+} from '../schemas/video-category.schema.js';
 import { UserController } from '../controllers/user.controller.js';
 import {
   authenticateOptional,
@@ -385,6 +399,52 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   );
 
   // -------------------------------------------------------------
+  // In-app notifications. Any authenticated user reads only their own rows.
+  // Register /notifications/read-all before /notifications/:id/read.
+  fastify.get(
+    '/notifications',
+    { schema: listNotificationsSwaggerSchema, onRequest: [fastify.authenticate] },
+    NotificationController.list,
+  );
+  fastify.post(
+    '/notifications/read-all',
+    { schema: markAllNotificationsReadSwaggerSchema, onRequest: [fastify.authenticate] },
+    NotificationController.markAllRead,
+  );
+  fastify.post(
+    '/notifications/:id/read',
+    { schema: markNotificationReadSwaggerSchema, onRequest: [fastify.authenticate] },
+    NotificationController.markRead,
+  );
+
+  // Video categories. Official catalog shared with contest categories.
+  fastify.get(
+    '/video-categories',
+    { schema: listActiveVideoCategoriesSwaggerSchema, onRequest: [fastify.authenticate] },
+    VideoCategoryController.listActive,
+  );
+  const videoCategoryGuards = [fastify.authenticate, authorizeRoles(Role.ADMIN)];
+  fastify.get(
+    '/admin/video-categories',
+    { schema: listAdminVideoCategoriesSwaggerSchema, onRequest: videoCategoryGuards },
+    VideoCategoryController.listAdmin,
+  );
+  fastify.post(
+    '/admin/video-categories',
+    { schema: createVideoCategorySwaggerSchema, onRequest: videoCategoryGuards },
+    VideoCategoryController.create,
+  );
+  fastify.patch(
+    '/admin/video-categories/:id',
+    { schema: updateVideoCategorySwaggerSchema, onRequest: videoCategoryGuards },
+    VideoCategoryController.update,
+  );
+  fastify.delete(
+    '/admin/video-categories/:id',
+    { schema: deleteVideoCategorySwaggerSchema, onRequest: videoCategoryGuards },
+    VideoCategoryController.remove,
+  );
+
   // 6. Submissions (/api/v1/submissions)
   // M06. CREATOR only. Presign + complete (no binary through Fastify).
   // The legacy binary ingest path is intentionally not registered.

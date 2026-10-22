@@ -23,6 +23,14 @@ const submissionInclude = {
       name: true,
     },
   },
+  videoCategory: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      isActive: true,
+    },
+  },
 } satisfies Prisma.SubmissionInclude;
 
 /** Rows a creator or the public can still see. Admins pass includeDeleted. */
@@ -111,6 +119,8 @@ export interface CreateSubmissionData {
   thumbnailUrl: string | null;
   durationSeconds: number;
   tags: string[];
+  categoryId?: string | null;
+  otherCategoryLabel?: string | null;
 }
 
 /**
@@ -131,6 +141,8 @@ export class SubmissionRepository {
         thumbnailUrl: data.thumbnailUrl,
         durationSeconds: data.durationSeconds,
         tags: data.tags,
+        categoryId: data.categoryId ?? null,
+        otherCategoryLabel: data.otherCategoryLabel ?? null,
         status: SubmissionStatus.PENDING_REVIEW,
         communityScore: 0,
         totalVotes: 0,

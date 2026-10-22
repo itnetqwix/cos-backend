@@ -190,6 +190,30 @@ export function parseSubmissionObjectKey(
   };
 }
 
+/**
+ * Poster frame captured by the browser at upload time.
+ * Same path and object id as the video, with a .jpg extension.
+ * Pattern: contests/{contestId}/creators/{creatorId}/{uuid}.jpg
+ */
+export const THUMBNAIL_CONTENT_TYPE = 'image/jpeg';
+
+const THUMBNAIL_KEY_PATTERN =
+  /^contests\/([0-9a-f-]{36})\/creators\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.jpg$/i;
+
+export function parseThumbnailObjectKey(
+  objectKey: string,
+): { contestId: string; creatorId: string; objectId: string } | null {
+  const match = THUMBNAIL_KEY_PATTERN.exec(objectKey);
+  if (!match) return null;
+  return { contestId: match[1], creatorId: match[2], objectId: match[3] };
+}
+
+/** Thumbnail key paired with a current-format video key. Legacy keys get none. */
+export function thumbnailKeyForSubmission(videoObjectKey: string): string | null {
+  if (!OBJECT_KEY_PATTERN.test(videoObjectKey)) return null;
+  return videoObjectKey.replace(/\.(mp4|webm|mov)$/i, '.jpg');
+}
+
 export function isAllowedVideoContentType(
   contentType: string,
 ): contentType is (typeof VIDEO_CONSTRAINTS.ALLOWED_CONTENT_TYPES)[number] {
@@ -253,6 +277,7 @@ export function parseBannerObjectKey(
 export function isSignableObjectKey(objectKey: string): boolean {
   return Boolean(
     parseSubmissionObjectKey(objectKey) ||
+    parseThumbnailObjectKey(objectKey) ||
     parseAvatarObjectKey(objectKey) ||
     parseBannerObjectKey(objectKey) ||
     parseChatAttachmentKey(objectKey),
@@ -286,13 +311,16 @@ export type PlaybackAudience = 'public' | 'restricted';
 /**
  * Stable CDN identity for one immutable object key.
  * No signature, expiry, or cache-buster query is added.
- * Returns null unless the base is https and the key is a backend-issued video key.
+ * Returns null unless the base is https and the key is a backend-issued
+ * video or thumbnail key.
  */
 export function buildPublicCdnMediaUrl(
   cdnBaseUrl: string,
   objectKey: string,
 ): string | null {
-  if (!parseSubmissionObjectKey(objectKey)) return null;
+  if (!parseSubmissionObjectKey(objectKey) && !parseThumbnailObjectKey(objectKey)) {
+    return null;
+  }
   const trimmed = cdnBaseUrl.trim();
   if (!trimmed) return null;
   let parsed: URL;
@@ -408,15 +436,26 @@ export async function resolveContestBannerUrl(
 
 /**
  * Stored poster when it is already an http(s) URL.
- * A private object key is exchanged for a short-lived download URL.
+ * A captured thumbnail key gets the stable CDN URL for the public audience
+ * (approved judging, leaderboard, share preview) when `MEDIA_CDN_BASE_URL`
+ * is set, otherwise a short-lived download URL.
+ * Other private object keys are exchanged for a short-lived download URL.
  * Anything else becomes null so the client can show a fallback
  * without requesting a thumbnail per row or exposing a raw key.
  */
 export async function resolveThumbnailUrl(
   value: string | null | undefined,
+  options?: { audience?: PlaybackAudience },
 ): Promise<string | null> {
   if (!value) return null;
   if (/^https?:\/\//i.test(value)) return value;
+  if (parseThumbnailObjectKey(value)) {
+    if (options?.audience === 'public' && env.MEDIA_CDN_BASE_URL) {
+      const cdnUrl = buildPublicCdnMediaUrl(env.MEDIA_CDN_BASE_URL, value);
+      if (cdnUrl) return cdnUrl;
+    }
+    return signedObjectUrl(value, (key) => Boolean(parseThumbnailObjectKey(key)));
+  }
   if (!isSignableObjectKey(value)) return null;
   try {
     const signed = await playbackUrlForSubmission(value, value);

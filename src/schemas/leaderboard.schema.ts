@@ -96,6 +96,7 @@ const leaderboardDataSchema = {
   properties: {
     contest: contestSummarySchema,
     totalEntries: { type: 'integer', example: 42 },
+    totalParticipants: { type: 'integer', example: 18 },
     totalVotes: { type: 'integer', example: 14820 },
     averageScore: { type: 'number', example: 4.2 },
     items: { type: 'array', items: leaderboardItemSchema },

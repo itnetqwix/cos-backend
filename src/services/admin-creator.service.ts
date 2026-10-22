@@ -13,6 +13,7 @@ import { UserRepository } from '../repositories/user.repository.js';
 import { buildPaginationMeta, parsePaginationParams } from '../utils/pagination.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../utils/response.js';
 import { CreatorActivityService } from './creator-activity.service.js';
+import { NotificationService } from './notification.service.js';
 import {
   isSignableObjectKey,
   playbackUrlForSubmission,
@@ -547,8 +548,12 @@ export class AdminCreatorService {
     };
   }
 
-  static async deleteSubmission(actor: AdminActor, submissionId: string) {
+  static async deleteSubmission(actor: AdminActor, submissionId: string, reason: string) {
     assertAdmin(actor);
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      throw new ValidationError('Deletion reason is required');
+    }
     const existing = await SubmissionRepository.findById(submissionId);
     if (!existing) {
       throw new NotFoundError('Submission not found');
@@ -558,15 +563,25 @@ export class AdminCreatorService {
       await CreatorActivityService.record({
         creatorId: existing.creatorId,
         action: CreatorActivityAction.SUBMISSION_DELETED,
-        description: 'Submission deleted',
+        description: `Submission deleted by admin: ${trimmedReason}`,
         relatedSubmissionId: existing.id,
         relatedContestId: existing.contestId,
         performedByUserId: actor.id,
         metadata: {
           submissionTitle: existing.title,
           contestTitle: existing.contest?.title ?? '',
+          reason: trimmedReason,
         },
       });
+      await NotificationService.notifySubmissionDeleted(
+        {
+          id: existing.id,
+          title: existing.title,
+          creatorId: existing.creatorId,
+          contest: { title: existing.contest?.title ?? 'the contest' },
+        },
+        trimmedReason,
+      );
     }
     return {
       id: submissionId,

@@ -23,7 +23,12 @@ import {
   getStorageService,
   isAllowedVideoContentType,
   parseSubmissionObjectKey,
+  parseThumbnailObjectKey,
+  THUMBNAIL_CONTENT_TYPE,
+  thumbnailKeyForSubmission,
 } from './storage.service.js';
+import { NotificationService } from './notification.service.js';
+import { resolveSubmissionCategory } from './video-category.service.js';
 
 /**
  * Creator submission ingest (M06-P03-T02).
@@ -85,6 +90,21 @@ function resolveVideoUrl(objectKey: string): string {
   return objectKey;
 }
 
+/**
+ * A thumbnail object key is accepted only when it is the key paired with
+ * this video. Stored http(s) URLs keep the previous behavior.
+ */
+function storedThumbnail(videoObjectKey: string, value: string | null | undefined) {
+  if (!value) return null;
+  if (!parseThumbnailObjectKey(value)) return value;
+  if (value !== thumbnailKeyForSubmission(videoObjectKey)) {
+    throw new ValidationError(
+      'thumbnailUrl is not the thumbnail key issued for this video',
+    );
+  }
+  return value;
+}
+
 export class SubmissionService {
   static async presign(actor: SubmissionActor, input: PresignSubmissionInput) {
     await assertCreator(actor);
@@ -110,12 +130,20 @@ export class SubmissionService {
       contentType: input.contentType,
     });
 
-    const signed = await getStorageService().createPresignedUpload({
+    const storage = getStorageService();
+    const signed = await storage.createPresignedUpload({
       objectKey,
       contentType: input.contentType,
     });
+    const thumbnailKey = thumbnailKeyForSubmission(objectKey);
+    const thumbnail = thumbnailKey
+      ? await storage.createPresignedUpload({
+          objectKey: thumbnailKey,
+          contentType: THUMBNAIL_CONTENT_TYPE,
+        })
+      : null;
 
-    return signed;
+    return { ...signed, thumbnail };
   }
 
   static async complete(
@@ -159,6 +187,8 @@ export class SubmissionService {
       throw new ConflictError('objectKey is already registered');
     }
 
+    const category = await resolveSubmissionCategory(input);
+
     const data: CreateSubmissionData = {
       contestId: contest.id,
       creatorId: actor.id,
@@ -166,9 +196,11 @@ export class SubmissionService {
       description: input.description ?? null,
       videoUrl: resolveVideoUrl(input.objectKey),
       objectKey: input.objectKey,
-      thumbnailUrl: input.thumbnailUrl ?? null,
+      thumbnailUrl: storedThumbnail(input.objectKey, input.thumbnailUrl),
       durationSeconds: input.durationSeconds,
       tags: input.tags ?? [],
+      categoryId: category.categoryId,
+      otherCategoryLabel: category.otherCategoryLabel,
     };
 
     try {
@@ -185,6 +217,7 @@ export class SubmissionService {
           contestTitle: submission.contest.title,
         },
       });
+      await NotificationService.notifySubmissionPendingReview(submission);
       return { submission, created: true };
     } catch (error) {
       if (

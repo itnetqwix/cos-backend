@@ -6,6 +6,7 @@ import {
   creatorIdParamSchema,
   creatorPageQuerySchema,
   creatorStatusSchema,
+  deleteAdminSubmissionSchema,
   listCreatorsQuerySchema,
   warnCreatorSchema,
 } from '../schemas/admin-creator.schema.js';
@@ -211,9 +212,11 @@ export class AdminCreatorController {
 
   static async deleteSubmission(request: FastifyRequest, reply: FastifyReply) {
     const { id } = adminSubmissionIdParamSchema.parse(request.params);
+    const body = deleteAdminSubmissionSchema.parse(request.body ?? {});
     const result = await AdminCreatorService.deleteSubmission(
       actorFromRequest(request),
       id,
+      body.reason,
     );
     return sendSuccess(reply, result, 'Submission deleted successfully', HTTP_STATUS.OK);
   }
