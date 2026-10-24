@@ -211,6 +211,7 @@ describe('M11 cross-module journey', { concurrency: false }, () => {
           description: 'Integration entry',
           durationSeconds: 42,
           tags: ['#M11'],
+          otherCategoryLabel: 'Stand-up',
         },
       });
       assert.equal(complete.statusCode, 201);

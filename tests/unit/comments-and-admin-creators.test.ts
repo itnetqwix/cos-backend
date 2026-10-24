@@ -171,13 +171,13 @@ describe('submission comments and admin creator management', { concurrency: fals
     UserRepository.findCreatorById = async (id: string) =>
       id === CREATOR
         ? {
-            id: CREATOR,
-            email: 'ada@example.com',
-            name: 'Ada',
-            role: Role.CREATOR,
-            createdAt: new Date('2026-10-01T00:00:00.000Z'),
-            updatedAt: new Date('2026-10-01T00:00:00.000Z'),
-          }
+          id: CREATOR,
+          email: 'ada@example.com',
+          name: 'Ada',
+          role: Role.CREATOR,
+          createdAt: new Date('2026-10-01T00:00:00.000Z'),
+          updatedAt: new Date('2026-10-01T00:00:00.000Z'),
+        }
         : null;
     SubmissionRepository.listByCreatorId = async (creatorId: string) => {
       assert.equal(creatorId, CREATOR);

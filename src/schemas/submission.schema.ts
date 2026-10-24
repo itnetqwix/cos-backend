@@ -49,8 +49,28 @@ export const completeSubmissionSchema = z
       .max(VIDEO_CONSTRAINTS.MAX_DURATION_SECONDS),
     tags: z.array(z.string().trim().min(1)).max(20).optional(),
     thumbnailUrl: z.string().trim().min(1).nullable().optional(),
+    categoryId: z.string().uuid('categoryId must be a valid UUID').optional(),
+    otherCategoryLabel: z
+      .string()
+      .trim()
+      .min(1, 'Please specify your video category.')
+      .max(80)
+      .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    const hasCategory = Boolean(value.categoryId);
+    const hasOther = Boolean(value.otherCategoryLabel);
+    if (hasCategory === hasOther) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: hasCategory
+          ? 'Provide either categoryId or otherCategoryLabel, not both'
+          : 'Select a category or specify otherCategoryLabel',
+        path: ['categoryId'],
+      });
+    }
+  });
 
 export type CompleteSubmissionInput = z.infer<typeof completeSubmissionSchema>;
 

@@ -23,6 +23,7 @@ import {
   ValidationError,
 } from '../utils/response.js';
 import { CreatorActivityService } from './creator-activity.service.js';
+import { NotificationService } from './notification.service.js';
 
 /**
  * Moderation decisions (M07-P01-T04).
@@ -175,6 +176,10 @@ async function decide(
       contestTitle: decision.submission.contest.title,
     },
   });
+
+  if (nextStatus === SubmissionStatus.APPROVED) {
+    await NotificationService.notifySubmissionApproved(decision.submission);
+  }
 
   return decision;
 }

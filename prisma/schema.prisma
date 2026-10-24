@@ -57,6 +57,7 @@ model User {
   friendshipsAsHigh    Friendship[]         @relation("FriendshipHigh")
   chatMessagesSent     ChatMessage[]        @relation("ChatMessageSender")
   chatReads            ChatRead[]           @relation("ChatReadUser")
+  notifications        Notification[]
 
   // Private storage key for the creator profile image.
   // The API returns a short-lived presigned avatarUrl. That URL is not stored.
@@ -92,6 +93,9 @@ model Category {
   slug        String    @unique
   description String?
   contests    Contest[]
+  submissions Submission[]
+  isActive    Boolean      @default(true)
+  updatedAt   DateTime     @updatedAt
   createdAt   DateTime  @default(now())
 
   @@map("categories")
@@ -173,11 +177,15 @@ model Submission {
   deletedBy       User?            @relation("DeletedByUser", fields: [deletedById], references: [id], onDelete: SetNull)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
+  categoryId         String?
+  videoCategory      Category? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  otherCategoryLabel String?
   ratings         Rating[]
   auditLogs       AuditLog[]
   comments        Comment[]
 
   @@index([contestId, status])
+  @@index([categoryId])
   @@index([creatorId])
   @@map("submissions")
 }
@@ -361,4 +369,30 @@ model ChatRead {
 
   @@id([friendshipId, userId])
   @@map("chat_reads")
+}
+
+// In-app notifications. submissionId is a plain id, not a foreign key, so a
+// deleted submission still leaves the notification. The unique key makes a
+// repeated event for the same user and submission a no-op.
+enum NotificationType {
+  SUBMISSION_PENDING_REVIEW
+  SUBMISSION_APPROVED
+  SUBMISSION_DELETED
+}
+
+model Notification {
+  id           String           @id @default(uuid())
+  userId       String
+  type         NotificationType
+  title        String
+  body         String?          @db.Text
+  submissionId String?
+  readAt       DateTime?
+  createdAt    DateTime         @default(now())
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, submissionId])
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
 }

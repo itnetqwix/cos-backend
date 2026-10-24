@@ -28,6 +28,10 @@ export const creatorPageQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
+export const deleteAdminSubmissionSchema = z.object({
+  reason: z.string().trim().min(1, 'Deletion reason is required').max(1000),
+});
+
 export const warnCreatorSchema = z.object({
   reason: z.string().trim().min(1, 'Warning reason is required').max(2000),
 });
