@@ -100,6 +100,7 @@ import {
   sendFriendRequestSwaggerSchema,
 } from '../schemas/friendship.schema.js';
 import { ChatController } from '../controllers/chat.controller.js';
+import { CounterController } from '../controllers/counter.controller.js';
 import {
   chatStreamSwaggerSchema,
   listChatConversationsSwaggerSchema,
@@ -108,6 +109,12 @@ import {
   presignChatAttachmentSwaggerSchema,
   sendChatMessageSwaggerSchema,
 } from '../schemas/chat.schema.js';
+import {
+  counterStreamSwaggerSchema,
+  getAdminCounterSwaggerSchema,
+  getCounterSwaggerSchema,
+  updateCounterSwaggerSchema,
+} from '../schemas/counter.schema.js';
 
 import { sendSuccess } from '../utils/response.js';
 import { SYSTEM_CONSTANTS, HTTP_STATUS } from '../config/constants.js';
@@ -443,6 +450,30 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     '/admin/video-categories/:id',
     { schema: deleteVideoCategorySwaggerSchema, onRequest: videoCategoryGuards },
     VideoCategoryController.remove,
+  );
+
+  // International Ripskis Counter. Public snapshot and SSE.
+  // Admin writes require ADMIN. The row is a baseline, not a per-second sample.
+  fastify.get(
+    '/counter',
+    { schema: getCounterSwaggerSchema },
+    CounterController.snapshot,
+  );
+  fastify.get(
+    '/counter/stream',
+    { schema: counterStreamSwaggerSchema },
+    CounterController.stream,
+  );
+  const counterGuards = [fastify.authenticate, authorizeRoles(Role.ADMIN)];
+  fastify.get(
+    '/admin/counter',
+    { schema: getAdminCounterSwaggerSchema, onRequest: counterGuards },
+    CounterController.adminGet,
+  );
+  fastify.patch(
+    '/admin/counter',
+    { schema: updateCounterSwaggerSchema, onRequest: counterGuards },
+    CounterController.adminUpdate,
   );
 
   // 6. Submissions (/api/v1/submissions)

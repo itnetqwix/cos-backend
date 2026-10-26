@@ -396,3 +396,27 @@ model Notification {
   @@index([userId, createdAt])
   @@map("notifications")
 }
+
+// Singleton baseline for the public hits clock.
+// The displayed count is calculated from this row. It is not sampled every second.
+model RipskisCounter {
+  id                 String   @id @default("singleton")
+  startingEstimate   String
+  remainderMicros    Int      @default(0)
+  anchorAt           DateTime
+  paused             Boolean  @default(false)
+  frozenHits         String?
+  baseRatePerSecond  Float
+  weekdayMultipliers Json
+  fridayBoost        Float
+  weekendBoost       Float
+  april20Multiplier  Float
+  timezone           String
+  provisional        Boolean  @default(true)
+  title              String
+  subtitle           String
+  updatedAt          DateTime @updatedAt
+  updatedById        String?
+
+  @@map("ripskis_counter")
+}
