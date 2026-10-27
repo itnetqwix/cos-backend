@@ -4,6 +4,30 @@ import { isValidIanaTimeZone } from '../services/contest-schedule.js';
 import { swaggerErrorEnvelope, swaggerSuccessEnvelope } from './auth.schema.js';
 
 const multiplier = z.number().finite().min(0).max(100);
+const dayKey = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .nullable();
+
+const specialDateSchema = z
+  .object({
+    label: z.string().trim().min(1).max(80),
+    month: z.number().int().min(1).max(12),
+    day: z.number().int().min(1).max(31),
+    multiplier,
+    mode: z.enum(['override', 'stack']),
+    recurring: z.boolean(),
+    startDate: dayKey.nullish().transform((value) => value ?? null),
+    endDate: dayKey.nullish().transform((value) => value ?? null),
+    priority: z.number().int().min(0).max(1000).default(0),
+  })
+  .strict()
+  .refine(
+    (value) => value.recurring || (value.startDate !== null && value.endDate !== null),
+    {
+      message: 'A one-off date needs a start and an end',
+    },
+  );
 
 export const updateCounterSchema = z
   .object({
@@ -11,7 +35,19 @@ export const updateCounterSchema = z
       .string()
       .regex(/^\d{1,18}$/, 'startingEstimate must be a whole number up to 18 digits')
       .optional(),
-    baseRatePerSecond: z.number().finite().min(0).max(1_000_000).optional(),
+    confirmReset: z.boolean().optional(),
+    estimatedUsers: z
+      .string()
+      .regex(/^\d{1,18}$/)
+      .optional(),
+    averageUsesPerUserPerDay: z.number().finite().positive().max(1000).optional(),
+    manualRatePerSecond: z
+      .number()
+      .finite()
+      .min(0)
+      .max(1_000_000_000)
+      .nullable()
+      .optional(),
     weekdayMultipliers: z
       .tuple([
         multiplier,
@@ -26,6 +62,12 @@ export const updateCounterSchema = z
     fridayBoost: multiplier.optional(),
     weekendBoost: multiplier.optional(),
     april20Multiplier: multiplier.optional(),
+    specialMonth: z.number().int().min(1).max(12).optional(),
+    specialDay: z.number().int().min(1).max(31).optional(),
+    specialMode: z.enum(['override', 'stack']).optional(),
+    specialDates: z.array(specialDateSchema).max(30).optional(),
+    effectiveAt: z.string().datetime({ offset: true }).nullable().optional(),
+    endsAt: z.string().datetime({ offset: true }).nullable().optional(),
     timezone: z
       .string()
       .trim()
@@ -33,13 +75,23 @@ export const updateCounterSchema = z
       .optional(),
     provisional: z.boolean().optional(),
     paused: z.boolean().optional(),
+    enabled: z.boolean().optional(),
     title: z.string().trim().min(1).max(80).optional(),
     subtitle: z.string().trim().max(160).optional(),
   })
   .strict()
-  .refine((value) => Object.keys(value).length > 0, {
-    message: 'At least one field is required',
-  });
+  .refine(
+    (value) => Object.keys(value).filter((key) => key !== 'confirmReset').length > 0,
+    {
+      message: 'At least one field is required',
+    },
+  )
+  .refine(
+    (value) => value.startingEstimate === undefined || value.confirmReset === true,
+    {
+      message: 'Confirm the count reset before changing the starting estimate',
+    },
+  );
 
 export type UpdateCounterInput = z.infer<typeof updateCounterSchema>;
 
@@ -50,6 +102,11 @@ const snapshotSchema = {
     remainderMicros: { type: 'integer' },
     asOf: { type: 'string' },
     ratePerSecond: { type: 'number' },
+    effectiveDailyEstimate: { type: 'string' },
+    growthToday: { type: 'string' },
+    nextChangeAt: { type: 'string', nullable: true },
+    nextChangeLabel: { type: 'string', nullable: true },
+    estimateNote: { type: 'string' },
     paused: { type: 'boolean' },
     provisional: { type: 'boolean' },
     title: { type: 'string' },
@@ -115,7 +172,11 @@ export const getAdminCounterSwaggerSchema: FastifySchema = {
   security: [{ bearerAuth: [] }],
   response: {
     200: swaggerSuccessEnvelope(
-      { type: 'object', properties: { config: configSchema, snapshot: snapshotSchema } },
+      {
+        type: 'object',
+        additionalProperties: true,
+        properties: { config: configSchema, snapshot: snapshotSchema },
+      },
       'Counter configuration retrieved',
     ),
     401: errors[401],
@@ -124,16 +185,51 @@ export const getAdminCounterSwaggerSchema: FastifySchema = {
   },
 };
 
-export const updateCounterSwaggerSchema: FastifySchema = {
+export const previewCounterSwaggerSchema: FastifySchema = {
   tags: ['Counter'],
-  summary: 'Update counter configuration',
+  summary: 'Preview a counter change without saving',
   description:
-    'ADMIN only. Invalid bodies are rejected and the stored row is left unchanged. A new startingEstimate resets the displayed count. Rate, multiplier, and timezone changes keep the current count and apply going forward. paused freezes or resumes the clock.',
+    'ADMIN only. Returns the rates the patch would produce. It does not write.',
   security: [{ bearerAuth: [] }],
   body: { type: 'object', additionalProperties: true },
   response: {
     200: swaggerSuccessEnvelope(
-      { type: 'object', properties: { config: configSchema, snapshot: snapshotSchema } },
+      { type: 'object', additionalProperties: true },
+      'Counter preview',
+    ),
+    ...errors,
+  },
+};
+
+export const exportCounterSwaggerSchema: FastifySchema = {
+  tags: ['Counter'],
+  summary: 'Export the counter calculation summary',
+  description: 'ADMIN only. JSON summary of the current model. It does not write.',
+  security: [{ bearerAuth: [] }],
+  response: {
+    200: swaggerSuccessEnvelope(
+      { type: 'object', additionalProperties: true },
+      'Counter summary exported',
+    ),
+    401: errors[401],
+    403: errors[403],
+  },
+};
+
+export const updateCounterSwaggerSchema: FastifySchema = {
+  tags: ['Counter'],
+  summary: 'Update counter configuration',
+  description:
+    'ADMIN only. Invalid bodies are rejected and the stored row is left unchanged. startingEstimate resets the displayed count only when confirmReset is true. Rate changes keep the current count. A future effectiveAt schedules the rate change instead of applying it now. April 20 is month 4 day 20 unless the admin changes the special date. Default special mode is override, not stack.',
+  security: [{ bearerAuth: [] }],
+  body: { type: 'object', additionalProperties: true },
+  response: {
+    200: swaggerSuccessEnvelope(
+      {
+        type: 'object',
+        additionalProperties: true,
+        properties: { config: configSchema, snapshot: snapshotSchema },
+      },
       'Counter configuration updated',
     ),
     ...errors,

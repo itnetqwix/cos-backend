@@ -6,10 +6,15 @@ import {
 import {
   CounterProjection,
   CounterRecord,
+  CounterStats,
+  ESTIMATE_NOTE,
+  buildCounterStats,
+  publicCounterStats,
   defaultCounterRecord,
   applyCounterPatch,
   projectCounter,
 } from './counter-clock.js';
+import { counterListenerCount } from './counter-realtime.js';
 
 export interface CounterSnapshot extends CounterProjection {
   asOf: string;
@@ -18,6 +23,11 @@ export interface CounterSnapshot extends CounterProjection {
   title: string;
   subtitle: string;
   timezone: string;
+  effectiveDailyEstimate: string;
+  growthToday: string;
+  nextChangeAt: string | null;
+  nextChangeLabel: string | null;
+  estimateNote: string;
 }
 
 export interface CounterConfigView {
@@ -27,10 +37,19 @@ export interface CounterConfigView {
   paused: boolean;
   frozenHits: string | null;
   baseRatePerSecond: number;
+  estimatedUsers: string;
+  averageUsesPerUserPerDay: number;
+  manualRatePerSecond: number | null;
   weekdayMultipliers: number[];
   fridayBoost: number;
   weekendBoost: number;
   april20Multiplier: number;
+  specialMonth: number;
+  specialDay: number;
+  specialMode: 'override' | 'stack';
+  specialDates: CounterRecord['specialDates'];
+  pending: CounterRecord['pending'];
+  enabled: boolean;
   timezone: string;
   provisional: boolean;
   title: string;
@@ -75,16 +94,22 @@ async function currentRow(): Promise<CounterRecord> {
 function toSnapshot(
   record: CounterRecord,
   projection: CounterProjection,
+  stats: CounterStats,
   asOf: Date,
 ): CounterSnapshot {
   return {
     ...projection,
     asOf: asOf.toISOString(),
-    paused: record.paused,
+    paused: record.paused || !record.enabled,
     provisional: record.provisional,
     title: record.title,
     subtitle: record.subtitle,
     timezone: record.timezone,
+    effectiveDailyEstimate: stats.effectiveDailyEstimate,
+    growthToday: stats.growthToday,
+    nextChangeAt: stats.nextChangeAt,
+    nextChangeLabel: stats.nextChangeLabel,
+    estimateNote: stats.estimateNote || ESTIMATE_NOTE,
   };
 }
 
@@ -96,10 +121,19 @@ function toConfig(record: CounterRecord): CounterConfigView {
     paused: record.paused,
     frozenHits: record.frozenHits,
     baseRatePerSecond: record.baseRatePerSecond,
+    estimatedUsers: record.estimatedUsers,
+    averageUsesPerUserPerDay: record.averageUsesPerUserPerDay,
+    manualRatePerSecond: record.manualRatePerSecond,
     weekdayMultipliers: [...record.weekdayMultipliers],
     fridayBoost: record.fridayBoost,
     weekendBoost: record.weekendBoost,
     april20Multiplier: record.april20Multiplier,
+    specialMonth: record.specialMonth,
+    specialDay: record.specialDay,
+    specialMode: record.specialMode,
+    specialDates: record.specialDates.map((item) => ({ ...item })),
+    pending: record.pending ? { ...record.pending } : null,
+    enabled: record.enabled,
     timezone: record.timezone,
     provisional: record.provisional,
     title: record.title,
@@ -109,36 +143,87 @@ function toConfig(record: CounterRecord): CounterConfigView {
   };
 }
 
+function present(record: CounterRecord, asOf: Date, full = false) {
+  const stats = full ? buildCounterStats(record, asOf) : publicCounterStats(record, asOf);
+  return {
+    config: toConfig(record),
+    snapshot: toSnapshot(record, projectCounter(record, asOf), stats, asOf),
+    stats,
+  };
+}
+
 export const CounterService = {
   async snapshot(): Promise<CounterSnapshot> {
     const asOf = now();
     const row = await currentRow();
-    return toSnapshot(row, projectCounter(row, asOf), asOf);
+    return present(row, asOf).snapshot;
   },
 
-  async adminView(): Promise<{ config: CounterConfigView; snapshot: CounterSnapshot }> {
+  async adminView() {
     const asOf = now();
     const row = await currentRow();
+    const view = present(row, asOf, true);
+    const audits = await getCounterStore().listAudits(20);
     return {
-      config: toConfig(row),
-      snapshot: toSnapshot(row, projectCounter(row, asOf), asOf),
+      ...view,
+      audits,
+      stream: { listeners: counterListenerCount(), asOf: asOf.toISOString() },
     };
   },
 
-  async update(
-    actorId: string,
-    body: unknown,
-  ): Promise<{ config: CounterConfigView; snapshot: CounterSnapshot }> {
+  async preview(body: unknown) {
     const patch = updateCounterSchema.parse(body);
     const asOf = now();
     const current = await currentRow();
     const next = applyCounterPatch(current, patch, asOf);
-    next.updatedById = actorId;
-    const saved = await getCounterStore().save(next);
-    cached = { row: saved, at: asOf.getTime() };
+    return present(next, asOf, true);
+  },
+
+  async exportSummary() {
+    const asOf = now();
+    const row = await currentRow();
+    const view = present(row, asOf, true);
     return {
-      config: toConfig(saved),
-      snapshot: toSnapshot(saved, projectCounter(saved, asOf), asOf),
+      exportedAt: asOf.toISOString(),
+      estimateNote: ESTIMATE_NOTE,
+      assumptions: {
+        estimatedUsers: row.estimatedUsers,
+        averageUsesPerUserPerDay: row.averageUsesPerUserPerDay,
+        baseDailyEstimate: view.stats.baseDailyEstimate,
+        manualRatePerSecond: row.manualRatePerSecond,
+      },
+      schedule: {
+        timezone: row.timezone,
+        weekdayMultipliers: row.weekdayMultipliers,
+        fridayBoost: row.fridayBoost,
+        weekendBoost: row.weekendBoost,
+        specialMonth: row.specialMonth,
+        specialDay: row.specialDay,
+        specialMode: row.specialMode,
+        april20Multiplier: row.april20Multiplier,
+        specialDates: row.specialDates,
+        pending: row.pending,
+      },
+      stats: view.stats,
+      cumulativeHits: view.snapshot.hits,
     };
+  },
+
+  async update(actorId: string, body: unknown) {
+    const patch = updateCounterSchema.parse(body);
+    const asOf = now();
+    const current = await currentRow();
+    const before = toConfig(current);
+    const next = applyCounterPatch(current, patch, asOf);
+    next.updatedById = actorId;
+    const saved = await getCounterStore().save(next, {
+      actorId,
+      createdAt: asOf,
+      before,
+      after: toConfig(next),
+    });
+    cached = { row: saved, at: asOf.getTime() };
+    const view = present(saved, asOf, true);
+    return { ...view, audits: await getCounterStore().listAudits(20) };
   },
 };

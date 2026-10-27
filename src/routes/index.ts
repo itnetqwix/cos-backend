@@ -111,8 +111,10 @@ import {
 } from '../schemas/chat.schema.js';
 import {
   counterStreamSwaggerSchema,
+  exportCounterSwaggerSchema,
   getAdminCounterSwaggerSchema,
   getCounterSwaggerSchema,
+  previewCounterSwaggerSchema,
   updateCounterSwaggerSchema,
 } from '../schemas/counter.schema.js';
 
@@ -469,6 +471,16 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     '/admin/counter',
     { schema: getAdminCounterSwaggerSchema, onRequest: counterGuards },
     CounterController.adminGet,
+  );
+  fastify.post(
+    '/admin/counter/preview',
+    { schema: previewCounterSwaggerSchema, onRequest: counterGuards },
+    CounterController.preview,
+  );
+  fastify.get(
+    '/admin/counter/export',
+    { schema: exportCounterSwaggerSchema, onRequest: counterGuards },
+    CounterController.exportSummary,
   );
   fastify.patch(
     '/admin/counter',

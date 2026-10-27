@@ -24,6 +24,10 @@ export function subscribeCounter(sink: Sink): () => void {
   };
 }
 
+export function counterListenerCount(): number {
+  return listeners.size;
+}
+
 export function publishCounter(snapshot: CounterSnapshot): void {
   for (const sink of listeners) sink(snapshot);
 }
