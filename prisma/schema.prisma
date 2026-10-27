@@ -406,17 +406,39 @@ model RipskisCounter {
   anchorAt           DateTime
   paused             Boolean  @default(false)
   frozenHits         String?
-  baseRatePerSecond  Float
-  weekdayMultipliers Json
-  fridayBoost        Float
-  weekendBoost       Float
-  april20Multiplier  Float
-  timezone           String
-  provisional        Boolean  @default(true)
-  title              String
-  subtitle           String
-  updatedAt          DateTime @updatedAt
-  updatedById        String?
+  baseRatePerSecond          Float
+  estimatedUsers             String   @default("256000000")
+  averageUsesPerUserPerDay   Float    @default(3.2)
+  manualRatePerSecond        Float?
+  useAssumptions             Boolean  @default(false)
+  weekdayMultipliers         Json
+  fridayBoost                Float
+  weekendBoost               Float
+  april20Multiplier          Float
+  specialMonth               Int      @default(4)
+  specialDay                 Int      @default(20)
+  specialMode                String   @default("override")
+  specialDates               Json     @default("[]")
+  pendingConfig              Json?
+  enabled                    Boolean  @default(true)
+  timezone                   String
+  provisional                Boolean  @default(true)
+  title                      String
+  subtitle                   String
+  updatedAt                  DateTime @updatedAt
+  updatedById                String?
 
   @@map("ripskis_counter")
+}
+
+// Append-only admin history for the hits clock. Invalid updates are not recorded.
+model RipskisCounterAudit {
+  id        String   @id @default(uuid())
+  actorId   String
+  createdAt DateTime @default(now())
+  before    Json
+  after     Json
+
+  @@index([createdAt])
+  @@map("ripskis_counter_audits")
 }

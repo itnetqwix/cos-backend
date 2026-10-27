@@ -31,6 +31,16 @@ export class CounterController {
     return sendSuccess(reply, view, 'Counter configuration updated', HTTP_STATUS.OK);
   }
 
+  static async preview(request: FastifyRequest, reply: FastifyReply) {
+    const view = await CounterService.preview(request.body ?? {});
+    return sendSuccess(reply, view, 'Counter preview', HTTP_STATUS.OK);
+  }
+
+  static async exportSummary(_request: FastifyRequest, reply: FastifyReply) {
+    const summary = await CounterService.exportSummary();
+    return sendSuccess(reply, summary, 'Counter summary exported', HTTP_STATUS.OK);
+  }
+
   static async stream(_request: FastifyRequest, reply: FastifyReply) {
     const snapshot = await CounterService.snapshot();
     if (reply.sent) return;

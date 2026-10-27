@@ -1,8 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { ValidationError } from '../../src/utils/response.js';
 import {
   applyCounterPatch,
+  assumptionDailyHits,
   defaultCounterRecord,
+  describeRate,
   nextLocalMidnight,
   projectCounter,
   PROVISIONAL_COUNTER_DEFAULTS,
@@ -13,13 +16,22 @@ function record(overrides: Partial<CounterRecord> = {}): CounterRecord {
   const base = defaultCounterRecord(new Date('2026-01-01T00:00:00.000Z'));
   return {
     ...base,
-    baseRatePerSecond: 1,
+    manualRatePerSecond: 1,
     weekdayMultipliers: [1, 1, 1, 1, 1, 1, 1],
     fridayBoost: 1,
     weekendBoost: 1,
     april20Multiplier: 1,
     timezone: 'UTC',
     ...overrides,
+  };
+}
+
+function phil(anchor: string): CounterRecord {
+  return {
+    ...defaultCounterRecord(new Date(anchor)),
+    anchorAt: new Date(anchor),
+    startingEstimate: '0',
+    remainderMicros: 0,
   };
 }
 
@@ -30,6 +42,94 @@ describe('counter clock', () => {
     assert.equal(row.startingEstimate, PROVISIONAL_COUNTER_DEFAULTS.startingEstimate);
     assert.equal(row.timezone, 'UTC');
     assert.equal(row.paused, false);
+    assert.equal(row.specialMonth, 4);
+    assert.equal(row.specialDay, 20);
+    assert.equal(row.specialMode, 'override');
+    assert.equal(assumptionDailyHits(row.estimatedUsers, row.averageUsesPerUserPerDay).toString(), '819200000');
+  });
+
+  it('matches Phil’s daily totals and does not stack April 20 by default', () => {
+    const tuesday = projectCounter(phil('2026-04-21T00:00:00.000Z'), new Date('2026-04-22T00:00:00.000Z'));
+    const monday = projectCounter(phil('2026-04-13T00:00:00.000Z'), new Date('2026-04-14T00:00:00.000Z'));
+    const weekend = projectCounter(phil('2026-04-18T00:00:00.000Z'), new Date('2026-04-19T00:00:00.000Z'));
+    const april20 = projectCounter(phil('2026-04-20T00:00:00.000Z'), new Date('2026-04-21T00:00:00.000Z'));
+    assert.equal(tuesday.hits, '819200000');
+    assert.equal(monday.hits, '655360000');
+    assert.equal(weekend.hits, '983040000');
+    assert.equal(april20.hits, '3440640000');
+    assert.ok(Math.abs(describeRate(phil('2026-04-21T12:00:00.000Z'), new Date('2026-04-21T12:00:00.000Z')).ratePerSecond - 819200000 / 86400) < 1e-6);
+    assert.ok(Math.abs(describeRate(phil('2026-04-18T12:00:00.000Z'), new Date('2026-04-18T12:00:00.000Z')).ratePerSecond - 983040000 / 86400) < 1e-4);
+    assert.ok(Math.abs(describeRate(phil('2026-04-20T12:00:00.000Z'), new Date('2026-04-20T12:00:00.000Z')).ratePerSecond - 3440640000 / 86400) < 1e-3);
+
+    const stacked = phil('2026-04-20T00:00:00.000Z');
+    stacked.specialMode = 'stack';
+    assert.equal(projectCounter(stacked, new Date('2026-04-21T00:00:00.000Z')).hits, '2752512000');
+  });
+
+  it('lets a custom date beat April 20, and a higher priority beat another custom date', () => {
+    const custom = phil('2026-04-20T00:00:00.000Z');
+    custom.specialDates = [
+      {
+        label: 'Lower',
+        month: 4,
+        day: 20,
+        multiplier: 2,
+        mode: 'override',
+        recurring: true,
+        startDate: null,
+        endDate: null,
+        priority: 1,
+      },
+      {
+        label: 'Higher',
+        month: 4,
+        day: 20,
+        multiplier: 3,
+        mode: 'override',
+        recurring: true,
+        startDate: null,
+        endDate: null,
+        priority: 5,
+      },
+    ];
+    const described = describeRate(custom, new Date('2026-04-20T12:00:00.000Z'));
+    assert.equal(described.label, 'Higher');
+    assert.equal(described.dailyHits, '2457600000');
+
+    const closed = phil('2026-04-20T00:00:00.000Z');
+    closed.specialDates = [
+      {
+        label: 'Closed window',
+        month: 4,
+        day: 20,
+        multiplier: 9,
+        mode: 'override',
+        recurring: false,
+        startDate: '2025-04-20',
+        endDate: '2025-04-20',
+        priority: 9,
+      },
+    ];
+    assert.equal(describeRate(closed, new Date('2026-04-20T12:00:00.000Z')).source, 'special');
+  });
+
+  it('keeps growing across midnight and a scheduled rate change', () => {
+    const row = phil('2026-04-21T00:00:00.000Z');
+    const noon = projectCounter(row, new Date('2026-04-21T12:00:00.000Z'));
+    const nextMorning = projectCounter(row, new Date('2026-04-22T12:00:00.000Z'));
+    assert.ok(BigInt(nextMorning.hits) > BigInt(noon.hits));
+    assert.notEqual(nextMorning.hits, '0');
+
+    const scheduled = applyCounterPatch(
+      row,
+      { weekendBoost: 2, effectiveAt: '2026-04-25T00:00:00.000Z' },
+      new Date('2026-04-21T12:00:00.000Z'),
+    );
+    assert.equal(scheduled.weekendBoost, 1.2);
+    assert.equal(scheduled.pending?.weekendBoost, 2);
+    const before = projectCounter(scheduled, new Date('2026-04-24T12:00:00.000Z'));
+    const during = projectCounter(scheduled, new Date('2026-04-25T12:00:00.000Z'));
+    assert.ok(BigInt(during.hits) > BigInt(before.hits));
   });
 
   it('lands on the next UTC midnight', () => {
@@ -57,7 +157,7 @@ describe('counter clock', () => {
     const friday = record({
       anchorAt: new Date('2026-10-15T18:00:00.000Z'),
       startingEstimate: '0',
-      baseRatePerSecond: 10,
+      manualRatePerSecond: 10,
       fridayBoost: 2,
       timezone: 'Asia/Kolkata',
     });
@@ -98,7 +198,7 @@ describe('counter clock', () => {
     const running = record({
       anchorAt: new Date('2026-06-01T00:00:00.000Z'),
       startingEstimate: '100',
-      baseRatePerSecond: 1.5,
+      manualRatePerSecond: 1.5,
     });
     const atOneSecond = new Date('2026-06-01T00:00:01.000Z');
     const live = projectCounter(running, atOneSecond);
@@ -110,12 +210,20 @@ describe('counter clock', () => {
     assert.equal(later.hits, '101');
     assert.equal(later.ratePerSecond, 0);
 
-    const slowed = applyCounterPatch(running, { baseRatePerSecond: 0 }, atOneSecond);
+    const slowed = applyCounterPatch(running, { manualRatePerSecond: 0 }, atOneSecond);
     const held = projectCounter(slowed, new Date('2026-06-01T00:00:10.000Z'));
     assert.equal(held.hits, '101');
     assert.equal(held.remainderMicros, 500_000);
 
-    const reset = applyCounterPatch(slowed, { startingEstimate: '0005' }, atOneSecond);
+    assert.throws(
+      () => applyCounterPatch(slowed, { startingEstimate: '0005' }, atOneSecond),
+      (error: unknown) => error instanceof ValidationError,
+    );
+    const reset = applyCounterPatch(
+      slowed,
+      { startingEstimate: '0005', confirmReset: true },
+      atOneSecond,
+    );
     assert.equal(projectCounter(reset, atOneSecond).hits, '5');
     assert.equal(reset.remainderMicros, 0);
   });
@@ -124,7 +232,7 @@ describe('counter clock', () => {
     const running = record({
       anchorAt: new Date('2026-06-01T00:00:00.000Z'),
       startingEstimate: '10',
-      baseRatePerSecond: 2,
+      manualRatePerSecond: 2,
     });
     const pausedAt = new Date('2026-06-01T00:00:05.000Z');
     const paused = applyCounterPatch(running, { paused: true }, pausedAt);

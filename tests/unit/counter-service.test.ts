@@ -21,6 +21,7 @@ function memoryStore() {
   let row: CounterRecord | null = null;
   let creates = 0;
   let saves = 0;
+  let audits = 0;
   const store: CounterStore = {
     async load() {
       return row ? clone(row) : null;
@@ -32,16 +33,21 @@ function memoryStore() {
       }
       return clone(row);
     },
-    async save(record) {
+    async save(record, audit) {
       saves += 1;
+      if (audit) audits += 1;
       row = clone(record);
       return clone(row);
+    },
+    async listAudits() {
+      return [];
     },
   };
   return {
     store,
     creates: () => creates,
     saves: () => saves,
+    audits: () => audits,
     read: () => (row ? clone(row) : null),
   };
 }
@@ -63,7 +69,8 @@ describe('counter persistence', () => {
   it('inserts provisional defaults once and leaves them in place', async () => {
     const first = await CounterService.snapshot();
     assert.equal(first.provisional, true);
-    assert.equal(first.hits, '1000000000');
+    assert.equal(first.hits, '0');
+    assert.equal(first.estimateNote.length > 0, true);
     assert.equal(mem.creates(), 1);
     clock = new Date('2026-05-01T00:00:10.000Z');
     const second = await CounterService.snapshot();
@@ -84,7 +91,10 @@ describe('counter persistence', () => {
     );
     assert.equal(mem.saves(), saves);
     assert.equal((await CounterService.snapshot()).hits, beforeHits);
-    assert.equal(mem.read()?.baseRatePerSecond, 2.5);
+    assert.equal(mem.audits(), 0);
+    assert.equal(mem.read()?.estimatedUsers, '256000000');
+    assert.equal(mem.read()?.specialMonth, 4);
+    assert.equal(mem.read()?.specialDay, 20);
   });
 
   it('pauses, resumes, and records the admin id', async () => {
@@ -92,6 +102,7 @@ describe('counter persistence', () => {
     const paused = await CounterService.update('admin-9', { paused: true });
     assert.equal(paused.config.paused, true);
     assert.equal(paused.config.updatedById, 'admin-9');
+    assert.equal(mem.audits(), 1);
     const frozen = paused.snapshot.hits;
     clock = new Date('2026-05-02T00:01:00.000Z');
     assert.equal((await CounterService.snapshot()).hits, frozen);
@@ -109,6 +120,7 @@ describe('counter admin routes', () => {
     process.env.NODE_ENV = 'test';
     resetCounterTestHooks();
     setCounterStoreForTests(mem.store);
+    setCounterClockForTests(() => new Date('2026-05-04T12:00:00.000Z'));
     app = await buildApp();
     await app.ready();
   });
@@ -148,7 +160,7 @@ describe('counter admin routes', () => {
       method: 'PATCH',
       url: '/api/v1/admin/counter',
       headers: { authorization: `Bearer ${token(Role.ADMIN)}` },
-      payload: { startingEstimate: '42', provisional: true, title: 'Hits' },
+      payload: { startingEstimate: '42', confirmReset: true, provisional: true, title: 'Hits' },
     });
     assert.equal(saved.statusCode, 200);
     assert.equal(JSON.parse(saved.payload).data.snapshot.hits, '42');
@@ -163,5 +175,32 @@ describe('counter admin routes', () => {
     const again = await app.inject({ method: 'GET', url: '/api/v1/counter' });
     assert.equal(JSON.parse(again.payload).data.hits, '42');
     assert.equal(JSON.parse(again.payload).data.title, 'Hits');
+    const admin = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/counter',
+      headers: { authorization: `Bearer ${token(Role.ADMIN)}` },
+    });
+    assert.equal(JSON.parse(admin.payload).data.config.startingEstimate, '42');
+    assert.ok(Array.isArray(JSON.parse(admin.payload).data.audits));
+
+    const unconfirmed = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/admin/counter',
+      headers: { authorization: `Bearer ${token(Role.ADMIN)}` },
+      payload: { startingEstimate: '7' },
+    });
+    assert.equal(unconfirmed.statusCode, 400);
+    const kept = await app.inject({ method: 'GET', url: '/api/v1/counter' });
+    assert.equal(JSON.parse(kept.payload).data.hits, '42');
+
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/counter/preview',
+      headers: { authorization: `Bearer ${token(Role.ADMIN)}` },
+      payload: { weekendBoost: 3 },
+    });
+    assert.equal(preview.statusCode, 200);
+    const afterPreview = await app.inject({ method: 'GET', url: '/api/v1/admin/counter', headers: { authorization: `Bearer ${token(Role.ADMIN)}` } });
+    assert.equal(JSON.parse(afterPreview.payload).data.config.weekendBoost, 1.2);
   });
 });
