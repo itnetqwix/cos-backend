@@ -155,6 +155,21 @@ describe('counter admin routes', () => {
     assert.equal(mem.saves(), 0);
   });
 
+  it('returns the arrays the admin form maps over', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/counter',
+      headers: { authorization: `Bearer ${token(Role.ADMIN)}` },
+    });
+    assert.equal(res.statusCode, 200);
+    const config = JSON.parse(res.payload).data.config;
+    assert.ok(Array.isArray(config.weekdayMultipliers));
+    assert.equal(config.weekdayMultipliers.length, 7);
+    assert.ok(Array.isArray(config.specialDates));
+    config.weekdayMultipliers.map(String);
+    config.specialDates.map((item: { label: string }) => item);
+  });
+
   it('lets an admin update and keeps the last valid row after a bad patch', async () => {
     const saved = await app.inject({
       method: 'PATCH',
