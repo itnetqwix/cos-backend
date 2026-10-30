@@ -206,6 +206,8 @@ export const completeSubmissionSwaggerSchema: FastifySchema = {
       },
       tags: { type: 'array', items: { type: 'string' } },
       thumbnailUrl: { type: 'string', nullable: true },
+      categoryId: { type: 'string', format: 'uuid' },
+      otherCategoryLabel: { type: 'string', minLength: 1, maxLength: 80 },
     },
   },
   response: {

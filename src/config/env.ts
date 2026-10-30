@@ -11,11 +11,13 @@
  * - `NODE_ENV` — `'development' | 'production' | 'test'`; default `'development'`
  * - `LOG_LEVEL` — string; default `'info'`
  *
- * `CORS_ORIGIN` is NOT in this schema and is NOT read anywhere in the backend.
- * CORS currently hardcodes `origin: '*'` in `src/plugins/cors.ts`.
- * Allowed-origin list: NOT SPECIFIED in `/docs/source` or `/docs/knowledge`.
+ * `CORS_ORIGINS` is a comma-separated browser origin list. Empty uses the
+ * discovered defaults in `src/config/cors-policy.ts` (local `http://localhost:3000`,
+ * production `https://www.ripskis.com` and `https://ripskis.com`). `*` is rejected.
+ * `API_PUBLIC_ORIGIN` empty uses `http://localhost:$PORT` or `https://api.ripskis.com`.
+ * `GUEST_COOKIE_SAMESITE` empty follows that pair (lax when same-site). `none` forces Secure.
  *
- * None of `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGIN`, or `PORT` are required
+ * None of `DATABASE_URL`, `JWT_SECRET`, or `PORT` are required
  * at parse time (empty / missing values do not fail this schema).
  * `DATABASE_URL` is still consumed later by Prisma (`schema.prisma` `env("DATABASE_URL")`
  * and `src/config/database.ts` `datasourceUrl`).
@@ -23,8 +25,8 @@
  * JWT expiry is `SYSTEM_CONSTANTS.JWT_EXPIRES_IN` (`7d`), not an env var.
  * Secret rotation / minimum entropy: NOT SPECIFIED (see later M12 JWT review).
  *
- * `.env.example` lists placeholders for these keys plus the M06 AWS/S3 keys.
- * It does not include `CORS_ORIGIN`. Do not commit real secrets.
+ * `.env.example` lists placeholders for these keys plus the M06 AWS/S3 keys
+ * and the CORS/cookie keys. Do not commit real secrets.
  *
  * AWS keys (M06-P02-T01) are optional at parse time (empty-string defaults)
  * so unit tests and local boot still succeed without credentials.
@@ -46,6 +48,7 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
 import { SYSTEM_CONSTANTS } from './constants.js';
+import { resolveDeploymentCors } from './cors-policy.js';
 
 dotenv.config();
 
@@ -75,6 +78,9 @@ const envSchema = z.object({
    * A client-supplied custom header is not read directly.
    */
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).optional(),
+  CORS_ORIGINS: z.string().default(''),
+  API_PUBLIC_ORIGIN: z.string().default(''),
+  GUEST_COOKIE_SAMESITE: z.enum(['lax', 'none']).optional(),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -84,10 +90,27 @@ if (!parsedEnv.success) {
   process.exit(1);
 }
 
+let deploymentCors: ReturnType<typeof resolveDeploymentCors>;
+try {
+  deploymentCors = resolveDeploymentCors({
+    nodeEnv: parsedEnv.data.NODE_ENV,
+    port: parsedEnv.data.PORT,
+    corsOrigins: parsedEnv.data.CORS_ORIGINS,
+    apiPublicOrigin: parsedEnv.data.API_PUBLIC_ORIGIN,
+    sameSiteOverride: parsedEnv.data.GUEST_COOKIE_SAMESITE,
+  });
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+}
+
 export const env = {
   ...parsedEnv.data,
   TRUST_PROXY_HOPS:
     parsedEnv.data.TRUST_PROXY_HOPS ?? (parsedEnv.data.NODE_ENV === 'production' ? 1 : 0),
+  CORS_ORIGINS: deploymentCors.origins.join(','),
+  API_PUBLIC_ORIGIN: deploymentCors.apiOrigin,
+  GUEST_COOKIE_SAMESITE: deploymentCors.sameSite,
 };
 
 if (

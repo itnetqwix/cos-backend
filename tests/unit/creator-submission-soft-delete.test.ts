@@ -17,7 +17,8 @@ import {
 import { UserRepository } from '../../src/repositories/user.repository.js';
 import { AdminCreatorService } from '../../src/services/admin-creator.service.js';
 import { CommentService } from '../../src/services/comment.service.js';
-import { JudgingService } from '../../src/services/judging.service.js';
+import { issueGuestVoterToken } from '../../src/services/guest-voter-cookie.js';
+import { JudgingService, setJudgingTransactionRunner } from '../../src/services/judging.service.js';
 import { LeaderboardService } from '../../src/services/leaderboard.service.js';
 import { ModerationService } from '../../src/services/moderation.service.js';
 import { setStorageService } from '../../src/services/storage.service.js';
@@ -106,6 +107,7 @@ describe('creator submission soft delete', { concurrency: false }, () => {
     });
     app = await buildApp();
     await app.ready();
+    setJudgingTransactionRunner(async (fn) => fn({} as never));
 
     UserRepository.findAccountGate = (async () => ({
       id: CREATOR_A,
@@ -226,6 +228,7 @@ describe('creator submission soft delete', { concurrency: false }, () => {
     SubmissionRepository.listCreatorParticipation = original.listParticipation;
     ContestRepository.findById = original.findContest;
     UserRepository.findAccountGate = original.findAccountGate;
+    setJudgingTransactionRunner(null);
     UserRepository.findCreatorById = original.findCreatorById;
     CreatorActivityRepository.create = original.createActivity;
     RatingRepository.lockSubmission = original.lockSubmission;
@@ -370,6 +373,7 @@ describe('creator submission soft delete', { concurrency: false }, () => {
           voter: null,
           voterFingerprint: null,
           voterIpHash: 'hash',
+          guestVoterId: issueGuestVoterToken(),
         }),
       NotFoundError,
     );

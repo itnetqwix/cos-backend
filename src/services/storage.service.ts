@@ -214,6 +214,80 @@ export function thumbnailKeyForSubmission(videoObjectKey: string): string | null
   return videoObjectKey.replace(/\.(mp4|webm|mov)$/i, '.jpg');
 }
 
+/**
+ * One Toke review video. Clients cannot choose the path.
+ * Pattern: reviews/{testerId}/{uuid}.{ext}
+ */
+const REVIEW_UUID =
+  '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const REVIEW_UUID_PATTERN = new RegExp(`^${REVIEW_UUID}$`, 'i');
+const REVIEW_KEY_PATTERN = new RegExp(
+  `^reviews/(${REVIEW_UUID})/(${REVIEW_UUID})\\.(mp4|webm|mov)$`,
+  'i',
+);
+const REVIEW_THUMBNAIL_KEY_PATTERN = new RegExp(
+  `^reviews/(${REVIEW_UUID})/(${REVIEW_UUID})\\.jpg$`,
+  'i',
+);
+
+export interface ReviewObjectKeyParts {
+  testerId: string;
+  objectId: string;
+  extension: 'mp4' | 'webm' | 'mov';
+}
+
+function assertReviewUuid(value: string, label: string): void {
+  if (!REVIEW_UUID_PATTERN.test(value)) {
+    throw new ValidationError(`${label} must be a UUID`);
+  }
+}
+
+export function buildReviewObjectKey(parts: {
+  testerId: string;
+  contentType: string;
+  objectId?: string;
+}): string {
+  assertReviewUuid(parts.testerId, 'testerId');
+  const extension = extensionForContentType(parts.contentType);
+  const objectId = parts.objectId ?? randomUUID();
+  assertReviewUuid(objectId, 'objectId');
+  return `reviews/${parts.testerId}/${objectId}.${extension}`;
+}
+
+export function parseReviewObjectKey(objectKey: string): ReviewObjectKeyParts | null {
+  const match = REVIEW_KEY_PATTERN.exec(objectKey);
+  if (!match) return null;
+  return {
+    testerId: match[1],
+    objectId: match[2],
+    extension: match[3].toLowerCase() as 'mp4' | 'webm' | 'mov',
+  };
+}
+
+export function parseReviewThumbnailObjectKey(
+  objectKey: string,
+): { testerId: string; objectId: string } | null {
+  const match = REVIEW_THUMBNAIL_KEY_PATTERN.exec(objectKey);
+  if (!match) return null;
+  return { testerId: match[1], objectId: match[2] };
+}
+
+/** Thumbnail key paired with a review video. Same id, .jpg extension. */
+export function thumbnailKeyForReview(videoObjectKey: string): string | null {
+  if (!REVIEW_KEY_PATTERN.test(videoObjectKey)) return null;
+  return videoObjectKey.replace(/\.(mp4|webm|mov)$/i, '.jpg');
+}
+
+function isPlaybackVideoKey(objectKey: string): boolean {
+  return Boolean(parseSubmissionObjectKey(objectKey) || parseReviewObjectKey(objectKey));
+}
+
+function isKnownThumbnailKey(objectKey: string): boolean {
+  return Boolean(
+    parseThumbnailObjectKey(objectKey) || parseReviewThumbnailObjectKey(objectKey),
+  );
+}
+
 export function isAllowedVideoContentType(
   contentType: string,
 ): contentType is (typeof VIDEO_CONSTRAINTS.ALLOWED_CONTENT_TYPES)[number] {
@@ -278,6 +352,8 @@ export function isSignableObjectKey(objectKey: string): boolean {
   return Boolean(
     parseSubmissionObjectKey(objectKey) ||
     parseThumbnailObjectKey(objectKey) ||
+    parseReviewObjectKey(objectKey) ||
+    parseReviewThumbnailObjectKey(objectKey) ||
     parseAvatarObjectKey(objectKey) ||
     parseBannerObjectKey(objectKey) ||
     parseChatAttachmentKey(objectKey),
@@ -318,7 +394,7 @@ export function buildPublicCdnMediaUrl(
   cdnBaseUrl: string,
   objectKey: string,
 ): string | null {
-  if (!parseSubmissionObjectKey(objectKey) && !parseThumbnailObjectKey(objectKey)) {
+  if (!isPlaybackVideoKey(objectKey) && !isKnownThumbnailKey(objectKey)) {
     return null;
   }
   const trimmed = cdnBaseUrl.trim();
@@ -371,7 +447,7 @@ export async function playbackUrlForSubmission(
   } catch {
     return storedVideoUrl;
   }
-  if (!storage.createPresignedDownload || !parseSubmissionObjectKey(objectKey)) {
+  if (!storage.createPresignedDownload || !isPlaybackVideoKey(objectKey)) {
     return storedVideoUrl;
   }
   try {
@@ -449,12 +525,12 @@ export async function resolveThumbnailUrl(
 ): Promise<string | null> {
   if (!value) return null;
   if (/^https?:\/\//i.test(value)) return value;
-  if (parseThumbnailObjectKey(value)) {
+  if (isKnownThumbnailKey(value)) {
     if (options?.audience === 'public' && env.MEDIA_CDN_BASE_URL) {
       const cdnUrl = buildPublicCdnMediaUrl(env.MEDIA_CDN_BASE_URL, value);
       if (cdnUrl) return cdnUrl;
     }
-    return signedObjectUrl(value, (key) => Boolean(parseThumbnailObjectKey(key)));
+    return signedObjectUrl(value, (key) => isKnownThumbnailKey(key));
   }
   if (!isSignableObjectKey(value)) return null;
   try {

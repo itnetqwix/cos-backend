@@ -40,6 +40,7 @@ interface MemoryRating {
   id: string;
   submissionId: string;
   userId: string | null;
+  guestVoterId: string | null;
   voterFingerprint: string | null;
   voterIpHash: string;
   rating: number;
@@ -200,17 +201,17 @@ describe('M08 judging APIs', { concurrency: false }, () => {
       return locked;
     }) as typeof RatingRepository.lockSubmission;
 
-    RatingRepository.findGuestVote = (async (submissionId: string, voterIpHash: string) => {
+    RatingRepository.findGuestVote = (async (submissionId: string, guestVoterId: string) => {
       const found = memory.ratings.find(
-        (row) => row.submissionId === submissionId && row.voterIpHash === voterIpHash,
+        (row) => row.submissionId === submissionId && row.guestVoterId === guestVoterId,
       );
-      return found ? { id: found.id, rating: found.rating } : null;
+      return found ? { id: found.id, rating: found.rating, guestVoterId: found.guestVoterId } : null;
     }) as typeof RatingRepository.findGuestVote;
 
-    RatingRepository.listGuestRatings = (async (submissionIds: string[], voterIpHash: string) => {
+    RatingRepository.listGuestRatings = (async (submissionIds: string[], guestVoterId: string) => {
       return memory.ratings
         .filter(
-          (row) => row.voterIpHash === voterIpHash && submissionIds.includes(row.submissionId),
+          (row) => row.guestVoterId === guestVoterId && submissionIds.includes(row.submissionId),
         )
         .map((row) => ({ submissionId: row.submissionId, rating: row.rating }));
     }) as typeof RatingRepository.listGuestRatings;
@@ -226,7 +227,10 @@ describe('M08 judging APIs', { concurrency: false }, () => {
 
     RatingRepository.insert = (async (data: InsertRatingData) => {
       const duplicate = memory.ratings.find(
-        (row) => row.submissionId === data.submissionId && row.voterIpHash === data.voterIpHash,
+        (row) =>
+          row.submissionId === data.submissionId &&
+          data.guestVoterId !== null &&
+          row.guestVoterId === data.guestVoterId,
       );
       if (duplicate) {
         const error = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
@@ -240,6 +244,7 @@ describe('M08 judging APIs', { concurrency: false }, () => {
         id,
         submissionId: data.submissionId,
         userId: data.userId,
+        guestVoterId: data.guestVoterId,
         voterFingerprint: data.voterFingerprint,
         voterIpHash: data.voterIpHash,
         rating: data.rating,
@@ -443,13 +448,15 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     }
   });
 
-  it('updates an existing rating for the same video and IP without a second row', async () => {
+  it('updates an existing rating for the same guest token without a second row', async () => {
     const before = memory.ratings.length;
     const row = memory.submissions.get(VIDEO_A)!;
     const votesBefore = row.totalVotes;
+    const cookie = memory.ratings.find((rating) => rating.submissionId === VIDEO_A)?.guestVoterId;
     const res = await app.inject({
       method: 'POST',
       url: rateUrl(),
+      headers: cookie ? { cookie: `cos_guest_voter_id=${cookie}` } : {},
       payload: { rating: 4, voterFingerprint: 'device-a' },
     });
     const body = JSON.parse(res.payload);
@@ -459,9 +466,14 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     assert.equal(body.data.totalVotes, votesBefore);
     assert.equal(memory.ratings.length, before);
     assert.equal(memory.ratings.filter((rating) => rating.submissionId === VIDEO_A).length, 1);
-    assert.equal(JSON.stringify(body).includes('127.0.0.1'), false);
+    assert.equal(JSON.stringify(body).includes(cookie ?? 'missing-token'), false);
 
-    const queue = await app.inject({ method: 'GET', url: `/api/v1/contests/${CONTEST_A}/queue` });
+    const queue = await app.inject({
+      method: 'GET',
+      url: `/api/v1/contests/${CONTEST_A}/queue`,
+      headers: cookie ? { cookie: `cos_guest_voter_id=${cookie}` } : {},
+      remoteAddress: '203.0.113.91',
+    });
     const item = JSON.parse(queue.payload).data.items.find(
       (entry: { id: string }) => entry.id === VIDEO_A,
     );
@@ -469,7 +481,6 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     const other = await app.inject({
       method: 'GET',
       url: `/api/v1/contests/${CONTEST_A}/queue`,
-      remoteAddress: '203.0.113.91',
     });
     const hidden = JSON.parse(other.payload).data.items.find(
       (entry: { id: string }) => entry.id === VIDEO_A,
@@ -491,22 +502,25 @@ describe('M08 judging APIs', { concurrency: false }, () => {
     assert.equal(row.totalVotes, 1);
   });
 
-  it('keeps one rating when two requests for the same video race', async () => {
+  it('keeps one rating when two requests share a guest token', async () => {
     const row = memory.submissions.get(VIDEO_B)!;
     row.communityScore = 0;
     row.totalVotes = 0;
     memory.ratings = memory.ratings.filter((rating) => rating.submissionId !== VIDEO_B);
+    const headers = { cookie: 'cos_guest_voter_id=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN123' };
     const [first, second] = await Promise.all([
       app.inject({
         method: 'POST',
         url: rateUrl(CONTEST_B, VIDEO_B),
         remoteAddress: '198.51.100.8',
+        headers,
         payload: { rating: 5 },
       }),
       app.inject({
         method: 'POST',
         url: rateUrl(CONTEST_B, VIDEO_B),
-        remoteAddress: '198.51.100.8',
+        remoteAddress: '203.0.113.8',
+        headers,
         payload: { rating: 1 },
       }),
     ]);

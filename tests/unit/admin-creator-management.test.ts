@@ -11,6 +11,7 @@ import { AuditLogRepository } from '../../src/repositories/audit-log.repository.
 import { ContestRepository } from '../../src/repositories/contest.repository.js';
 import { CreatorActivityRepository } from '../../src/repositories/creator-activity.repository.js';
 import { CreatorWarningRepository } from '../../src/repositories/creator-warning.repository.js';
+import { NotificationRepository } from '../../src/repositories/notification.repository.js';
 import { SubmissionRepository } from '../../src/repositories/submission.repository.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
 import { AdminCreatorService } from '../../src/services/admin-creator.service.js';
@@ -403,16 +404,25 @@ describe('admin creator management', { concurrency: false }, () => {
     assert.equal(creator.statusCode, 403);
     assert.equal(deleted, null);
 
-    const result = await AdminCreatorService.deleteSubmission(
-      { id: ADMIN, role: Role.ADMIN },
-      VIDEO,
-    );
-    assert.equal(result.deleted, true);
-    assert.equal(result.mediaObjectRetained, true);
-    assert.equal(deleted, VIDEO);
-    assert.equal(activities[0].action, 'SUBMISSION_DELETED');
-    assert.equal(activities[0].performedByUserId, ADMIN);
-    assert.equal(activities[0].creatorId, CREATOR);
+    const originalNotifications = NotificationRepository.createMany;
+    NotificationRepository.createMany = async () => ({ count: 0 });
+    try {
+      const result = await AdminCreatorService.deleteSubmission(
+        { id: ADMIN, role: Role.ADMIN },
+        VIDEO,
+        'Duplicate upload',
+      );
+      assert.equal(result.deleted, true);
+      assert.equal(result.mediaObjectRetained, true);
+      assert.equal(deleted, VIDEO);
+      assert.equal(activities[0].action, 'SUBMISSION_DELETED');
+      assert.equal(activities[0].performedByUserId, ADMIN);
+      assert.equal(activities[0].creatorId, CREATOR);
+      const metadata = activities[0].metadata as { reason?: string };
+      assert.equal(metadata.reason, 'Duplicate upload');
+    } finally {
+      NotificationRepository.createMany = originalNotifications;
+    }
   });
 
   it('writes creator activity without passwords or tokens', async () => {
@@ -469,6 +479,11 @@ describe('admin creator management', { concurrency: false }, () => {
       return data as never;
     };
 
+    const originalNotifications = NotificationRepository.createMany;
+    const originalAdmins = NotificationRepository.listAdminIds;
+    NotificationRepository.createMany = async () => ({ count: 0 });
+    NotificationRepository.listAdminIds = async () => [];
+    try {
     const uploaded = await SubmissionService.complete(
       { id: CREATOR, role: Role.CREATOR },
       {
@@ -476,9 +491,11 @@ describe('admin creator management', { concurrency: false }, () => {
         objectKey: `contests/${CONTEST}/creators/${CREATOR}/${VIDEO}.mp4`,
         title: 'Bit',
         durationSeconds: 12,
+        otherCategoryLabel: 'Sketch',
       },
     );
     assert.equal(uploaded.created, true);
+    assert.equal(uploaded.submission.otherCategoryLabel, 'Sketch');
     assert.equal(activities[0], 'SUBMISSION_UPLOADED');
 
     SubmissionRepository.findById = async () =>
@@ -508,5 +525,9 @@ describe('admin creator management', { concurrency: false }, () => {
     setModerationTransactionRunner(async (fn) => fn({} as never));
     await ModerationService.approve({ id: ADMIN, role: Role.ADMIN }, VIDEO);
     assert.equal(activities[1], 'SUBMISSION_APPROVED');
+    } finally {
+      NotificationRepository.createMany = originalNotifications;
+      NotificationRepository.listAdminIds = originalAdmins;
+    }
   });
 });

@@ -12,6 +12,7 @@ import {
 import { sendSuccess } from '../utils/response.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { DEFAULT_CONTEST_TIMEZONE } from '../services/contest-schedule.js';
+import { PledgeFinalizationService } from '../services/pledge-finalization.service.js';
 import { resolveContestBannerUrl } from '../services/storage.service.js';
 
 function actorFromRequest(request: FastifyRequest) {
@@ -45,6 +46,10 @@ export async function toContestView(contest: ContestRecord) {
     startDate: iso(contest.startDate),
     endDate: iso(contest.endDate),
     votingClosesAt: contest.votingClosesAt ? iso(contest.votingClosesAt) : null,
+    utcMonthCutoff:
+      contest.seriesSlug === 'pledge' && contest.votingClosesAt
+        ? iso(contest.votingClosesAt)
+        : null,
     prizeSummary: contest.prizeSummary,
     rules: contest.rules,
     autoAdvanceDelayMs: contest.autoAdvanceDelayMs,
@@ -174,5 +179,37 @@ export class ContestController {
       'Viewable contests retrieved successfully',
       HTTP_STATUS.OK,
     );
+  }
+
+  static async finalizeWinners(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = contestIdParamSchema.parse(request.params);
+    const body = z
+      .object({ acceptTies: z.boolean().optional() })
+      .strict()
+      .parse(request.body ?? {});
+    const snapshot = await PledgeFinalizationService.finalizeMonthlyWinners(
+      id,
+      request.user.id,
+      body.acceptTies === true,
+    );
+    return sendSuccess(reply, snapshot, 'Pledge winners certified', HTTP_STATUS.OK);
+  }
+
+  static async correctWinner(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = contestIdParamSchema.parse(request.params);
+    const body = z
+      .object({
+        reason: z.string().trim().min(1).max(2000),
+        overallSubmissionIds: z.array(z.string().uuid()).min(1).max(20),
+      })
+      .strict()
+      .parse(request.body);
+    const snapshot = await PledgeFinalizationService.correctWinner(
+      id,
+      request.user.id,
+      body.reason,
+      body.overallSubmissionIds,
+    );
+    return sendSuccess(reply, snapshot, 'Pledge winners corrected', HTTP_STATUS.OK);
   }
 }

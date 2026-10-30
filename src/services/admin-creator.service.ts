@@ -550,7 +550,7 @@ export class AdminCreatorService {
 
   static async deleteSubmission(actor: AdminActor, submissionId: string, reason: string) {
     assertAdmin(actor);
-    const trimmedReason = reason.trim();
+    const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
     if (!trimmedReason) {
       throw new ValidationError('Deletion reason is required');
     }

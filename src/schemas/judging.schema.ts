@@ -85,6 +85,7 @@ const queueDataSchema = {
     status: { type: 'string', example: 'ACTIVE' },
     ratingOpen: { type: 'boolean', example: true },
     autoAdvanceDelayMs: { type: 'integer', example: 1800 },
+    utcMonthCutoff: { type: 'string', format: 'date-time', nullable: true },
     items: { type: 'array', items: queueItemSchema },
   },
 };

@@ -64,9 +64,10 @@ describe('M03-P01-T01 authenticate + authorizeRoles + JWT payload typing', () =>
 
   it('GET /auth/me still uses fastify.authenticate without a role guard', () => {
     const src = readSrc('routes/index.ts');
-    const meBlock = src.slice(src.indexOf("'/auth/me'"), src.indexOf("'/users'"));
-    assert.match(meBlock, /onRequest:\s*\[fastify\.authenticate\]/);
-    assert.doesNotMatch(meBlock, /authorizeRoles/);
+    const start = src.indexOf("fastify.get(\n    '/auth/me'");
+    const getBlock = src.slice(start, src.indexOf('AuthController.getMe', start));
+    assert.match(getBlock, /onRequest:\s*\[fastify\.authenticate\]/);
+    assert.doesNotMatch(getBlock, /authorizeRoles/);
   });
 });
 

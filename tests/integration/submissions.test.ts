@@ -2,10 +2,11 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { FastifyInstance } from 'fastify';
-import { ContestStatus, Role, SubmissionStatus } from '@prisma/client';
+import { AccountStatus, ContestStatus, Role, SubmissionStatus } from '@prisma/client';
 import { buildApp } from '../../src/app.js';
 import { VIDEO_CONSTRAINTS } from '../../src/config/constants.js';
 import { ContestRecord, ContestRepository } from '../../src/repositories/contest.repository.js';
+import { UserRepository } from '../../src/repositories/user.repository.js';
 import {
   CreateSubmissionData,
   SubmissionRecord,
@@ -63,6 +64,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
   let signedKeys: string[];
 
   const originalContestFind = ContestRepository.findById;
+  const originalFindAccountGate = UserRepository.findAccountGate;
   const originalSubmission = {
     create: SubmissionRepository.create,
     findById: SubmissionRepository.findById,
@@ -95,6 +97,11 @@ describe('M06 submission APIs', { concurrency: false }, () => {
 
     ContestRepository.findById = (async (id: string) =>
       memory.contests.get(id) ?? null) as typeof ContestRepository.findById;
+    UserRepository.findAccountGate = async (id: string) => ({
+      id,
+      role: Role.CREATOR,
+      accountStatus: AccountStatus.ACTIVE,
+    });
 
     SubmissionRepository.create = (async (data: CreateSubmissionData) => {
       const now = new Date('2026-10-04T00:00:00.000Z');
@@ -160,6 +167,7 @@ describe('M06 submission APIs', { concurrency: false }, () => {
 
   after(async () => {
     ContestRepository.findById = originalContestFind;
+    UserRepository.findAccountGate = originalFindAccountGate;
     SubmissionRepository.create = originalSubmission.create;
     SubmissionRepository.findById = originalSubmission.findById;
     SubmissionRepository.findByObjectKey = originalSubmission.findByObjectKey;
@@ -215,7 +223,8 @@ describe('M06 submission APIs', { concurrency: false }, () => {
       presignBody.data.objectKey,
       new RegExp(`^contests/${contest.id}/creators/${CREATOR_A}/`),
     );
-    assert.equal(signedKeys.length, 1);
+    assert.equal(signedKeys.length, 2);
+    assert.match(signedKeys[1], /\.jpg$/);
 
     const complete = await app.inject({
       method: 'POST',

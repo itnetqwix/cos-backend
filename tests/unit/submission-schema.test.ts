@@ -58,8 +58,10 @@ describe('M06-P01 submission schema and Zod contracts', () => {
       objectKey: 'org/x/contests/y/creators/z/a.mp4',
       title: 'Midnight Drift',
       durationSeconds: 30,
+      otherCategoryLabel: 'Sketch',
     };
     assert.equal(completeSubmissionSchema.parse(valid).title, 'Midnight Drift');
+    assert.equal(completeSubmissionSchema.safeParse({ ...valid, otherCategoryLabel: undefined }).success, false);
     assert.equal(completeSubmissionSchema.safeParse({ ...valid, status: 'APPROVED' }).success, false);
     assert.equal(completeSubmissionSchema.safeParse({ ...valid, videoUrl: 'https://evil' }).success, false);
     assert.equal(completeSubmissionSchema.safeParse({ ...valid, title: '' }).success, false);

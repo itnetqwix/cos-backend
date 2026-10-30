@@ -26,6 +26,8 @@ import {
   authenticateOptional,
   authorizeRoles,
   requireActiveCreator,
+  requireReviewApprover,
+  requireTester,
 } from '../middleware/auth.middleware.js';
 import { JudgingController } from '../controllers/judging.controller.js';
 import { LeaderboardController } from '../controllers/leaderboard.controller.js';
@@ -101,6 +103,8 @@ import {
 } from '../schemas/friendship.schema.js';
 import { ChatController } from '../controllers/chat.controller.js';
 import { CounterController } from '../controllers/counter.controller.js';
+import { ProductReviewController } from '../controllers/product-review.controller.js';
+import { ProductReviewAdminController } from '../controllers/product-review-admin.controller.js';
 import {
   chatStreamSwaggerSchema,
   listChatConversationsSwaggerSchema,
@@ -117,6 +121,21 @@ import {
   previewCounterSwaggerSchema,
   updateCounterSwaggerSchema,
 } from '../schemas/counter.schema.js';
+import {
+  approveAndPublishReviewSwaggerSchema,
+  approveReviewSwaggerSchema,
+  createReviewSwaggerSchema,
+  getPublicReviewSwaggerSchema,
+  listMineReviewsSwaggerSchema,
+  listPublicReviewsSwaggerSchema,
+  presignReviewSwaggerSchema,
+  publishReviewSwaggerSchema,
+  requestChangesSwaggerSchema,
+  reviewLeaderboardSwaggerSchema,
+  reviewQueueSwaggerSchema,
+  submitReviewSwaggerSchema,
+  updateReviewSwaggerSchema,
+} from '../schemas/product-review.schema.js';
 
 import { sendSuccess } from '../utils/response.js';
 import { SYSTEM_CONSTANTS, HTTP_STATUS } from '../config/constants.js';
@@ -362,6 +381,8 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     ContestController.listViewable,
   );
 
+  fastify.get('/contests/pledge/archive', LeaderboardController.archive);
+
   fastify.post(
     '/contests',
     {
@@ -405,6 +426,17 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       onRequest: contestGuards,
     },
     ContestController.remove,
+  );
+
+  fastify.post(
+    '/admin/contests/:id/finalize-winners',
+    { onRequest: contestGuards },
+    ContestController.finalizeWinners,
+  );
+  fastify.post(
+    '/admin/contests/:id/correct-winner',
+    { onRequest: contestGuards },
+    ContestController.correctWinner,
   );
 
   // -------------------------------------------------------------
@@ -739,5 +771,80 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     '/contests/:id/leaderboard',
     { schema: getLeaderboardSwaggerSchema },
     LeaderboardController.getLeaderboard,
+  );
+
+  // -------------------------------------------------------------
+  // 10. One Toke reviews. Pledge contest routes above are unchanged.
+  // -------------------------------------------------------------
+
+  const testerGuards = [fastify.authenticate, requireTester];
+  const approverGuards = [fastify.authenticate, requireReviewApprover];
+
+  fastify.post(
+    '/toke/reviews/presign',
+    { schema: presignReviewSwaggerSchema, onRequest: testerGuards },
+    ProductReviewController.presign,
+  );
+  fastify.post(
+    '/toke/reviews',
+    { schema: createReviewSwaggerSchema, onRequest: testerGuards },
+    ProductReviewController.create,
+  );
+  fastify.patch(
+    '/toke/reviews/:id',
+    { schema: updateReviewSwaggerSchema, onRequest: testerGuards },
+    ProductReviewController.update,
+  );
+  fastify.post(
+    '/toke/reviews/:id/submit',
+    { schema: submitReviewSwaggerSchema, onRequest: testerGuards },
+    ProductReviewController.submit,
+  );
+  fastify.get(
+    '/toke/reviews/mine',
+    { schema: listMineReviewsSwaggerSchema, onRequest: testerGuards },
+    ProductReviewController.mine,
+  );
+
+  fastify.get(
+    '/admin/toke/reviews/queue',
+    { schema: reviewQueueSwaggerSchema, onRequest: approverGuards },
+    ProductReviewAdminController.queue,
+  );
+  fastify.post(
+    '/admin/toke/reviews/:id/request-changes',
+    { schema: requestChangesSwaggerSchema, onRequest: approverGuards },
+    ProductReviewAdminController.requestChanges,
+  );
+  fastify.post(
+    '/admin/toke/reviews/:id/approve',
+    { schema: approveReviewSwaggerSchema, onRequest: approverGuards },
+    ProductReviewAdminController.approve,
+  );
+  fastify.post(
+    '/admin/toke/reviews/:id/publish',
+    { schema: publishReviewSwaggerSchema, onRequest: approverGuards },
+    ProductReviewAdminController.publish,
+  );
+  fastify.post(
+    '/admin/toke/reviews/:id/approve-and-publish',
+    { schema: approveAndPublishReviewSwaggerSchema, onRequest: approverGuards },
+    ProductReviewAdminController.approveAndPublish,
+  );
+
+  fastify.get(
+    '/toke/reviews',
+    { schema: listPublicReviewsSwaggerSchema },
+    ProductReviewAdminController.list,
+  );
+  fastify.get(
+    '/toke/reviews/:id',
+    { schema: getPublicReviewSwaggerSchema },
+    ProductReviewAdminController.detail,
+  );
+  fastify.get(
+    '/toke/leaderboard',
+    { schema: reviewLeaderboardSwaggerSchema },
+    ProductReviewAdminController.leaderboard,
   );
 };

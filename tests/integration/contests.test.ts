@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { FastifyInstance } from 'fastify';
-import { ContestStatus, Prisma, Role } from '@prisma/client';
+import { AccountStatus, ContestStatus, Prisma, Role } from '@prisma/client';
 import { buildApp } from '../../src/app.js';
 import { setStorageService } from '../../src/services/storage.service.js';
 import {
@@ -9,6 +9,7 @@ import {
   VOTING_CLOSURE_AFTER_DEADLINE,
 } from '../../src/services/contest-schedule.js';
 import { CategoryRepository, CategoryRecord } from '../../src/repositories/category.repository.js';
+import { UserRepository } from '../../src/repositories/user.repository.js';
 import {
   ContestListFilters,
   ContestRecord,
@@ -67,6 +68,7 @@ describe('M05 contest APIs', { concurrency: false }, () => {
     findById: CategoryRepository.findById,
     findBySlug: CategoryRepository.findBySlug,
   };
+  const originalFindAccountGate = UserRepository.findAccountGate;
   const originalContest = {
     create: ContestRepository.create,
     findById: ContestRepository.findById,
@@ -81,6 +83,11 @@ describe('M05 contest APIs', { concurrency: false }, () => {
     app = await buildApp();
     await app.ready();
     memory = createMemory();
+    UserRepository.findAccountGate = async () => ({
+      id: 'dddddddd-dddd-4ddd-8ddd-0000000000dd',
+      role: Role.CREATOR,
+      accountStatus: AccountStatus.ACTIVE,
+    });
 
     CategoryRepository.create = (async (data) => {
       const row: CategoryRecord = {
@@ -174,6 +181,7 @@ describe('M05 contest APIs', { concurrency: false }, () => {
     ContestRepository.list = originalContest.list;
     ContestRepository.update = originalContest.update;
     ContestRepository.deleteById = originalContest.deleteById;
+    UserRepository.findAccountGate = originalFindAccountGate;
     await app.close();
   });
 

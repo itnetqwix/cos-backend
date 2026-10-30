@@ -35,40 +35,49 @@ enum CreatorActivityAction {
 }
 
 model User {
-  id                   String               @id @default(uuid())
-  email                String               @unique
-  passwordHash         String
-  name                 String
-  role                 Role                 @default(CREATOR)
-  accountStatus        AccountStatus        @default(ACTIVE)
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
-  submissions          Submission[]         @relation("CreatedByUser")
-  moderatedSubmissions Submission[]         @relation("ModeratedByUser")
-  deletedSubmissions   Submission[]         @relation("DeletedByUser")
-  auditLogs            AuditLog[]
-  ratings              Rating[]
-  comments             Comment[]
-  warningsReceived     CreatorWarning[]     @relation("WarningSubject")
-  warningsIssued       CreatorWarning[]     @relation("WarningIssuer")
-  activityAsSubject    CreatorActivityLog[] @relation("ActivitySubject")
-  activityPerformed    CreatorActivityLog[] @relation("ActivityActor")
-  friendshipsAsLow     Friendship[]         @relation("FriendshipLow")
-  friendshipsAsHigh    Friendship[]         @relation("FriendshipHigh")
-  chatMessagesSent     ChatMessage[]        @relation("ChatMessageSender")
-  chatReads            ChatRead[]           @relation("ChatReadUser")
-  notifications        Notification[]
+  id                      String               @id @default(uuid())
+  email                   String               @unique
+  passwordHash            String
+  name                    String
+  role                    Role                 @default(CREATOR)
+  accountStatus           AccountStatus        @default(ACTIVE)
+  testerEnabled           Boolean              @default(false)
+  reviewApprovalEnabled   Boolean              @default(false)
+  testerBio               String?              @db.Text
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  submissions             Submission[]         @relation("CreatedByUser")
+  moderatedSubmissions    Submission[]         @relation("ModeratedByUser")
+  deletedSubmissions      Submission[]         @relation("DeletedByUser")
+  auditLogs               AuditLog[]
+  ratings                 Rating[]
+  comments                Comment[]
+  warningsReceived        CreatorWarning[]     @relation("WarningSubject")
+  warningsIssued          CreatorWarning[]     @relation("WarningIssuer")
+  activityAsSubject       CreatorActivityLog[] @relation("ActivitySubject")
+  activityPerformed       CreatorActivityLog[] @relation("ActivityActor")
+  friendshipsAsLow        Friendship[]         @relation("FriendshipLow")
+  friendshipsAsHigh       Friendship[]         @relation("FriendshipHigh")
+  chatMessagesSent        ChatMessage[]        @relation("ChatMessageSender")
+  chatReads               ChatRead[]           @relation("ChatReadUser")
+  notifications           Notification[]
+  reviewsAuthored         ProductReview[]      @relation("ReviewTester")
+  reviewsApproved         ProductReview[]      @relation("ReviewApprover")
+  reviewsDeleted          ProductReview[]      @relation("ReviewDeleter")
+  reviewRevisionsAuthored ReviewRevision[]     @relation("ReviewRevisionAuthor")
 
   // Private storage key for the creator profile image.
   // The API returns a short-lived presigned avatarUrl. That URL is not stored.
   // handle remains PLANNED and is not a column (M02-P01-T05 / T06).
-  avatarObjectKey      String?
+  avatarObjectKey String?
 
   // handle is a domain-model PLANNED field.
   // Persistence (nullability, uniqueness, @-prefix format) is NOT SPECIFIED.
 
   @@index([role, accountStatus])
   @@index([role, createdAt])
+  @@index([testerEnabled])
+  @@index([reviewApprovalEnabled])
   @@map("users")
 }
 
@@ -88,15 +97,15 @@ enum ContestStatus {
 
 // Slug is unique for this deployment. There is no organization scope.
 model Category {
-  id          String    @id @default(uuid())
+  id          String       @id @default(uuid())
   name        String
-  slug        String    @unique
+  slug        String       @unique
   description String?
   contests    Contest[]
   submissions Submission[]
   isActive    Boolean      @default(true)
   updatedAt   DateTime     @updatedAt
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime     @default(now())
 
   @@map("categories")
 }
@@ -125,6 +134,19 @@ model Contest {
   endDate            DateTime
   // Null on contests created before voting closure was stored separately.
   votingClosesAt     DateTime?
+  // Pledge monthly instance. seriesSlug has no default: a "pledge" default would
+  // label every existing contest as that series. cycleMonth is YYYY-MM.
+  // configFrozenAt is set when the instance reaches ACTIVE. The frozen values
+  // stay in this row (rules, prizeSummary, autoAdvanceDelayMs, categoryId).
+  seriesSlug         String?
+  cycleMonth         String?
+  isRecurringMonthly Boolean       @default(false)
+  minOverallVoters   Int           @default(10)
+  minCategoryVoters  Int           @default(5)
+  configFrozenAt     DateTime?
+  isWinnersFinalized Boolean       @default(false)
+  winnersFinalizedAt DateTime?
+  winnersData        Json?
   prizeSummary       String?
   rules              Json?
   autoAdvanceDelayMs Int           @default(1800)
@@ -132,6 +154,8 @@ model Contest {
   updatedAt          DateTime      @updatedAt
   submissions        Submission[]
 
+  @@unique([seriesSlug, cycleMonth])
+  @@index([seriesSlug, status])
   @@index([status])
   @@map("contests")
 }
@@ -151,38 +175,38 @@ enum SubmissionStatus {
 // rejectionReason, moderatedById, and moderatedAt are written only by moderation.
 // Community score and totalVotes are updated by JudgingService (M08).
 model Submission {
-  id              String           @id @default(uuid())
-  contestId       String
-  contest         Contest          @relation(fields: [contestId], references: [id], onDelete: Cascade)
-  creatorId       String
-  creator         User             @relation("CreatedByUser", fields: [creatorId], references: [id], onDelete: Cascade)
-  title           String
-  description     String?          @db.Text
-  videoUrl        String
-  objectKey       String           @unique
-  thumbnailUrl    String?
-  durationSeconds Int
-  status          SubmissionStatus @default(PENDING_REVIEW)
-  rejectionReason String?          @db.Text
-  moderatedById   String?
-  moderatedBy     User?            @relation("ModeratedByUser", fields: [moderatedById], references: [id], onDelete: SetNull)
-  moderatedAt     DateTime?
-  tags            String[]
-  communityScore  Float            @default(0)
-  totalVotes      Int              @default(0)
+  id                 String           @id @default(uuid())
+  contestId          String
+  contest            Contest          @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  creatorId          String
+  creator            User             @relation("CreatedByUser", fields: [creatorId], references: [id], onDelete: Cascade)
+  title              String
+  description        String?          @db.Text
+  videoUrl           String
+  objectKey          String           @unique
+  thumbnailUrl       String?
+  durationSeconds    Int
+  status             SubmissionStatus @default(PENDING_REVIEW)
+  rejectionReason    String?          @db.Text
+  moderatedById      String?
+  moderatedBy        User?            @relation("ModeratedByUser", fields: [moderatedById], references: [id], onDelete: SetNull)
+  moderatedAt        DateTime?
+  tags               String[]
+  communityScore     Float            @default(0)
+  totalVotes         Int              @default(0)
   // Creator soft delete. Null means the row is still active.
   // The row, its ratings, and the S3 object are kept.
-  deletedAt       DateTime?
-  deletedById     String?
-  deletedBy       User?            @relation("DeletedByUser", fields: [deletedById], references: [id], onDelete: SetNull)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  deletedAt          DateTime?
+  deletedById        String?
+  deletedBy          User?            @relation("DeletedByUser", fields: [deletedById], references: [id], onDelete: SetNull)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
   categoryId         String?
-  videoCategory      Category? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  videoCategory      Category?        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   otherCategoryLabel String?
-  ratings         Rating[]
-  auditLogs       AuditLog[]
-  comments        Comment[]
+  ratings            Rating[]
+  auditLogs          AuditLog[]
+  comments           Comment[]
 
   @@index([contestId, status])
   @@index([categoryId])
@@ -200,6 +224,7 @@ enum AuditAction {
   FLAG
   ISSUE_WARNING
   SUSPEND_CREATOR
+  CORRECT_WINNER
 }
 
 // M07-P01-T01. Append-only. Retention / purge is NOT SPECIFIED.
@@ -222,12 +247,16 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-// M08-P01-T01 / T02.
-// userId is nullable: visitors may rate without creator registration.
+// M08-P01-T01 / T02. M01-P01-T02 adds guest token identity.
+// Authenticated votes are unique on (submissionId, userId).
+// Guest votes are unique on (submissionId, guestVoterId).
+// Both columns are nullable. PostgreSQL unique indexes allow multiple NULLs,
+// so existing rows stay valid.
+// voterIpHash is an HMAC of the client IP. It is anti-abuse metadata, not voter identity.
+// Uniqueness is (submissionId, userId) and (submissionId, guestVoterId).
+// PostgreSQL unique indexes allow multiple NULLs, so historical rows without
+// those ids stay valid. A non-unique index remains for IP queries.
 // voterFingerprint is optional client metadata and is not the vote key.
-// voterIpHash is an HMAC of the normalized client IP. It is not the raw IP.
-// Uniqueness is (submissionId, voterIpHash): one guest identifier per video.
-// PostgreSQL unique indexes allow multiple NULLs, so older rows stay valid.
 // New ratings are integers 1–10, enforced in Zod and JudgingService.
 // There is no database CHECK, so historical 1–5 rows stay valid. Do not migrate them.
 model Rating {
@@ -236,13 +265,16 @@ model Rating {
   submission       Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   userId           String?
   user             User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  guestVoterId     String?
   voterFingerprint String?
   voterIpHash      String?
   rating           Int
   createdAt        DateTime   @default(now())
 
-  @@unique([submissionId, voterIpHash])
+  @@unique([submissionId, userId])
+  @@unique([submissionId, guestVoterId])
   @@index([submissionId])
+  @@index([voterIpHash, submissionId])
   @@index([voterFingerprint, submissionId])
   @@map("ratings")
 }
@@ -315,15 +347,15 @@ enum FriendshipStatus {
 }
 
 model Friendship {
-  id          String           @id @default(uuid())
-  userLowId   String
-  userHighId  String
-  requesterId String
-  status      FriendshipStatus @default(PENDING)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  userLow     User             @relation("FriendshipLow", fields: [userLowId], references: [id], onDelete: Cascade)
-  userHigh    User             @relation("FriendshipHigh", fields: [userHighId], references: [id], onDelete: Cascade)
+  id           String           @id @default(uuid())
+  userLowId    String
+  userHighId   String
+  requesterId  String
+  status       FriendshipStatus @default(PENDING)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  userLow      User             @relation("FriendshipLow", fields: [userLowId], references: [id], onDelete: Cascade)
+  userHigh     User             @relation("FriendshipHigh", fields: [userHighId], references: [id], onDelete: Cascade)
   chatMessages ChatMessage[]
   chatReads    ChatRead[]
 
@@ -400,33 +432,33 @@ model Notification {
 // Singleton baseline for the public hits clock.
 // The displayed count is calculated from this row. It is not sampled every second.
 model RipskisCounter {
-  id                 String   @id @default("singleton")
-  startingEstimate   String
-  remainderMicros    Int      @default(0)
-  anchorAt           DateTime
-  paused             Boolean  @default(false)
-  frozenHits         String?
-  baseRatePerSecond          Float
-  estimatedUsers             String   @default("256000000")
-  averageUsesPerUserPerDay   Float    @default(3.2)
-  manualRatePerSecond        Float?
-  useAssumptions             Boolean  @default(false)
-  weekdayMultipliers         Json
-  fridayBoost                Float
-  weekendBoost               Float
-  april20Multiplier          Float
-  specialMonth               Int      @default(4)
-  specialDay                 Int      @default(20)
-  specialMode                String   @default("override")
-  specialDates               Json     @default("[]")
-  pendingConfig              Json?
-  enabled                    Boolean  @default(true)
-  timezone                   String
-  provisional                Boolean  @default(true)
-  title                      String
-  subtitle                   String
-  updatedAt                  DateTime @updatedAt
-  updatedById                String?
+  id                       String   @id @default("singleton")
+  startingEstimate         String
+  remainderMicros          Int      @default(0)
+  anchorAt                 DateTime
+  paused                   Boolean  @default(false)
+  frozenHits               String?
+  baseRatePerSecond        Float
+  estimatedUsers           String   @default("256000000")
+  averageUsesPerUserPerDay Float    @default(3.2)
+  manualRatePerSecond      Float?
+  useAssumptions           Boolean  @default(false)
+  weekdayMultipliers       Json
+  fridayBoost              Float
+  weekendBoost             Float
+  april20Multiplier        Float
+  specialMonth             Int      @default(4)
+  specialDay               Int      @default(20)
+  specialMode              String   @default("override")
+  specialDates             Json     @default("[]")
+  pendingConfig            Json?
+  enabled                  Boolean  @default(true)
+  timezone                 String
+  provisional              Boolean  @default(true)
+  title                    String
+  subtitle                 String
+  updatedAt                DateTime @updatedAt
+  updatedById              String?
 
   @@map("ripskis_counter")
 }
@@ -441,4 +473,147 @@ model RipskisCounterAudit {
 
   @@index([createdAt])
   @@map("ripskis_counter_audits")
+}
+
+// M01-P01-T01. One Toke Challenge. REMOVED is soft delete (deletedAt), not a status.
+enum ReviewStatus {
+  DRAFT
+  SUBMITTED
+  CHANGES_REQUESTED
+  APPROVED
+  PUBLISHED
+  REJECTED
+  DISQUALIFIED
+}
+
+model ProductType {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+
+  @@map("product_types")
+}
+
+model Product {
+  id            String           @id @default(uuid())
+  name          String
+  brandName     String
+  productTypeId String
+  productType   ProductType      @relation(fields: [productTypeId], references: [id], onDelete: Restrict)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  reviews       ProductReview[]
+  revisions     ReviewRevision[]
+
+  @@unique([brandName, name, productTypeId])
+  @@index([productTypeId])
+  @@map("products")
+}
+
+model ReviewCategory {
+  id            String                @id @default(uuid())
+  name          String
+  slug          String                @unique
+  defaultWeight Float                 @default(1.0)
+  sortOrder     Int
+  isActive      Boolean               @default(true)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  scores        ReviewCategoryScore[]
+
+  @@map("review_categories")
+}
+
+// publishedRevisionId is a plain id, not a foreign key. A FK back to ReviewRevision
+// cycles with reviewId and blocks deleting the review while it points at a revision.
+model ProductReview {
+  id                  String                @id @default(uuid())
+  productId           String
+  product             Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
+  testerId            String
+  tester              User                  @relation("ReviewTester", fields: [testerId], references: [id], onDelete: Cascade)
+  status              ReviewStatus          @default(DRAFT)
+  dispensaryName      String?
+  city                String?
+  state               String?
+  country             String?               @default("USA")
+  videoUrl            String
+  videoObjectKey      String                @unique
+  thumbnailUrl        String?
+  durationSeconds     Int
+  overallScore        Float                 @default(0)
+  weightsSnapshot     Json
+  reviewNotes         String?               @db.Text
+  changeRequestNotes  String?               @db.Text
+  rejectionReason     String?               @db.Text
+  approvedById        String?
+  approvedBy          User?                 @relation("ReviewApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt          DateTime?
+  publishedAt         DateTime?
+  publishedRevisionId String?
+  deletedAt           DateTime?
+  deletedById         String?
+  deletedBy           User?                 @relation("ReviewDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  categoryScores      ReviewCategoryScore[]
+  revisions           ReviewRevision[]
+
+  @@index([productId, status])
+  @@index([testerId, status])
+  @@index([status, publishedAt])
+  @@index([status, overallScore])
+  @@map("product_reviews")
+}
+
+model ReviewCategoryScore {
+  id            String         @id @default(uuid())
+  reviewId      String
+  review        ProductReview  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  categoryId    String
+  category      ReviewCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  score         Int
+  weightApplied Float
+
+  @@unique([reviewId, categoryId])
+  @@index([reviewId])
+  @@index([categoryId])
+  @@map("review_category_scores")
+}
+
+// productId, durationSeconds, and changeRequestNotes are material snapshot columns
+// from the readiness report. Checklist step 7 omitted them; M02 snapshotting needs them.
+model ReviewRevision {
+  id                 String        @id @default(uuid())
+  reviewId           String
+  review             ProductReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  version            Int
+  productId          String
+  product            Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  overallScore       Float
+  scoresSnapshot     Json
+  weightsSnapshot    Json
+  productSnapshot    Json
+  videoObjectKey     String
+  videoUrl           String
+  thumbnailUrl       String?
+  durationSeconds    Int
+  reviewNotes        String?       @db.Text
+  changeRequestNotes String?       @db.Text
+  dispensaryName     String?
+  city               String?
+  state              String?
+  country            String?       @default("USA")
+  changedById        String
+  changedBy          User          @relation("ReviewRevisionAuthor", fields: [changedById], references: [id], onDelete: Restrict)
+  changeReason       String?
+  createdAt          DateTime      @default(now())
+
+  @@unique([reviewId, version])
+  @@index([reviewId])
+  @@map("review_revisions")
 }

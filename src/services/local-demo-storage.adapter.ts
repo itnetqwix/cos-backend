@@ -14,7 +14,10 @@ import {
   isAllowedVideoContentType,
   parseAvatarObjectKey,
   parseChatAttachmentKey,
+  parseReviewObjectKey,
+  parseReviewThumbnailObjectKey,
   parseSubmissionObjectKey,
+  THUMBNAIL_CONTENT_TYPE,
   PresignedUploadRequest,
   PresignedUploadResult,
   StorageService,
@@ -143,11 +146,16 @@ export class LocalDemoStorageAdapter implements StorageService {
     const isAvatar = Boolean(parseAvatarObjectKey(request.objectKey));
     const isSubmission = Boolean(parseSubmissionObjectKey(request.objectKey));
     const isChat = Boolean(parseChatAttachmentKey(request.objectKey));
-    if (!isAvatar && !isSubmission && !isChat) {
+    const isReview = Boolean(parseReviewObjectKey(request.objectKey));
+    const isReviewThumb = Boolean(parseReviewThumbnailObjectKey(request.objectKey));
+    if (!isAvatar && !isSubmission && !isChat && !isReview && !isReviewThumb) {
       throw new ValidationError('objectKey is not a backend-issued submission key');
     }
-    if (isSubmission && !isAllowedVideoContentType(request.contentType)) {
+    if ((isSubmission || isReview) && !isAllowedVideoContentType(request.contentType)) {
       throw new ValidationError(VIDEO_CONTENT_TYPE_MESSAGE);
+    }
+    if (isReviewThumb && request.contentType !== THUMBNAIL_CONTENT_TYPE) {
+      throw new ValidationError('Review thumbnail must be a JPEG');
     }
     if (isAvatar && !isAllowedAvatarContentType(request.contentType)) {
       throw new ValidationError('Profile image must be a JPEG, PNG, WebP, or GIF');
@@ -194,7 +202,9 @@ export class LocalDemoStorageAdapter implements StorageService {
     const parsed =
       parseSubmissionObjectKey(objectKey) ??
       parseAvatarObjectKey(objectKey) ??
-      parseChatAttachmentKey(objectKey);
+      parseChatAttachmentKey(objectKey) ??
+      parseReviewObjectKey(objectKey) ??
+      parseReviewThumbnailObjectKey(objectKey);
     if (!parsed) {
       throw new DemoMediaError('Upload key is not a submission object', 400);
     }

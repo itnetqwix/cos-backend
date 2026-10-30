@@ -74,6 +74,7 @@ export interface RateSubmissionInput {
   voter: JudgingVoter | null;
   voterFingerprint: string | null;
   voterIpHash: string;
+  guestVoterId: string | null;
 }
 
 export interface JudgingQueueItem {
@@ -98,6 +99,7 @@ export interface JudgingQueueView {
   status: ContestStatus;
   ratingOpen: boolean;
   autoAdvanceDelayMs: number;
+  utcMonthCutoff: string | null;
   items: JudgingQueueItem[];
 }
 
@@ -155,6 +157,16 @@ function assertVoter(voter: JudgingVoter | null): void {
   );
 }
 
+export function assertCanRate(
+  voter: JudgingVoter | null,
+  creatorId: string | null,
+): void {
+  if (voter && creatorId && voter.id === creatorId) {
+    throw new ForbiddenError('You cannot rate your own submission');
+  }
+  assertVoter(voter);
+}
+
 function toQueueItem(
   row: JudgingQueueRecord,
   avatarUrl: string | null,
@@ -185,7 +197,7 @@ function toQueueItem(
 export class JudgingService {
   static async getQueue(
     contestId: string,
-    voterIpHash?: string | null,
+    guestVoterId?: string | null,
   ): Promise<JudgingQueueView> {
     const contest = await ContestRepository.findById(contestId);
     if (!contest) {
@@ -210,10 +222,10 @@ export class JudgingService {
         }),
       })),
     );
-    const viewerRatings = voterIpHash
+    const viewerRatings = guestVoterId
       ? await RatingRepository.listGuestRatings(
           items.map((item) => item.id),
-          voterIpHash,
+          guestVoterId,
         )
       : [];
     const viewerRatingBySubmission = new Map(
@@ -224,6 +236,10 @@ export class JudgingService {
       status: contest.status,
       ratingOpen: VOTING_CONTEST_STATUSES.has(contest.status),
       autoAdvanceDelayMs: contest.autoAdvanceDelayMs,
+      utcMonthCutoff:
+        contest.seriesSlug === 'pledge' && contest.votingClosesAt
+          ? contest.votingClosesAt.toISOString()
+          : null,
       items: items.map((item) => ({
         ...item,
         viewerRating: viewerRatingBySubmission.get(item.id) ?? null,
@@ -232,8 +248,10 @@ export class JudgingService {
   }
 
   static async rateSubmission(input: RateSubmissionInput): Promise<RateSubmissionResult> {
-    assertVoter(input.voter);
     assertRatingValue(input.rating);
+    if (!input.guestVoterId && !input.voter) {
+      throw new ValidationError('Guest voter identity is required');
+    }
 
     return runTransaction(async (tx) => {
       const locked: LockedSubmissionScore | null = await RatingRepository.lockSubmission(
@@ -244,16 +262,19 @@ export class JudgingService {
       if (!locked) {
         throw new NotFoundError('Submission not found');
       }
+      assertCanRate(input.voter, locked.creatorId);
       assertVotingContest(locked.contestStatus);
       if (locked.status !== SubmissionStatus.APPROVED) {
         throw new ConflictError('Only approved submissions can be rated');
       }
 
-      const existing = await RatingRepository.findGuestVote(
-        locked.id,
-        input.voterIpHash,
-        tx,
-      );
+      const guestVoterId = input.voter ? null : input.guestVoterId;
+      const existing = guestVoterId
+        ? await RatingRepository.findGuestVote(locked.id, guestVoterId, tx)
+        : null;
+      if (existing && existing.guestVoterId !== guestVoterId) {
+        throw new ForbiddenError('You cannot change another guest rating');
+      }
       if (existing) {
         if (existing.rating === input.rating) {
           return {
@@ -293,6 +314,7 @@ export class JudgingService {
       const ratingRow: InsertRatingData = {
         submissionId: locked.id,
         userId: input.voter?.id ?? null,
+        guestVoterId,
         voterFingerprint: input.voterFingerprint,
         voterIpHash: input.voterIpHash,
         rating: input.rating,
