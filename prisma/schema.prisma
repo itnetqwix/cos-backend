@@ -224,6 +224,7 @@ enum AuditAction {
   FLAG
   ISSUE_WARNING
   SUSPEND_CREATOR
+  CORRECT_WINNER
 }
 
 // M07-P01-T01. Append-only. Retention / purge is NOT SPECIFIED.
@@ -251,9 +252,10 @@ model AuditLog {
 // Guest votes are unique on (submissionId, guestVoterId).
 // Both columns are nullable. PostgreSQL unique indexes allow multiple NULLs,
 // so existing rows stay valid.
-// voterIpHash is an HMAC of the client IP. It is not voter identity.
-// The old (submissionId, voterIpHash) unique stays until judging stops keying
-// votes by IP. Dropping it now would let that service insert two rows per IP.
+// voterIpHash is an HMAC of the client IP. It is anti-abuse metadata, not voter identity.
+// Uniqueness is (submissionId, userId) and (submissionId, guestVoterId).
+// PostgreSQL unique indexes allow multiple NULLs, so historical rows without
+// those ids stay valid. A non-unique index remains for IP queries.
 // voterFingerprint is optional client metadata and is not the vote key.
 // New ratings are integers 1–10, enforced in Zod and JudgingService.
 // There is no database CHECK, so historical 1–5 rows stay valid. Do not migrate them.
@@ -271,7 +273,6 @@ model Rating {
 
   @@unique([submissionId, userId])
   @@unique([submissionId, guestVoterId])
-  @@unique([submissionId, voterIpHash])
   @@index([submissionId])
   @@index([voterIpHash, submissionId])
   @@index([voterFingerprint, submissionId])

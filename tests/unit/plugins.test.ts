@@ -67,7 +67,14 @@ describe('Runtime: Plugin presence after buildApp (M01-P01-T03)', () => {
     });
 
     assert.equal(res.statusCode, 200);
-    assert.equal(res.headers['access-control-allow-origin'], '*');
+    assert.equal(res.headers['access-control-allow-origin'], 'http://localhost:3000');
+    assert.equal(res.headers['access-control-allow-credentials'], 'true');
+    const denied = await app.inject({
+      method: 'GET',
+      url: '/api/v1/health',
+      headers: { origin: 'https://evil.example' },
+    });
+    assert.equal(denied.headers['access-control-allow-origin'], undefined);
     assert.ok(res.headers['x-content-type-options']);
   });
 });

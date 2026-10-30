@@ -13,7 +13,8 @@
     "prepare": "husky",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/**/*.test.ts",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "pledge-month": "tsx scripts/pledge-month.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

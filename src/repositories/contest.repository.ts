@@ -148,4 +148,57 @@ export class ContestRepository {
       select: { id: true, title: true },
     });
   }
+
+  static async certifyWinners(
+    id: string,
+    winnersData: Prisma.InputJsonValue,
+    closeJudging: boolean,
+  ): Promise<ContestRecord> {
+    return prisma.contest.update({
+      where: { id },
+      data: {
+        winnersData,
+        isWinnersFinalized: true,
+        winnersFinalizedAt: new Date(),
+        ...(closeJudging ? { status: ContestStatus.COMPLETED } : {}),
+      },
+      include: contestInclude,
+    });
+  }
+
+  static async replaceWinnerSnapshot(
+    id: string,
+    winnersData: Prisma.InputJsonValue,
+    tx: Prisma.TransactionClient = prisma,
+  ): Promise<ContestRecord> {
+    return tx.contest.update({
+      where: { id },
+      data: { winnersData },
+      include: contestInclude,
+    });
+  }
+
+  static async lockById(
+    id: string,
+    tx: Prisma.TransactionClient = prisma,
+  ): Promise<ContestRecord | null> {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "contests" WHERE id = ${id}::uuid FOR UPDATE
+    `;
+    if (!rows[0]) return null;
+    return tx.contest.findUnique({ where: { id }, include: contestInclude });
+  }
+
+  static async listCertifiedPledge(): Promise<ContestRecord[]> {
+    return prisma.contest.findMany({
+      where: {
+        seriesSlug: 'pledge',
+        status: ContestStatus.COMPLETED,
+        isWinnersFinalized: true,
+        winnersData: { not: Prisma.DbNull },
+      },
+      include: contestInclude,
+      orderBy: [{ winnersFinalizedAt: 'desc' }, { cycleMonth: 'desc' }],
+    });
+  }
 }

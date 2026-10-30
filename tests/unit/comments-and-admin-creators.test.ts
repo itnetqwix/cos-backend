@@ -53,9 +53,10 @@ after(() => {
 });
 
 describe('submission comments and admin creator management', { concurrency: false }, () => {
-  it('keeps one rating per submission and hashed client IP', () => {
+  it('keeps guest and user uniqueness and a non-unique IP index', () => {
     const schema = readFileSync(join(ROOT, 'prisma/schema.prisma'), 'utf8');
-    assert.match(schema, /@@unique\(\[submissionId, voterIpHash\]\)/);
+    assert.match(schema, /@@index\(\[voterIpHash, submissionId\]\)/);
+    assert.doesNotMatch(schema, /@@unique\(\[submissionId, voterIpHash\]\)/);
   });
 
   it('loads comments for the requested submission only', async () => {
@@ -217,14 +218,25 @@ describe('submission comments and admin creator management', { concurrency: fals
     };
 
     await assert.rejects(
-      () => AdminCreatorService.deleteSubmission({ id: CREATOR, role: Role.CREATOR }, VIDEO),
+      () => AdminCreatorService.deleteSubmission({ id: CREATOR, role: Role.CREATOR }, VIDEO, 'Duplicate'),
       /Forbidden/,
+    );
+    assert.equal(deletedId, null);
+
+    await assert.rejects(
+      () => AdminCreatorService.deleteSubmission({ id: ADMIN, role: Role.ADMIN }, VIDEO, undefined as never),
+      /Deletion reason is required/,
+    );
+    await assert.rejects(
+      () => AdminCreatorService.deleteSubmission({ id: ADMIN, role: Role.ADMIN }, VIDEO, '   '),
+      /Deletion reason is required/,
     );
     assert.equal(deletedId, null);
 
     const result = await AdminCreatorService.deleteSubmission(
       { id: ADMIN, role: Role.ADMIN },
       VIDEO,
+      'Duplicate upload',
     );
     assert.equal(deletedId, VIDEO);
     assert.equal(result.deleted, true);

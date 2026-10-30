@@ -139,6 +139,45 @@ export function todayDateTimeLocal(timeZone: string, now = new Date()): string {
   return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T00:00`;
 }
 
+export const PLEDGE_SERIES_SLUG = 'pledge';
+
+export interface UtcMonthBoundaries {
+  year: number;
+  month: number;
+  cycleMonth: string;
+  start: Date;
+  end: Date;
+  votingClosesAt: Date;
+}
+
+/**
+ * UTC month window. `month` is 1–12.
+ * End and voting cutoff are the next month's first instant, including December
+ * and leap-year February. The server timezone is not used.
+ */
+export function getUtcMonthBoundaries(year: number, month: number): UtcMonthBoundaries {
+  if (!Number.isInteger(year) || year < 1 || year > 9999) {
+    throw new ValidationError('Pledge month year is invalid');
+  }
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    throw new ValidationError('Pledge month must be 1 through 12');
+  }
+  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+  const end = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+  return {
+    year,
+    month,
+    cycleMonth: `${year}-${String(month).padStart(2, '0')}`,
+    start,
+    end,
+    votingClosesAt: end,
+  };
+}
+
+export function utcCycleMonth(now: Date): { year: number; month: number } {
+  return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
+}
+
 export function assertChronologicalSchedule(input: {
   submissionOpenAt: Date;
   submissionDeadlineAt: Date;

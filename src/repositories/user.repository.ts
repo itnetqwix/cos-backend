@@ -113,6 +113,20 @@ export class UserRepository {
     });
   }
 
+  /** Tester and review-approver flags. Not part of the public user payload. */
+  static async findReviewCapability(id: string) {
+    return prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        role: true,
+        accountStatus: true,
+        testerEnabled: true,
+        reviewApprovalEnabled: true,
+      },
+    });
+  }
+
   static async updateAccountStatus(id: string, accountStatus: AccountStatus) {
     return prisma.user.update({
       where: { id },

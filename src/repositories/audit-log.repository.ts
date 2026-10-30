@@ -33,7 +33,7 @@ export type AuditLogRecord = Prisma.AuditLogGetPayload<{
 }>;
 
 export interface CreateAuditLogData {
-  submissionId: string;
+  submissionId?: string | null;
   actorId: string;
   action: AuditAction;
   reason: string | null;
@@ -51,7 +51,7 @@ export class AuditLogRepository {
   ): Promise<AuditLogRecord> {
     return tx.auditLog.create({
       data: {
-        submissionId: data.submissionId,
+        submissionId: data.submissionId ?? null,
         actorId: data.actorId,
         action: data.action,
         reason: data.reason,

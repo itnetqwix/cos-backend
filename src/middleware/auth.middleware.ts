@@ -1,6 +1,10 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { Role } from '@prisma/client';
-import { assertCreatorAccountActive } from '../services/creator-account.service.js';
+import { AccountStatus, Role } from '@prisma/client';
+import { UserRepository } from '../repositories/user.repository.js';
+import {
+  assertCreatorAccountActive,
+  CREATOR_BLOCKED_MESSAGE,
+} from '../services/creator-account.service.js';
 import { AppError, sendError } from '../utils/response.js';
 import { HTTP_STATUS } from '../config/constants.js';
 
@@ -103,6 +107,55 @@ export async function requireActiveCreator(
  * This hook does not check roles. JudgingService allows anonymous guests.
  * Authenticated ADMIN and CREATOR are rejected by the judging service.
  */
+async function reviewActor(request: FastifyRequest, reply: FastifyReply) {
+  if (reply.sent) return null;
+  if (!request.user) {
+    sendError(reply, 'Unauthorized: Authentication required', HTTP_STATUS.UNAUTHORIZED);
+    return null;
+  }
+  const user = await UserRepository.findReviewCapability(request.user.id);
+  if (!user) {
+    sendError(
+      reply,
+      'Forbidden: review capability is not enabled',
+      HTTP_STATUS.FORBIDDEN,
+    );
+    return null;
+  }
+  if (user.role === Role.CREATOR && user.accountStatus === AccountStatus.BLOCKED) {
+    sendError(reply, CREATOR_BLOCKED_MESSAGE, HTTP_STATUS.FORBIDDEN);
+    return null;
+  }
+  return user;
+}
+
+/**
+ * Tester routes. ADMIN bypasses `testerEnabled`. Other roles need the flag.
+ * The flag is read from the user row, not from the JWT or the request body.
+ */
+export async function requireTester(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const user = await reviewActor(request, reply);
+  if (!user || reply.sent) return;
+  if (user.role === Role.ADMIN || user.testerEnabled === true) return;
+  sendError(reply, 'Forbidden: Tester capability is not enabled', HTTP_STATUS.FORBIDDEN);
+}
+
+/**
+ * Approver routes. ADMIN bypasses `reviewApprovalEnabled`.
+ */
+export async function requireReviewApprover(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const user = await reviewActor(request, reply);
+  if (!user || reply.sent) return;
+  if (user.role === Role.ADMIN || user.reviewApprovalEnabled === true) return;
+  sendError(reply, 'Forbidden: Review approval is not enabled', HTTP_STATUS.FORBIDDEN);
+}
+
 export async function authenticateOptional(
   request: FastifyRequest,
   reply: FastifyReply,

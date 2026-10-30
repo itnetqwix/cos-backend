@@ -225,6 +225,7 @@ const contestViewSchema = {
     startDate: { type: 'string', format: 'date-time' },
     endDate: { type: 'string', format: 'date-time' },
     votingClosesAt: { type: 'string', format: 'date-time', nullable: true },
+    utcMonthCutoff: { type: 'string', format: 'date-time', nullable: true },
     prizeSummary: { type: 'string', nullable: true },
     rules: {
       anyOf: [

@@ -58,6 +58,11 @@ const swaggerPluginAsync: FastifyPluginAsync = async (fastify: FastifyInstance) 
           description:
             'Public approved queue and optional-auth 1–5 ratings. Leaderboard ranking is not part of this tag.',
         },
+        {
+          name: 'One Toke',
+          description:
+            'Product review drafts, approval, and published discovery. Separate from Pledge contest scores.',
+        },
       ],
       components: {
         schemas: {

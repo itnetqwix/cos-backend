@@ -1,11 +1,13 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import { HTTP_STATUS } from '../config/constants.js';
 import { LeaderboardService } from '../services/leaderboard.service.js';
+import { PledgeFinalizationService } from '../services/pledge-finalization.service.js';
 import {
   getLeaderboardParamsSchema,
   getLeaderboardQuerySchema,
 } from '../schemas/leaderboard.schema.js';
-import { sendSuccess } from '../utils/response.js';
+import { sendSuccess, sendPaginated } from '../utils/response.js';
 
 export class LeaderboardController {
   /**
@@ -26,6 +28,29 @@ export class LeaderboardController {
       leaderboard,
       'Leaderboard retrieved successfully',
       HTTP_STATUS.OK,
+    );
+  }
+
+  /** GET /api/v1/contests/pledge/archive. Public certified snapshots only. */
+  static async archive(request: FastifyRequest, reply: FastifyReply) {
+    const query = z
+      .object({
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(100).default(20),
+      })
+      .strict()
+      .parse(request.query ?? {});
+    const page = await PledgeFinalizationService.listPublicArchive(
+      query.page,
+      query.limit,
+    );
+    return sendPaginated(
+      reply,
+      page.items,
+      page.pagination.totalCount,
+      query.page,
+      query.limit,
+      'Pledge archive retrieved',
     );
   }
 }

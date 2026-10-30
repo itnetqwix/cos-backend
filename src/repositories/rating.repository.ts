@@ -6,9 +6,8 @@ import { prisma } from '../config/database.js';
  *
  * applyRating locks the submission row, inserts one Rating, and writes
  * communityScore / totalVotes in the same transaction.
- * Guest votes are unique per submission and voterIpHash.
- * voterFingerprint is stored as supplied and is not the uniqueness key.
- * voterIpHash is an HMAC. The raw IP is not persisted.
+ * Guest votes are unique per submission and guestVoterId.
+ * voterIpHash is stored as anti-abuse metadata and is not the lookup key.
  */
 
 export interface LockedSubmissionScore {
@@ -17,12 +16,14 @@ export interface LockedSubmissionScore {
   status: SubmissionStatus;
   communityScore: number;
   totalVotes: number;
+  creatorId: string;
   contestStatus: ContestStatus;
 }
 
 export interface InsertRatingData {
   submissionId: string;
   userId: string | null;
+  guestVoterId: string | null;
   voterFingerprint: string | null;
   voterIpHash: string;
   rating: number;
@@ -34,6 +35,7 @@ interface LockedRow {
   status: SubmissionStatus;
   communityScore: number;
   totalVotes: number;
+  creatorId: string;
   contestStatus: ContestStatus;
 }
 
@@ -50,6 +52,7 @@ export class RatingRepository {
         s.status,
         s."communityScore",
         s."totalVotes",
+        s."creatorId",
         c.status AS "contestStatus"
       FROM "submissions" s
       INNER JOIN "contests" c ON c.id = s."contestId"
@@ -66,29 +69,31 @@ export class RatingRepository {
       status: row.status,
       communityScore: Number(row.communityScore),
       totalVotes: Number(row.totalVotes),
+      creatorId: row.creatorId,
       contestStatus: row.contestStatus,
     };
   }
 
   static async findGuestVote(
     submissionId: string,
-    voterIpHash: string,
+    guestVoterId: string,
     tx: Prisma.TransactionClient = prisma,
-  ): Promise<{ id: string; rating: number } | null> {
+  ): Promise<{ id: string; rating: number; guestVoterId: string | null } | null> {
+    if (!guestVoterId) return null;
     return tx.rating.findFirst({
-      where: { submissionId, voterIpHash },
-      select: { id: true, rating: true },
+      where: { submissionId, guestVoterId },
+      select: { id: true, rating: true, guestVoterId: true },
     });
   }
 
   static async listGuestRatings(
     submissionIds: string[],
-    voterIpHash: string,
+    guestVoterId: string,
     tx: Prisma.TransactionClient = prisma,
   ): Promise<Array<{ submissionId: string; rating: number }>> {
-    if (submissionIds.length === 0 || !voterIpHash) return [];
+    if (submissionIds.length === 0 || !guestVoterId) return [];
     return tx.rating.findMany({
-      where: { voterIpHash, submissionId: { in: submissionIds } },
+      where: { guestVoterId, submissionId: { in: submissionIds } },
       select: { submissionId: true, rating: true },
     });
   }
@@ -118,6 +123,7 @@ export class RatingRepository {
       data: {
         submissionId: data.submissionId,
         userId: data.userId,
+        guestVoterId: data.guestVoterId,
         voterFingerprint: data.voterFingerprint,
         voterIpHash: data.voterIpHash,
         rating: data.rating,
@@ -179,5 +185,30 @@ export class RatingRepository {
         totalVotes,
       },
     });
+  }
+
+  /** Identity rows for Pledge quorum. IP hash is returned and not used as identity. */
+  static async listVoterRows(contestId: string) {
+    const rows = await prisma.rating.findMany({
+      where: { submission: { contestId, deletedAt: null } },
+      select: {
+        submissionId: true,
+        userId: true,
+        guestVoterId: true,
+        voterIpHash: true,
+        rating: true,
+        submission: { select: { creatorId: true, status: true, deletedAt: true } },
+      },
+    });
+    return rows.map((row) => ({
+      submissionId: row.submissionId,
+      userId: row.userId,
+      guestVoterId: row.guestVoterId,
+      voterIpHash: row.voterIpHash,
+      rating: row.rating,
+      creatorId: row.submission.creatorId,
+      submissionStatus: row.submission.status,
+      deleted: row.submission.deletedAt !== null,
+    }));
   }
 }

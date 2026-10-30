@@ -9,6 +9,22 @@ import {
 import { sendSuccess } from '../utils/response.js';
 import { clientIp } from '../utils/client-ip.js';
 import { hashVoterIp } from '../services/voter-ip-hash.js';
+import {
+  guestVoterCookieOptions,
+  guestVoterSetCookie,
+  resolveGuestVoterToken,
+} from '../services/guest-voter-cookie.js';
+import { env } from '../config/env.js';
+
+function guestCookieHeader(token: string): string {
+  return guestVoterSetCookie(
+    token,
+    guestVoterCookieOptions({
+      nodeEnv: env.NODE_ENV,
+      sameSite: env.GUEST_COOKIE_SAMESITE,
+    }),
+  );
+}
 
 function voterFromRequest(request: FastifyRequest) {
   if (!request.user) return null;
@@ -45,7 +61,11 @@ export class JudgingController {
    */
   static async queue(request: FastifyRequest, reply: FastifyReply) {
     const { id } = contestIdParamSchema.parse(request.params);
-    const queue = await JudgingService.getQueue(id, hashVoterIp(clientIp(request)));
+    const guest = resolveGuestVoterToken(request.headers.cookie);
+    if (!guest.reused) {
+      reply.header('set-cookie', guestCookieHeader(guest.token));
+    }
+    const queue = await JudgingService.getQueue(id, guest.token);
     return sendSuccess(
       reply,
       {
@@ -53,6 +73,7 @@ export class JudgingController {
         status: queue.status,
         ratingOpen: queue.ratingOpen,
         autoAdvanceDelayMs: queue.autoAdvanceDelayMs,
+        utcMonthCutoff: queue.utcMonthCutoff,
         items: queue.items.map(toQueueItemView),
       },
       'Judging queue retrieved successfully',
@@ -67,6 +88,8 @@ export class JudgingController {
   static async rate(request: FastifyRequest, reply: FastifyReply) {
     const params = rateParamsSchema.parse(request.params);
     const body = rateBodySchema.parse(request.body ?? {});
+    const guest = resolveGuestVoterToken(request.headers.cookie);
+    reply.header('set-cookie', guestCookieHeader(guest.token));
     const score = await JudgingService.rateSubmission({
       contestId: params.id,
       videoId: params.videoId,
@@ -74,6 +97,7 @@ export class JudgingController {
       voter: voterFromRequest(request),
       voterFingerprint: body.voterFingerprint ?? null,
       voterIpHash: hashVoterIp(clientIp(request)),
+      guestVoterId: guest.token,
     });
     return sendSuccess(
       reply,

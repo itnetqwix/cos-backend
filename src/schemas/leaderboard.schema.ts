@@ -53,6 +53,10 @@ const leaderboardItemSchema = {
     tags: { type: 'array', items: { type: 'string' } },
     communityScore: { type: 'number', example: 4.8 },
     totalVotes: { type: 'integer', example: 125 },
+    distinctVoterCount: { type: 'integer' },
+    isQuorumQualified: { type: 'boolean' },
+    requiredVoterCount: { type: 'integer' },
+    quorumProgress: { type: 'string' },
     createdAt: { type: 'string', example: '2026-09-22T12:00:00.000Z' },
     creator: {
       type: 'object',
