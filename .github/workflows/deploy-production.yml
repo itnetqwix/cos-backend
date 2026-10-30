@@ -1,0 +1,71 @@
+name: Deploy production
+
+# Manual only. Merging this file does not deploy. Run it from main after approval.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full commit SHA on main. Empty deploys the workflow SHA.
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ripskis-backend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://api.ripskis.com/api/v1/health
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::449112696823:role/ripskis-gha-backend-deploy
+          aws-region: us-east-2
+      - name: Require a main commit and deploy it
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_SHA" ]; then SHA="$INPUT_SHA"; else SHA="$GITHUB_SHA"; fi
+          case "$SHA" in
+            *[!0-9a-f]*|"" ) echo "sha must be 40 hex characters" >&2; exit 1 ;;
+          esac
+          test "${#SHA}" -eq 40
+          git fetch origin main
+          git merge-base --is-ancestor "$SHA" origin/main
+          B64=$(base64 -w0 scripts/ec2-deploy.sh)
+          PARAMS=$(jq -n --arg cmd "echo $B64 | base64 -d | sudo -u ubuntu env HOME=/home/ubuntu bash -s -- $SHA" '{commands:[$cmd], executionTimeout:["1200"]}')
+          CMD=$(aws ssm send-command \
+            --region us-east-2 \
+            --instance-ids i-048289e22182b423a \
+            --document-name AWS-RunShellScript \
+            --comment "ripskis deploy" \
+            --parameters "$PARAMS" \
+            --query Command.CommandId --output text)
+          echo "command=$CMD"
+          for _ in $(seq 1 120); do
+            ST=$(aws ssm get-command-invocation --region us-east-2 --command-id "$CMD" --instance-id i-048289e22182b423a --query Status --output text 2>/dev/null || true)
+            echo "status=$ST"
+            case "$ST" in
+              Success) break ;;
+              Failed|Cancelled|TimedOut)
+                aws ssm get-command-invocation --region us-east-2 --command-id "$CMD" --instance-id i-048289e22182b423a --query StandardErrorContent --output text
+                exit 1 ;;
+            esac
+            sleep 10
+          done
+          test "$ST" = "Success"
+          aws ssm get-command-invocation --region us-east-2 --command-id "$CMD" --instance-id i-048289e22182b423a --query StandardOutputContent --output text
