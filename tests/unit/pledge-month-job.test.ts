@@ -30,6 +30,18 @@ function row(partial: Partial<PledgeMonthRow> & Pick<PledgeMonthRow, 'id' | 'cyc
   };
 }
 
+function enabledTemplate(): PledgeMonthRow {
+  return row({
+    id: 'template',
+    cycleMonth: null,
+    status: ContestStatus.SCHEDULED,
+    title: 'Pledge of aWEEEEEDgence',
+    description: 'series-rules',
+    rules: ['series'],
+    configFrozenAt: null,
+  });
+}
+
 function store(seed: PledgeMonthRow[] = []): PledgeRecurrenceStore & { rows: PledgeMonthRow[] } {
   const rows = seed;
   return {
@@ -60,6 +72,7 @@ function store(seed: PledgeMonthRow[] = []): PledgeRecurrenceStore & { rows: Ple
 describe('pledge month job', () => {
   it('creates the current month, closes expired ones, and does not certify winners', async () => {
     const memory = store([
+      enabledTemplate(),
       row({ id: 'sep', cycleMonth: '2026-09', votingClosesAt: new Date('2026-10-01T00:00:00.000Z'), rules: ['september'] }),
       row({ id: 'oct', cycleMonth: '2026-10', votingClosesAt: new Date('2026-11-01T00:00:00.000Z'), rules: ['october'] }),
     ]);
@@ -69,7 +82,10 @@ describe('pledge month job', () => {
       store: memory,
       log: (entry) => logs.push(entry),
     });
+    assert.ok(created);
     assert.equal(created.cycleMonth, '2026-11');
+    assert.equal(created.description, 'series-rules');
+    assert.equal(created.title, 'Pledge of aWEEEEEDgence — November 2026');
     assert.equal(created.isWinnersFinalized, false);
     assert.equal(memory.rows.find((item) => item.id === 'sep')?.status, ContestStatus.JUDGING);
     assert.equal(memory.rows.find((item) => item.id === 'oct')?.status, ContestStatus.JUDGING);
@@ -90,6 +106,7 @@ describe('pledge month job', () => {
 
   it('does not close a month before its UTC cutoff and survives a concurrent run', async () => {
     const memory = store([
+      enabledTemplate(),
       row({ id: 'nov', cycleMonth: '2026-11', votingClosesAt: new Date('2026-12-01T00:00:00.000Z') }),
     ]);
     await runPledgeMonthJob({ now: new Date('2026-11-30T23:59:00.000Z'), store: memory, log: () => undefined });
@@ -99,10 +116,37 @@ describe('pledge month job', () => {
       runPledgeMonthJob({ now: new Date('2026-12-01T00:05:00.000Z'), store: memory, log: () => undefined }),
       runPledgeMonthJob({ now: new Date('2026-12-01T00:05:00.000Z'), store: memory, log: () => undefined }),
     ]);
-    assert.equal(first.cycleMonth, '2026-12');
-    assert.equal(second.cycleMonth, '2026-12');
+    assert.equal(first?.cycleMonth, '2026-12');
+    assert.equal(second?.cycleMonth, '2026-12');
     assert.equal(memory.rows.find((item) => item.id === 'nov')?.status, ContestStatus.JUDGING);
     assert.equal(memory.rows.find((item) => item.id === 'nov')?.isWinnersFinalized, false);
     assert.equal(memory.rows.filter((item) => item.cycleMonth === '2026-12').length, 1);
+  });
+
+  it('does not generate a month when the template is paused or missing', async () => {
+    const paused = store([
+      enabledTemplate(),
+      row({ id: 'oct', cycleMonth: '2026-10', description: 'frozen-october' }),
+    ]);
+    paused.rows[0]!.status = ContestStatus.DRAFT;
+    const logs: PledgeMonthLog[] = [];
+    const skipped = await runPledgeMonthJob({
+      now: new Date('2026-11-02T00:00:00.000Z'),
+      store: paused,
+      log: (entry) => logs.push(entry),
+    });
+    assert.equal(skipped, null);
+    assert.equal(logs[0]?.result, 'skipped');
+    assert.equal(paused.rows.some((item) => item.cycleMonth === '2026-11'), false);
+    assert.equal(paused.rows.find((item) => item.id === 'oct')?.description, 'frozen-october');
+
+    const empty = store();
+    const missing = await runPledgeMonthJob({
+      now: new Date('2026-11-02T00:00:00.000Z'),
+      store: empty,
+      log: () => undefined,
+    });
+    assert.equal(missing, null);
+    assert.equal(empty.rows.length, 0);
   });
 });

@@ -98,6 +98,8 @@ export class ContestRepository {
       where: {
         status: filters.statuses ? { in: filters.statuses } : filters.status,
         category: filters.categorySlug ? { slug: filters.categorySlug } : undefined,
+        // Template rows are series configuration, not contests creators enter.
+        OR: [{ seriesSlug: null }, { cycleMonth: { not: null } }],
       },
       include: contestInclude,
       orderBy: { createdAt: 'desc' },
