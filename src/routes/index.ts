@@ -137,7 +137,8 @@ import {
   updateReviewSwaggerSchema,
 } from '../schemas/product-review.schema.js';
 
-import { sendSuccess } from '../utils/response.js';
+import { sendError, sendSuccess } from '../utils/response.js';
+import { assertDatabaseReady } from '../services/health.service.js';
 import { SYSTEM_CONSTANTS, HTTP_STATUS } from '../config/constants.js';
 import {
   authCredentialRateLimit,
@@ -154,15 +155,22 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // -------------------------------------------------------------
   // 1. Base & System Operational Endpoints (frozen M01-P01-T04)
   // Public (no authenticate). Envelope via sendSuccess (M01-P01-T01).
-  // Health does not probe Prisma / DATABASE_URL — DB readiness is NOT SPECIFIED.
+  // Health runs SELECT 1. A database failure is 503. The body does not include the URL.
   // Root `data.name` is SYSTEM_CONSTANTS.APP_NAME, not the npm package name.
   // -------------------------------------------------------------
 
-  fastify.get('/health', { schema: healthSwaggerSchema }, async (_request, reply) => {
+  fastify.get('/health', { schema: healthSwaggerSchema }, async (request, reply) => {
+    try {
+      await assertDatabaseReady();
+    } catch (error) {
+      request.log.error({ err: error }, 'health database check failed');
+      return sendError(reply, 'Database is unavailable', HTTP_STATUS.SERVICE_UNAVAILABLE);
+    }
     return sendSuccess(
       reply,
       {
         status: 'healthy',
+        database: 'up',
         timestamp: new Date().toISOString(),
       },
       'Contest Operating System API is healthy',
