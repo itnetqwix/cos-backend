@@ -31,6 +31,20 @@ function row(partial: Partial<PledgeMonthRow> & Pick<PledgeMonthRow, 'id' | 'cyc
   };
 }
 
+function enabledTemplate(): PledgeMonthRow {
+  return row({
+    id: 'template',
+    cycleMonth: null,
+    status: ContestStatus.SCHEDULED,
+    title: 'Pledge of aWEEEEEDgence',
+    description: 'series-v1',
+    rules: ['series'],
+    configFrozenAt: null,
+    minOverallVoters: 10,
+    minCategoryVoters: 5,
+  });
+}
+
 function memoryStore(seed: PledgeMonthRow[] = []): PledgeRecurrenceStore & { rows: PledgeMonthRow[] } {
   const rows = [...seed];
   return {
@@ -89,12 +103,16 @@ describe('UTC pledge schedule', () => {
       status: ContestStatus.ACTIVE,
       description: 'not pledge',
     });
-    const store = memoryStore([october, unrelated]);
+    const template = enabledTemplate();
+    const store = memoryStore([october, unrelated, template]);
     const created = await PledgeRecurrenceService.ensureCurrentMonthlyContest(
       new Date('2026-11-15T12:00:00.000Z'),
       store,
     );
+    assert.ok(created);
     assert.equal(created.cycleMonth, '2026-11');
+    assert.equal(created.description, 'series-v1');
+    assert.equal(created.minOverallVoters, 10);
     assert.equal(created.status, ContestStatus.ACTIVE);
     assert.equal(created.votingClosesAt?.toISOString(), '2026-12-01T00:00:00.000Z');
     assert.equal(created.isWinnersFinalized, false);
@@ -103,22 +121,24 @@ describe('UTC pledge schedule', () => {
     assert.deepEqual(october.rules, ['october']);
     assert.equal(unrelated.status, ContestStatus.ACTIVE);
 
+    template.description = 'series-v2';
     const again = await PledgeRecurrenceService.ensureCurrentMonthlyContest(
       new Date('2026-11-20T00:00:00.000Z'),
       store,
     );
-    assert.equal(again.id, created.id);
+    assert.equal(again?.id, created.id);
+    assert.equal(created.description, 'series-v1');
     assert.equal(store.rows.filter((item) => item.cycleMonth === '2026-11').length, 1);
   });
 
   it('returns the existing row when two creates race', async () => {
-    const store = memoryStore();
+    const store = memoryStore([enabledTemplate()]);
     const [first, second] = await Promise.all([
       PledgeRecurrenceService.ensureCurrentMonthlyContest(new Date('2026-11-02T00:00:00.000Z'), store),
       PledgeRecurrenceService.ensureCurrentMonthlyContest(new Date('2026-11-02T00:00:00.000Z'), store),
     ]);
-    assert.equal(first.cycleMonth, '2026-11');
-    assert.equal(second.cycleMonth, '2026-11');
+    assert.equal(first?.cycleMonth, '2026-11');
+    assert.equal(second?.cycleMonth, '2026-11');
     assert.equal(store.rows.filter((item) => item.cycleMonth === '2026-11').length, 1);
   });
 });

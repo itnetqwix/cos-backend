@@ -34,6 +34,10 @@ export interface PledgeMonthRow {
   prizeSummary: string | null;
   configFrozenAt: Date | null;
   isWinnersFinalized: boolean;
+  tagline?: string | null;
+  bannerUrl?: string | null;
+  bannerObjectKey?: string | null;
+  thumbnailUrl?: string | null;
 }
 
 export class DuplicatePledgeMonthError extends Error {
@@ -49,6 +53,53 @@ export interface PledgeRecurrenceStore {
   listSeries(seriesSlug: string): Promise<PledgeMonthRow[]>;
   insertMonth(row: PledgeMonthRow): Promise<PledgeMonthRow>;
   markJudging(id: string): Promise<void>;
+}
+
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const;
+
+export function pledgeInstanceTitle(
+  seriesTitle: string,
+  boundaries: UtcMonthBoundaries,
+): string {
+  const name = MONTH_NAMES[boundaries.month - 1] ?? boundaries.cycleMonth;
+  return `${seriesTitle} — ${name} ${boundaries.year}`;
+}
+
+/** DRAFT template means paused. Missing template does not generate. */
+export function templateGenerationEnabled(template: PledgeMonthRow | null): boolean {
+  return (
+    template !== null &&
+    template.cycleMonth === null &&
+    template.status !== ContestStatus.DRAFT
+  );
+}
+
+export function nextGenerationTarget(
+  now: Date,
+  cycleMonths: string[],
+): { cycleMonth: string; boundaries: UtcMonthBoundaries } {
+  const currentParts = utcCycleMonth(now);
+  const current = getUtcMonthBoundaries(currentParts.year, currentParts.month);
+  if (!cycleMonths.includes(current.cycleMonth)) {
+    return { cycleMonth: current.cycleMonth, boundaries: current };
+  }
+  const month = currentParts.month === 12 ? 1 : currentParts.month + 1;
+  const year = currentParts.month === 12 ? currentParts.year + 1 : currentParts.year;
+  const boundaries = getUtcMonthBoundaries(year, month);
+  return { cycleMonth: boundaries.cycleMonth, boundaries };
 }
 
 export function pledgeMonthShouldClose(row: PledgeMonthRow, now: Date): boolean {
@@ -72,8 +123,14 @@ export function buildPledgeMonth(
     seriesSlug: PLEDGE_SERIES_SLUG,
     cycleMonth: boundaries.cycleMonth,
     status: ContestStatus.ACTIVE,
-    title: `Pledge ${boundaries.cycleMonth}`,
+    title: template
+      ? pledgeInstanceTitle(template.title, boundaries)
+      : `Pledge ${boundaries.cycleMonth}`,
     description: template?.description ?? 'Pledge of aWEEEEEDgence monthly contest',
+    tagline: template?.tagline ?? null,
+    bannerUrl: template?.bannerUrl ?? null,
+    bannerObjectKey: template?.bannerObjectKey ?? null,
+    thumbnailUrl: template?.thumbnailUrl ?? null,
     startDate: boundaries.start,
     endDate: boundaries.end,
     votingClosesAt: boundaries.votingClosesAt,
@@ -82,7 +139,9 @@ export function buildPledgeMonth(
     minCategoryVoters: template?.minCategoryVoters ?? 5,
     autoAdvanceDelayMs: template?.autoAdvanceDelayMs ?? 1800,
     categoryId: template?.categoryId ?? null,
-    rules: template?.rules ?? null,
+    rules: Array.isArray(template?.rules)
+      ? [...template.rules]
+      : (template?.rules ?? null),
     prizeSummary: template?.prizeSummary ?? null,
     configFrozenAt: now,
     isWinnersFinalized: false,
@@ -93,7 +152,7 @@ export class PledgeRecurrenceService {
   static async ensureCurrentMonthlyContest(
     now = new Date(),
     store: PledgeRecurrenceStore = prismaPledgeStore,
-  ): Promise<PledgeMonthRow> {
+  ): Promise<PledgeMonthRow | null> {
     const { year, month } = utcCycleMonth(now);
     const boundaries = getUtcMonthBoundaries(year, month);
     const series = await store.listSeries(PLEDGE_SERIES_SLUG);
@@ -111,6 +170,7 @@ export class PledgeRecurrenceService {
     const template =
       series.find((row) => row.cycleMonth === null) ??
       (await store.findTemplate(PLEDGE_SERIES_SLUG));
+    if (!templateGenerationEnabled(template)) return null;
     const created = buildPledgeMonth(boundaries, template, now, crypto.randomUUID());
     try {
       return await store.insertMonth(created);
@@ -159,6 +219,10 @@ const prismaPledgeStore: PledgeRecurrenceStore = {
           minCategoryVoters: row.minCategoryVoters,
           autoAdvanceDelayMs: row.autoAdvanceDelayMs,
           categoryId: row.categoryId,
+          tagline: row.tagline ?? null,
+          bannerUrl: row.bannerUrl ?? null,
+          bannerObjectKey: row.bannerObjectKey ?? null,
+          thumbnailUrl: row.thumbnailUrl ?? null,
           rules:
             row.rules === null ? Prisma.JsonNull : (row.rules as Prisma.InputJsonValue),
           prizeSummary: row.prizeSummary,
@@ -204,6 +268,10 @@ function toPledgeMonth(row: {
   prizeSummary: string | null;
   configFrozenAt: Date | null;
   isWinnersFinalized: boolean;
+  tagline: string | null;
+  bannerUrl: string | null;
+  bannerObjectKey: string | null;
+  thumbnailUrl: string | null;
 }): PledgeMonthRow {
   return {
     id: row.id,
@@ -224,5 +292,9 @@ function toPledgeMonth(row: {
     prizeSummary: row.prizeSummary,
     configFrozenAt: row.configFrozenAt,
     isWinnersFinalized: row.isWinnersFinalized,
+    tagline: row.tagline,
+    bannerUrl: row.bannerUrl,
+    bannerObjectKey: row.bannerObjectKey,
+    thumbnailUrl: row.thumbnailUrl,
   };
 }

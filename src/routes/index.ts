@@ -5,6 +5,7 @@ import { FriendshipController } from '../controllers/friendship.controller.js';
 import { AuthController } from '../controllers/auth.controller.js';
 import { CommentController } from '../controllers/comment.controller.js';
 import { ContestController } from '../controllers/contest.controller.js';
+import { RecurringContestController } from '../controllers/recurring-contest.controller.js';
 import { ModerationController } from '../controllers/moderation.controller.js';
 import { SubmissionController } from '../controllers/submission.controller.js';
 import { NotificationController } from '../controllers/notification.controller.js';
@@ -434,6 +435,47 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       onRequest: contestGuards,
     },
     ContestController.remove,
+  );
+
+  fastify.get(
+    '/admin/contests/recurring',
+    { onRequest: contestGuards },
+    RecurringContestController.list,
+  );
+  fastify.post(
+    '/admin/contests/recurring',
+    { onRequest: contestGuards },
+    RecurringContestController.create,
+  );
+  fastify.get(
+    '/admin/contests/recurring/:id',
+    { onRequest: contestGuards },
+    RecurringContestController.get,
+  );
+  fastify.patch(
+    '/admin/contests/recurring/:id',
+    { onRequest: contestGuards },
+    RecurringContestController.update,
+  );
+  fastify.post(
+    '/admin/contests/recurring/:id/pause',
+    { onRequest: contestGuards },
+    RecurringContestController.pause,
+  );
+  fastify.post(
+    '/admin/contests/recurring/:id/resume',
+    { onRequest: contestGuards },
+    RecurringContestController.resume,
+  );
+  fastify.get(
+    '/admin/contests/recurring/:id/preview',
+    { onRequest: contestGuards },
+    RecurringContestController.preview,
+  );
+  fastify.get(
+    '/admin/contests/recurring/:id/cycles',
+    { onRequest: contestGuards },
+    RecurringContestController.cycles,
   );
 
   fastify.post(

@@ -329,7 +329,7 @@ export class ContestService {
       );
     }
     const contest = await ContestRepository.findById(id);
-    if (!contest) {
+    if (!contest || (contest.seriesSlug !== null && contest.cycleMonth === null)) {
       throw new NotFoundError('Contest not found');
     }
     return contest;

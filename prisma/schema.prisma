@@ -136,8 +136,10 @@ model Contest {
   votingClosesAt     DateTime?
   // Pledge monthly instance. seriesSlug has no default: a "pledge" default would
   // label every existing contest as that series. cycleMonth is YYYY-MM.
-  // configFrozenAt is set when the instance reaches ACTIVE. The frozen values
-  // stay in this row (rules, prizeSummary, autoAdvanceDelayMs, categoryId).
+  // A template row has seriesSlug set and cycleMonth null. There is no pause
+  // column: DRAFT means future generation is paused, any other status means
+  // enabled. Generated months do not copy that status. configFrozenAt is set
+  // on the generated month. The frozen values stay on that row.
   seriesSlug         String?
   cycleMonth         String?
   isRecurringMonthly Boolean       @default(false)
@@ -225,6 +227,12 @@ enum AuditAction {
   ISSUE_WARNING
   SUSPEND_CREATOR
   CORRECT_WINNER
+  // Recurring template writes. submissionId stays null.
+  // Pause is the template row status DRAFT, not a contest-lifecycle pause.
+  RECURRENCE_CREATE
+  RECURRENCE_UPDATE
+  RECURRENCE_PAUSE
+  RECURRENCE_RESUME
 }
 
 // M07-P01-T01. Append-only. Retention / purge is NOT SPECIFIED.

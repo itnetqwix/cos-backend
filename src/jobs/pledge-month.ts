@@ -13,7 +13,7 @@ import {
 
 export interface PledgeMonthLog {
   event: 'pledge-month';
-  result: 'created' | 'existing' | 'failed';
+  result: 'created' | 'existing' | 'skipped' | 'failed';
   cycleMonth?: string | null;
   status?: string;
   closedIds?: string[];
@@ -48,7 +48,7 @@ export async function runPledgeMonthJob(
     store?: PledgeRecurrenceStore;
     log?: (entry: PledgeMonthLog) => void;
   } = {},
-): Promise<PledgeMonthRow> {
+): Promise<PledgeMonthRow | null> {
   const now = input.now ?? new Date();
   const log =
     input.log ??
@@ -75,6 +75,14 @@ export async function runPledgeMonthJob(
           !item.isWinnersFinalized,
       )
       .map((item) => item.id);
+    if (!row) {
+      log({
+        event: 'pledge-month',
+        result: 'skipped',
+        closedIds,
+      });
+      return null;
+    }
     const created = !before.some((item) => item.cycleMonth === row.cycleMonth);
     log({
       event: 'pledge-month',
