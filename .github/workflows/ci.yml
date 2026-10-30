@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ripskis
+          POSTGRES_PASSWORD: ripskis
+          POSTGRES_DB: ripskis_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ripskis -d ripskis_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      HUSKY: "0"
+      NODE_ENV: test
+      # Throwaway Actions database. Not the production DATABASE_URL.
+      DATABASE_URL: postgresql://ripskis:ripskis@localhost:5432/ripskis_ci?schema=public
+      JWT_SECRET: ci-only-not-a-production-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run typecheck
+      # The committed migrations are not a baseline: the oldest one alters
+      # "organizations", which no migration creates. This push is only the
+      # throwaway Actions database. Production uses migrate-production.yml.
+      - run: npx prisma db push --skip-generate --accept-data-loss
+      - run: npm test
+      - run: npm run build

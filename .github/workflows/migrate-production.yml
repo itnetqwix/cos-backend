@@ -1,0 +1,52 @@
+name: Migrate production
+
+# Separate from deploy. Does not run on push. Never db push or migrate reset.
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ripskis-backend-production
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://api.ripskis.com/api/v1/health
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::449112696823:role/ripskis-gha-backend-deploy
+          aws-region: us-east-2
+      - name: prisma migrate deploy using the host .env
+        run: |
+          set -euo pipefail
+          B64=$(base64 -w0 scripts/ec2-migrate.sh)
+          PARAMS=$(jq -n --arg cmd "echo $B64 | base64 -d | sudo -u ubuntu env HOME=/home/ubuntu bash -s" '{commands:[$cmd], executionTimeout:["600"]}')
+          CMD=$(aws ssm send-command \
+            --region us-east-2 \
+            --instance-ids i-048289e22182b423a \
+            --document-name AWS-RunShellScript \
+            --comment "ripskis migrate deploy" \
+            --parameters "$PARAMS" \
+            --query Command.CommandId --output text)
+          for _ in $(seq 1 60); do
+            ST=$(aws ssm get-command-invocation --region us-east-2 --command-id "$CMD" --instance-id i-048289e22182b423a --query Status --output text 2>/dev/null || true)
+            case "$ST" in
+              Success) break ;;
+              Failed|Cancelled|TimedOut)
+                aws ssm get-command-invocation --region us-east-2 --command-id "$CMD" --instance-id i-048289e22182b423a --query StandardErrorContent --output text
+                exit 1 ;;
+            esac
+            sleep 10
+          done
+          test "${ST:-}" = "Success"
+          aws ssm get-command-invocation --region us-east-2 --command-id "$CMD" --instance-id i-048289e22182b423a --query StandardOutputContent --output text
