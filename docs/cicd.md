@@ -6,7 +6,7 @@ Production branch is `main`. The live host is EC2 `i-048289e22182b423a` (`18.116
 
 | Workflow | When it runs |
 |---|---|
-| `.github/workflows/ci.yml` | Every pull request and push. Installs with `npm ci`, generates Prisma Client, typechecks, migrates a throwaway Postgres service, tests, and builds. |
+| `.github/workflows/ci.yml` | Every pull request and push. Installs with `npm ci`, generates Prisma Client, typechecks, syncs a throwaway Postgres service with `prisma db push`, tests, and builds. The committed migrations are not a baseline, so CI does not use `migrate deploy`. |
 | `.github/workflows/deploy-production.yml` | Manual, and only from `main`. GitHub Environment `production` must be approved first. |
 | `.github/workflows/migrate-production.yml` | Manual, and only from `main`, with the same approval. This is the only workflow that runs `prisma migrate deploy`. |
 

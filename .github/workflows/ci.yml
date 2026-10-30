@@ -44,6 +44,9 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npm run typecheck
-      - run: npx prisma migrate deploy
+      # The committed migrations are not a baseline: the oldest one alters
+      # "organizations", which no migration creates. This push is only the
+      # throwaway Actions database. Production uses migrate-production.yml.
+      - run: npx prisma db push --skip-generate --accept-data-loss
       - run: npm test
       - run: npm run build
