@@ -132,15 +132,17 @@ export const getUserByIdSwaggerSchema: FastifySchema = {
 export const healthSwaggerSchema: FastifySchema = {
   tags: ['System'],
   summary: 'Service operational health check',
-  description: 'Returns operational health status and server timestamp.',
+  description:
+    'Returns process health after SELECT 1. Does not include database credentials.',
   response: {
     200: {
-      description: 'API is healthy and online',
+      description: 'API and database are reachable',
       ...swaggerSuccessEnvelope(
         {
           type: 'object',
           properties: {
             status: { type: 'string', example: 'healthy' },
+            database: { type: 'string', example: 'up' },
             timestamp: {
               type: 'string',
               format: 'date-time',
@@ -150,6 +152,11 @@ export const healthSwaggerSchema: FastifySchema = {
         },
         'Contest Operating System API is healthy',
       ),
+    },
+    503: {
+      description:
+        'Database query failed. The message does not include the connection string.',
+      ...swaggerErrorEnvelope('Database is unavailable'),
     },
   },
 };
