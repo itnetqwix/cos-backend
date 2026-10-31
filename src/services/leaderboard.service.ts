@@ -12,6 +12,14 @@ import { NotFoundError } from '../utils/response.js';
 import { RatingRepository } from '../repositories/rating.repository.js';
 import { pledgeLeaderboardPartition } from './pledge-finalization.service.js';
 import { PLEDGE_SERIES_SLUG } from './contest-schedule.js';
+import {
+  arithmeticMean,
+  categoryAverage,
+  categoryScoreMap,
+  enabledCategories,
+  parseStoredCategories,
+} from './pledge-categories.js';
+import { isCountableRating } from './voter-quorum.js';
 
 export interface LeaderboardItemView {
   rank: number;
@@ -63,6 +71,20 @@ export interface ContestLeaderboardView {
   averageScore: number;
   items: LeaderboardItemView[];
   podium: LeaderboardItemView[];
+  categoryBoards?: Array<{
+    slug: string;
+    name: string;
+    items: Array<{
+      rank: number;
+      id: string;
+      title: string;
+      thumbnailUrl: string | null;
+      creatorName: string;
+      average: number | null;
+      validRatingCount: number;
+      eligible: boolean;
+    }>;
+  }>;
 }
 
 export interface GetLeaderboardOptions {
@@ -93,11 +115,23 @@ export class LeaderboardService {
       contestId,
       options.category,
     );
+    const pledgeRatings =
+      contest.seriesSlug === PLEDGE_SERIES_SLUG
+        ? await RatingRepository.listVoterRows(contestId)
+        : [];
+    const scoredSubmissions = rawSubmissions.map((record) => {
+      if (contest.seriesSlug !== PLEDGE_SERIES_SLUG) return record;
+      const values = pledgeRatings
+        .filter((row) => row.submissionId === record.id && isCountableRating(row))
+        .map((row) => row.rating);
+      const average = arithmeticMean(values);
+      return average == null ? record : { ...record, communityScore: average };
+    });
     const categoryScoped = Boolean(options.category && options.category !== 'ALL');
     const quorum =
       contest.seriesSlug === PLEDGE_SERIES_SLUG
         ? pledgeLeaderboardPartition(
-            rawSubmissions.map((record) => ({
+            scoredSubmissions.map((record) => ({
               id: record.id,
               communityScore: record.communityScore,
               categoryName: record.contest.category?.name ?? null,
@@ -126,10 +160,10 @@ export class LeaderboardService {
     }
     const ordered = quorum
       ? [...quorum.qualified, ...quorum.pending].flatMap((row) => {
-          const record = rawSubmissions.find((submission) => submission.id === row.id);
+          const record = scoredSubmissions.find((submission) => submission.id === row.id);
           return record ? [record] : [];
         })
-      : rawSubmissions;
+      : scoredSubmissions;
 
     const items: LeaderboardItemView[] = await Promise.all(
       ordered.map(async (record, index) => {
@@ -182,6 +216,41 @@ export class LeaderboardService {
     const podium = (
       quorum ? items.filter((item) => item.isQuorumQualified) : items
     ).slice(0, 3);
+    const categoryBoards =
+      contest.seriesSlug === PLEDGE_SERIES_SLUG
+        ? enabledCategories(parseStoredCategories(contest.scoringCategories)).map(
+            (category) => {
+              const ranked = scoredSubmissions
+                .map((record) => {
+                  const maps = pledgeRatings
+                    .filter(
+                      (row) => row.submissionId === record.id && isCountableRating(row),
+                    )
+                    .map((row) => categoryScoreMap(row.categoryScores));
+                  const stats = categoryAverage(maps, category.slug);
+                  return {
+                    id: record.id,
+                    title: record.title,
+                    thumbnailUrl: record.thumbnailUrl,
+                    creatorName: record.creator.name,
+                    average: stats.average,
+                    validRatingCount: stats.count,
+                    eligible:
+                      stats.count >= contest.minCategoryVoters && stats.average != null,
+                  };
+                })
+                .filter((row) => row.average != null)
+                .sort(
+                  (a, b) =>
+                    Number(b.eligible) - Number(a.eligible) ||
+                    (b.average ?? 0) - (a.average ?? 0) ||
+                    b.validRatingCount - a.validRatingCount,
+                )
+                .map((row, index) => ({ ...row, rank: row.eligible ? index + 1 : 0 }));
+              return { slug: category.slug, name: category.name, items: ranked };
+            },
+          )
+        : undefined;
 
     return {
       contest: {
@@ -213,6 +282,7 @@ export class LeaderboardService {
       totalParticipants,
       totalVotes,
       averageScore,
+      ...(categoryBoards ? { categoryBoards } : {}),
       items,
       podium,
     };

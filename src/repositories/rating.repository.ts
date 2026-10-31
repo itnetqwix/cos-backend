@@ -18,6 +18,10 @@ export interface LockedSubmissionScore {
   totalVotes: number;
   creatorId: string;
   contestStatus: ContestStatus;
+  seriesSlug?: string | null;
+  votingClosesAt?: Date | null;
+  scoringCategories?: Prisma.JsonValue | null;
+  combinedScoreEnabled?: boolean;
 }
 
 export interface InsertRatingData {
@@ -27,6 +31,7 @@ export interface InsertRatingData {
   voterFingerprint: string | null;
   voterIpHash: string;
   rating: number;
+  categoryScores?: Prisma.InputJsonValue | null;
 }
 
 interface LockedRow {
@@ -37,6 +42,10 @@ interface LockedRow {
   totalVotes: number;
   creatorId: string;
   contestStatus: ContestStatus;
+  seriesSlug: string | null;
+  votingClosesAt: Date | null;
+  scoringCategories: Prisma.JsonValue | null;
+  combinedScoreEnabled: boolean;
 }
 
 export class RatingRepository {
@@ -53,7 +62,11 @@ export class RatingRepository {
         s."communityScore",
         s."totalVotes",
         s."creatorId",
-        c.status AS "contestStatus"
+        c.status AS "contestStatus",
+        c."seriesSlug",
+        c."votingClosesAt",
+        c."scoringCategories",
+        c."combinedScoreEnabled"
       FROM "submissions" s
       INNER JOIN "contests" c ON c.id = s."contestId"
       WHERE s.id = ${submissionId}
@@ -71,6 +84,10 @@ export class RatingRepository {
       totalVotes: Number(row.totalVotes),
       creatorId: row.creatorId,
       contestStatus: row.contestStatus,
+      seriesSlug: row.seriesSlug,
+      votingClosesAt: row.votingClosesAt,
+      scoringCategories: row.scoringCategories,
+      combinedScoreEnabled: row.combinedScoreEnabled,
     };
   }
 
@@ -78,11 +95,28 @@ export class RatingRepository {
     submissionId: string,
     guestVoterId: string,
     tx: Prisma.TransactionClient = prisma,
-  ): Promise<{ id: string; rating: number; guestVoterId: string | null } | null> {
+  ): Promise<{
+    id: string;
+    rating: number;
+    guestVoterId: string | null;
+    categoryScores?: Prisma.JsonValue | null;
+  } | null> {
     if (!guestVoterId) return null;
     return tx.rating.findFirst({
       where: { submissionId, guestVoterId },
-      select: { id: true, rating: true, guestVoterId: true },
+      select: { id: true, rating: true, guestVoterId: true, categoryScores: true },
+    });
+  }
+
+  static async findUserVote(
+    submissionId: string,
+    userId: string,
+    tx: Prisma.TransactionClient = prisma,
+  ): Promise<{ id: string; rating: number; userId: string | null } | null> {
+    if (!userId) return null;
+    return tx.rating.findFirst({
+      where: { submissionId, userId },
+      select: { id: true, rating: true, userId: true },
     });
   }
 
@@ -102,10 +136,18 @@ export class RatingRepository {
     id: string,
     rating: number,
     tx: Prisma.TransactionClient = prisma,
+    categoryScores?: Prisma.InputJsonValue | null,
   ): Promise<{ id: string; rating: number }> {
     return tx.rating.update({
       where: { id },
-      data: { rating },
+      data: {
+        rating,
+        ...(categoryScores === undefined
+          ? {}
+          : {
+              categoryScores: categoryScores === null ? Prisma.JsonNull : categoryScores,
+            }),
+      },
       select: { id: true, rating: true },
     });
   }
@@ -127,6 +169,7 @@ export class RatingRepository {
         voterFingerprint: data.voterFingerprint,
         voterIpHash: data.voterIpHash,
         rating: data.rating,
+        categoryScores: data.categoryScores ?? undefined,
       },
       select: {
         id: true,
@@ -197,6 +240,7 @@ export class RatingRepository {
         guestVoterId: true,
         voterIpHash: true,
         rating: true,
+        categoryScores: true,
         submission: { select: { creatorId: true, status: true, deletedAt: true } },
       },
     });
@@ -206,6 +250,7 @@ export class RatingRepository {
       guestVoterId: row.guestVoterId,
       voterIpHash: row.voterIpHash,
       rating: row.rating,
+      categoryScores: row.categoryScores,
       creatorId: row.submission.creatorId,
       submissionStatus: row.submission.status,
       deleted: row.submission.deletedAt !== null,

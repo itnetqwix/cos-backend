@@ -390,6 +390,8 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     ContestController.listViewable,
   );
 
+  fastify.get('/contests/pledge/current', LeaderboardController.currentPledge);
+  fastify.get('/contests/pledge/months', LeaderboardController.pledgeMonths);
   fastify.get('/contests/pledge/archive', LeaderboardController.archive);
 
   fastify.post(
@@ -482,6 +484,11 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     '/admin/contests/:id/finalize-winners',
     { onRequest: contestGuards },
     ContestController.finalizeWinners,
+  );
+  fastify.post(
+    '/admin/contests/:id/publish-winners',
+    { onRequest: contestGuards },
+    ContestController.publishWinners,
   );
   fastify.post(
     '/admin/contests/:id/correct-winner',

@@ -22,6 +22,8 @@ import {
   NotFoundError,
   ValidationError,
 } from '../utils/response.js';
+import { missingCategoryNames, parseStoredCategories } from './pledge-categories.js';
+import { PLEDGE_SERIES_SLUG } from './contest-schedule.js';
 
 /**
  * Judging queue and ratings (M08-P02).
@@ -75,6 +77,7 @@ export interface RateSubmissionInput {
   voterFingerprint: string | null;
   voterIpHash: string;
   guestVoterId: string | null;
+  categoryScores?: Record<string, number> | null;
 }
 
 export interface JudgingQueueItem {
@@ -100,6 +103,7 @@ export interface JudgingQueueView {
   ratingOpen: boolean;
   autoAdvanceDelayMs: number;
   utcMonthCutoff: string | null;
+  scoringCategories?: ReturnType<typeof parseStoredCategories>;
   items: JudgingQueueItem[];
 }
 
@@ -160,11 +164,26 @@ function assertVoter(voter: JudgingVoter | null): void {
 export function assertCanRate(
   voter: JudgingVoter | null,
   creatorId: string | null,
+  seriesSlug?: string | null,
 ): void {
   if (voter && creatorId && voter.id === creatorId) {
     throw new ForbiddenError('You cannot rate your own submission');
   }
-  assertVoter(voter);
+  if (seriesSlug !== PLEDGE_SERIES_SLUG) assertVoter(voter);
+}
+
+export function assertPledgeCutoff(
+  seriesSlug: string | null | undefined,
+  votingClosesAt: Date | null | undefined,
+  now: Date,
+): void {
+  if (
+    seriesSlug === PLEDGE_SERIES_SLUG &&
+    votingClosesAt &&
+    votingClosesAt.getTime() <= now.getTime()
+  ) {
+    throw new ConflictError('Voting is closed for this Pledge month');
+  }
 }
 
 function toQueueItem(
@@ -234,7 +253,16 @@ export class JudgingService {
     return {
       contestId: contest.id,
       status: contest.status,
-      ratingOpen: VOTING_CONTEST_STATUSES.has(contest.status),
+      ratingOpen:
+        VOTING_CONTEST_STATUSES.has(contest.status) &&
+        !(
+          contest.seriesSlug === PLEDGE_SERIES_SLUG &&
+          contest.votingClosesAt &&
+          contest.votingClosesAt.getTime() <= Date.now()
+        ),
+      scoringCategories: parseStoredCategories(
+        contest.seriesSlug === PLEDGE_SERIES_SLUG ? contest.scoringCategories : [],
+      ),
       autoAdvanceDelayMs: contest.autoAdvanceDelayMs,
       utcMonthCutoff:
         contest.seriesSlug === 'pledge' && contest.votingClosesAt
@@ -262,21 +290,40 @@ export class JudgingService {
       if (!locked) {
         throw new NotFoundError('Submission not found');
       }
-      assertCanRate(input.voter, locked.creatorId);
+      assertCanRate(input.voter, locked.creatorId, locked.seriesSlug);
       assertVotingContest(locked.contestStatus);
+      assertPledgeCutoff(locked.seriesSlug, locked.votingClosesAt, new Date());
       if (locked.status !== SubmissionStatus.APPROVED) {
         throw new ConflictError('Only approved submissions can be rated');
       }
+      const categories =
+        locked.seriesSlug === PLEDGE_SERIES_SLUG
+          ? parseStoredCategories(locked.scoringCategories ?? null)
+          : [];
+      const missing = missingCategoryNames(categories, input.categoryScores ?? undefined);
+      if (missing.length > 0) {
+        throw new ValidationError(`Rate every Pledge category: ${missing.join(', ')}`);
+      }
+      const categoryScores =
+        input.categoryScores && Object.keys(input.categoryScores).length > 0
+          ? input.categoryScores
+          : undefined;
 
       const guestVoterId = input.voter ? null : input.guestVoterId;
-      const existing = guestVoterId
-        ? await RatingRepository.findGuestVote(locked.id, guestVoterId, tx)
-        : null;
-      if (existing && existing.guestVoterId !== guestVoterId) {
+      const existing = input.voter
+        ? await RatingRepository.findUserVote(locked.id, input.voter.id, tx)
+        : guestVoterId
+          ? await RatingRepository.findGuestVote(locked.id, guestVoterId, tx)
+          : null;
+      if (
+        existing &&
+        'guestVoterId' in existing &&
+        existing.guestVoterId !== guestVoterId
+      ) {
         throw new ForbiddenError('You cannot change another guest rating');
       }
       if (existing) {
-        if (existing.rating === input.rating) {
+        if (existing.rating === input.rating && !categoryScores) {
           return {
             previousScore: locked.communityScore,
             newScore: locked.communityScore,
@@ -292,7 +339,12 @@ export class JudgingService {
           existing.rating,
           input.rating,
         );
-        await RatingRepository.updateGuestRating(existing.id, input.rating, tx);
+        await RatingRepository.updateGuestRating(
+          existing.id,
+          input.rating,
+          tx,
+          categoryScores,
+        );
         await RatingRepository.writeScore(
           locked.id,
           score.newScore,
@@ -318,6 +370,7 @@ export class JudgingService {
         voterFingerprint: input.voterFingerprint,
         voterIpHash: input.voterIpHash,
         rating: input.rating,
+        categoryScores,
       };
       let created: { id: string; rating: number };
       try {

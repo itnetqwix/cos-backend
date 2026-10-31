@@ -14,6 +14,11 @@ import {
   type PledgeMonthRow,
 } from './pledge-recurrence.service.js';
 import { parseBannerObjectKey } from './storage.service.js';
+import {
+  enabledCategories,
+  parseStoredCategories,
+  type PledgeScoreCategory,
+} from './pledge-categories.js';
 
 /**
  * Admin template rows. A template is a Contest with cycleMonth null.
@@ -22,7 +27,7 @@ import { parseBannerObjectKey } from './storage.service.js';
  */
 
 export const RECURRING_UNSUPPORTED = [
-  'Weighted rating categories are not stored. Pledge voting is one rating from 1 to 10. One Toke review categories are a separate model.',
+  'One Toke review categories are a separate model and are not copied onto Pledge.',
   'Each cycle uses the UTC calendar month. Submission opens at 00:00 UTC on the 1st. The submission deadline and voting cutoff are 00:00 UTC on the 1st of the next month. Offsets are not stored.',
   'Only monthly recurrence is stored.',
   'Prize breakdown beyond prizeSummary is not stored.',
@@ -55,6 +60,8 @@ export interface RecurringTemplateRow {
   minCategoryVoters: number;
   isRecurringMonthly: boolean;
   configFrozenAt: Date | null;
+  scoringCategories?: PledgeScoreCategory[] | null;
+  combinedScoreEnabled?: boolean;
 }
 
 export interface RecurringAuditWrite {
@@ -124,7 +131,11 @@ export function toTemplateView(
     timezone: 'UTC' as const,
     categoryId: row.categoryId,
     category: row.category,
-    categoriesCount: row.categoryId ? 1 : 0,
+    categoriesCount: enabledCategories(
+      parseStoredCategories(row.scoringCategories ?? null),
+    ).length,
+    scoringCategories: parseStoredCategories(row.scoringCategories ?? null),
+    combinedScoreEnabled: row.combinedScoreEnabled === true,
     rules: row.rules,
     prizeSummary: row.prizeSummary,
     autoAdvanceDelayMs: row.autoAdvanceDelayMs,
@@ -153,6 +164,8 @@ function asPledgeTemplate(row: RecurringTemplateRow): PledgeMonthRow {
     minCategoryVoters: row.minCategoryVoters,
     autoAdvanceDelayMs: row.autoAdvanceDelayMs,
     categoryId: row.categoryId,
+    scoringCategories: parseStoredCategories(row.scoringCategories ?? null),
+    combinedScoreEnabled: row.combinedScoreEnabled === true,
     rules: row.rules,
     prizeSummary: row.prizeSummary,
     configFrozenAt: null,
@@ -189,7 +202,11 @@ export function previewTemplate(
     tagline: built.tagline ?? null,
     categoryId: built.categoryId,
     category: row.category,
-    categoriesCount: row.categoryId ? 1 : 0,
+    categoriesCount: enabledCategories(
+      parseStoredCategories(row.scoringCategories ?? null),
+    ).length,
+    scoringCategories: parseStoredCategories(row.scoringCategories ?? null),
+    combinedScoreEnabled: row.combinedScoreEnabled === true,
     rules: built.rules,
     prizeSummary: built.prizeSummary,
     minOverallVoters: built.minOverallVoters,
@@ -271,6 +288,8 @@ export class RecurringContestService {
       minCategoryVoters: input.minCategoryVoters,
       isRecurringMonthly: true,
       configFrozenAt: null,
+      scoringCategories: parseStoredCategories(input.scoringCategories ?? null),
+      combinedScoreEnabled: input.combinedScoreEnabled === true,
     };
     const created = await store.insert(row);
     try {
@@ -321,6 +340,12 @@ export class RecurringContestService {
       data.minOverallVoters = input.minOverallVoters;
     if (input.minCategoryVoters !== undefined)
       data.minCategoryVoters = input.minCategoryVoters;
+    if (input.scoringCategories !== undefined) {
+      data.scoringCategories = parseStoredCategories(input.scoringCategories);
+    }
+    if (input.combinedScoreEnabled !== undefined) {
+      data.combinedScoreEnabled = input.combinedScoreEnabled;
+    }
     if (input.enabled !== undefined) {
       data.status = input.enabled ? ContestStatus.SCHEDULED : ContestStatus.DRAFT;
     }
@@ -413,6 +438,8 @@ function toRow(row: {
   minCategoryVoters: number;
   isRecurringMonthly: boolean;
   configFrozenAt: Date | null;
+  scoringCategories?: unknown;
+  combinedScoreEnabled?: boolean;
 }): RecurringTemplateRow {
   return {
     id: row.id,
@@ -434,6 +461,8 @@ function toRow(row: {
     minCategoryVoters: row.minCategoryVoters,
     isRecurringMonthly: row.isRecurringMonthly,
     configFrozenAt: row.configFrozenAt,
+    scoringCategories: parseStoredCategories(row.scoringCategories ?? null),
+    combinedScoreEnabled: row.combinedScoreEnabled === true,
   };
 }
 
@@ -488,6 +517,10 @@ const prismaRecurringStore: RecurringStore = {
           minCategoryVoters: row.minCategoryVoters,
           autoAdvanceDelayMs: row.autoAdvanceDelayMs,
           categoryId: row.categoryId,
+          scoringCategories: parseStoredCategories(
+            row.scoringCategories ?? null,
+          ) as unknown as Prisma.InputJsonValue,
+          combinedScoreEnabled: row.combinedScoreEnabled === true,
           tagline: row.tagline,
           bannerUrl: row.bannerUrl,
           bannerObjectKey: row.bannerObjectKey,
@@ -526,6 +559,13 @@ const prismaRecurringStore: RecurringStore = {
         autoAdvanceDelayMs: data.autoAdvanceDelayMs,
         minOverallVoters: data.minOverallVoters,
         minCategoryVoters: data.minCategoryVoters,
+        scoringCategories:
+          data.scoringCategories === undefined
+            ? undefined
+            : (parseStoredCategories(
+                data.scoringCategories,
+              ) as unknown as Prisma.InputJsonValue),
+        combinedScoreEnabled: data.combinedScoreEnabled,
         rules:
           data.rules === undefined
             ? undefined

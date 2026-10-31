@@ -9,10 +9,18 @@ import {
   countDistinctVoters,
   countValidRatings,
   decideQuorum,
+  isCountableRating,
   type VoterRatingRow,
 } from './voter-quorum.js';
 import { ConflictError, NotFoundError, ValidationError } from '../utils/response.js';
-
+import {
+  arithmeticMean,
+  categoryAverage,
+  categoryScoreMap,
+  enabledCategories,
+  parseStoredCategories,
+  type PledgeScoreCategory,
+} from './pledge-categories.js';
 /**
  * Admin certification for one Pledge month.
  *
@@ -32,6 +40,7 @@ export interface PledgeCandidate {
   communityScore: number;
   distinctVoterCount: number;
   validRatingCount: number;
+  categoryAverages?: Record<string, { average: number | null; count: number }>;
 }
 
 export interface WinnerSlot {
@@ -53,6 +62,7 @@ export interface WinnerSnapshot {
   finalizedAt: string;
   finalizedById: string;
   certificationStatus: 'certified' | 'corrected';
+  published?: boolean;
   version: number;
   thresholds: { overallVoters: number; categoryRatings: number };
   categoryNames: string[];
@@ -88,6 +98,7 @@ export interface FinalizableContest {
   isWinnersFinalized: boolean;
   winnersData: WinnerSnapshot | null;
   categoryName: string | null;
+  scoringCategories?: PledgeScoreCategory[];
 }
 
 function slot(candidate: PledgeCandidate, coWinner: boolean): WinnerSlot {
@@ -193,6 +204,7 @@ export function buildWinnerSnapshot(input: {
     finalizedAt: input.now.toISOString(),
     finalizedById: input.adminId,
     certificationStatus: 'certified',
+    published: false,
     version: 1,
     thresholds: {
       overallVoters: input.contest.minOverallVoters,
@@ -216,6 +228,50 @@ export function buildWinnerSnapshot(input: {
     categories,
     revisions: [],
   };
+  const scoring = enabledCategories(input.contest.scoringCategories ?? []);
+  if (scoring.length > 0) {
+    snapshot.categoryNames = scoring.map((category) => category.name);
+    snapshot.categories = scoring.map((category) => {
+      const eligible = input.candidates.flatMap((candidate) => {
+        const stats = candidate.categoryAverages?.[category.slug];
+        if (
+          !stats ||
+          stats.average == null ||
+          stats.count < input.contest.minCategoryVoters
+        ) {
+          return [];
+        }
+        return [
+          {
+            ...candidate,
+            communityScore: stats.average,
+            distinctVoterCount: stats.count,
+            validRatingCount: stats.count,
+          },
+        ];
+      });
+      const categoryLeaders = tiedLeaders(eligible);
+      const blocked = categoryLeaders.length > 1 && !input.acceptTies;
+      return {
+        categoryName: category.name,
+        result:
+          !blocked && categoryLeaders.length > 0
+            ? ('winners' as const)
+            : ('no-eligible-winner' as const),
+        message:
+          categoryLeaders.length === 0
+            ? 'No eligible winner this month'
+            : blocked
+              ? 'Tie requires admin certification'
+              : null,
+        winners: blocked
+          ? []
+          : categoryLeaders.map((candidate) =>
+              slot(candidate, categoryLeaders.length > 1),
+            ),
+      };
+    });
+  }
   return { snapshot, tiePending };
 }
 
@@ -341,20 +397,35 @@ export class PledgeFinalizationService {
       isWinnersFinalized: contest.isWinnersFinalized,
       winnersData: asSnapshot(contest.winnersData),
       categoryName: contest.category?.name ?? null,
+      scoringCategories: parseStoredCategories(contest.scoringCategories),
     };
     assertPledgeFinalizable(finalizable, now);
     const submissions = await SubmissionRepository.listLeaderboardForContest(contestId);
     const ratings = await RatingRepository.listVoterRows(contestId);
+    const scoring = enabledCategories(parseStoredCategories(contest.scoringCategories));
     const candidates = candidatesFromRatings(
-      submissions.map((submission) => ({
-        submissionId: submission.id,
-        creatorId: submission.creatorId,
-        creatorName: submission.creator.name,
-        title: submission.title,
-        videoUrl: submission.videoUrl,
-        categoryName: submission.contest.category?.name ?? null,
-        communityScore: submission.communityScore,
-      })),
+      submissions.map((submission) => {
+        const rows = ratings.filter(
+          (row) => row.submissionId === submission.id && isCountableRating(row),
+        );
+        const maps = rows.map((row) => categoryScoreMap(row.categoryScores));
+        return {
+          submissionId: submission.id,
+          creatorId: submission.creatorId,
+          creatorName: submission.creator.name,
+          title: submission.title,
+          videoUrl: submission.videoUrl,
+          categoryName: submission.contest.category?.name ?? null,
+          communityScore:
+            arithmeticMean(rows.map((row) => row.rating)) ?? submission.communityScore,
+          categoryAverages: Object.fromEntries(
+            scoring.map((category) => [
+              category.slug,
+              categoryAverage(maps, category.slug),
+            ]),
+          ),
+        };
+      }),
       ratings,
     );
     const { snapshot, tiePending } = buildWinnerSnapshot({
@@ -372,7 +443,29 @@ export class PledgeFinalizationService {
     await ContestRepository.certifyWinners(
       contestId,
       snapshot as unknown as Prisma.InputJsonValue,
-      contest.status === ContestStatus.JUDGING,
+      false,
+    );
+    return snapshot;
+  }
+
+  static async publishMonthlyWinners(contestId: string): Promise<WinnerSnapshot> {
+    const contest = await ContestRepository.findById(contestId);
+    if (!contest) throw new NotFoundError('Contest not found');
+    if (contest.seriesSlug !== PLEDGE_SERIES_SLUG || !contest.cycleMonth) {
+      throw new ConflictError('Only a Pledge monthly contest can be published');
+    }
+    const current = asSnapshot(contest.winnersData);
+    if (!contest.isWinnersFinalized || !current) {
+      throw new ConflictError('Finalize the month before publishing it');
+    }
+    if (contest.status === ContestStatus.COMPLETED && current.published !== false) {
+      throw new ConflictError('This month is already published');
+    }
+    const snapshot: WinnerSnapshot = { ...current, published: true };
+    await ContestRepository.certifyWinners(
+      contestId,
+      snapshot as unknown as Prisma.InputJsonValue,
+      true,
     );
     return snapshot;
   }

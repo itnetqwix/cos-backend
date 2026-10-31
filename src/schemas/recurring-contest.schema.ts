@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * Recurring template writes. Persisted Contest columns only.
  * Not accepted, because they are not columns:
- * rating-category weights, a non-UTC cycle, a frequency other than monthly,
+ * a non-UTC cycle, a frequency other than monthly,
  * prize breakdown beyond prizeSummary.
  * Timezone is always UTC and is not a request field.
  */
@@ -22,6 +22,23 @@ const optionalText = z.string().trim().max(2000).nullable().optional();
 
 const votersSchema = z.number().int().min(1).max(1_000_000);
 
+const scoringCategorySchema = z
+  .object({
+    slug: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .min(1)
+      .max(40)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+      .optional(),
+    name: z.string().trim().min(1).max(80),
+    sortOrder: z.number().int().min(0).max(100).optional(),
+    enabled: z.boolean().optional(),
+    weight: z.number().positive().max(100).optional(),
+  })
+  .strict();
+
 export const createRecurringContestSchema = z
   .object({
     title: z.string().trim().min(1).max(200),
@@ -38,6 +55,8 @@ export const createRecurringContestSchema = z
     autoAdvanceDelayMs: z.number().int().positive().max(60_000).optional(),
     minOverallVoters: votersSchema.optional().default(10),
     minCategoryVoters: votersSchema.optional().default(5),
+    scoringCategories: z.array(scoringCategorySchema).max(20).optional(),
+    combinedScoreEnabled: z.boolean().optional(),
   })
   .strict();
 
@@ -58,6 +77,8 @@ export const updateRecurringContestSchema = z
     autoAdvanceDelayMs: z.number().int().positive().max(60_000).optional(),
     minOverallVoters: votersSchema.optional(),
     minCategoryVoters: votersSchema.optional(),
+    scoringCategories: z.array(scoringCategorySchema).max(20).optional(),
+    combinedScoreEnabled: z.boolean().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {

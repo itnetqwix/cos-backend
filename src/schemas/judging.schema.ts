@@ -46,6 +46,9 @@ export const rateBodySchema = z
       .min(1, 'voterFingerprint cannot be empty')
       .max(256, 'voterFingerprint cannot exceed 256 characters')
       .optional(),
+    categoryScores: z
+      .record(z.string().trim().min(1).max(40), z.number().int().min(1).max(10))
+      .optional(),
   })
   .strict();
 
@@ -161,6 +164,10 @@ export const rateSubmissionSwaggerSchema: FastifySchema = {
     properties: {
       rating: { type: 'integer', minimum: 1, maximum: 10 },
       voterFingerprint: { type: 'string', minLength: 1, maxLength: 256 },
+      categoryScores: {
+        type: 'object',
+        additionalProperties: { type: 'integer', minimum: 1, maximum: 10 },
+      },
     },
   },
   response: {
