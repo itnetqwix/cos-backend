@@ -7,6 +7,7 @@ import {
   type UtcMonthBoundaries,
 } from './contest-schedule.js';
 import { parseStoredCategories, type PledgeScoreCategory } from './pledge-categories.js';
+import { readStoredFormats } from './pledge-cycle-config.js';
 
 /**
  * Monthly Pledge instances. A template row, when present, has seriesSlug
@@ -41,6 +42,11 @@ export interface PledgeMonthRow {
   thumbnailUrl?: string | null;
   scoringCategories?: PledgeScoreCategory[] | null;
   combinedScoreEnabled?: boolean;
+  winnerCount?: number | null;
+  maxVideoSizeMb?: number | null;
+  maxVideoDurationSeconds?: number | null;
+  allowedVideoFormats?: string[] | null;
+  rankingNeedsReview?: boolean;
 }
 
 export class DuplicatePledgeMonthError extends Error {
@@ -150,6 +156,11 @@ export function buildPledgeMonth(
     prizeSummary: template?.prizeSummary ?? null,
     configFrozenAt: now,
     isWinnersFinalized: false,
+    winnerCount: template?.winnerCount ?? null,
+    maxVideoSizeMb: template?.maxVideoSizeMb ?? null,
+    maxVideoDurationSeconds: template?.maxVideoDurationSeconds ?? null,
+    allowedVideoFormats: template?.allowedVideoFormats ?? null,
+    rankingNeedsReview: false,
   };
 }
 
@@ -302,6 +313,14 @@ const prismaPledgeStore: PledgeRecurrenceStore = {
           prizeSummary: row.prizeSummary,
           configFrozenAt: row.configFrozenAt,
           isWinnersFinalized: false,
+          winnerCount: row.winnerCount ?? null,
+          maxVideoSizeMb: row.maxVideoSizeMb ?? null,
+          maxVideoDurationSeconds: row.maxVideoDurationSeconds ?? null,
+          allowedVideoFormats:
+            row.allowedVideoFormats == null
+              ? Prisma.JsonNull
+              : (row.allowedVideoFormats as unknown as Prisma.InputJsonValue),
+          rankingNeedsReview: false,
         },
       });
       return toPledgeMonth(created);
@@ -348,6 +367,11 @@ function toPledgeMonth(row: {
   thumbnailUrl: string | null;
   scoringCategories?: unknown;
   combinedScoreEnabled?: boolean;
+  winnerCount?: number | null;
+  maxVideoSizeMb?: number | null;
+  maxVideoDurationSeconds?: number | null;
+  allowedVideoFormats?: unknown;
+  rankingNeedsReview?: boolean;
 }): PledgeMonthRow {
   return {
     id: row.id,
@@ -374,5 +398,10 @@ function toPledgeMonth(row: {
     thumbnailUrl: row.thumbnailUrl,
     scoringCategories: parseStoredCategories(row.scoringCategories ?? null),
     combinedScoreEnabled: row.combinedScoreEnabled === true,
+    winnerCount: row.winnerCount ?? null,
+    maxVideoSizeMb: row.maxVideoSizeMb ?? null,
+    maxVideoDurationSeconds: row.maxVideoDurationSeconds ?? null,
+    allowedVideoFormats: readStoredFormats(row.allowedVideoFormats),
+    rankingNeedsReview: row.rankingNeedsReview === true,
   };
 }

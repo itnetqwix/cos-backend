@@ -392,6 +392,11 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
 
   fastify.get('/contests/pledge/current', LeaderboardController.currentPledge);
   fastify.get('/contests/pledge/months', LeaderboardController.pledgeMonths);
+  fastify.get(
+    '/contests/pledge/entries/mine',
+    { onRequest: creatorGuards },
+    LeaderboardController.myPledgeEntries,
+  );
   fastify.get('/contests/pledge/archive', LeaderboardController.archive);
 
   fastify.post(
@@ -478,6 +483,11 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     '/admin/contests/recurring/:id/cycles',
     { onRequest: contestGuards },
     RecurringContestController.cycles,
+  );
+  fastify.patch(
+    '/admin/contests/recurring/cycles/:id',
+    { onRequest: contestGuards },
+    RecurringContestController.updateCycle,
   );
 
   fastify.post(

@@ -4,6 +4,7 @@ import { AuditLogRepository } from '../repositories/audit-log.repository.js';
 import { ConflictError, NotFoundError, ValidationError } from '../utils/response.js';
 import {
   CreateRecurringContestInput,
+  UpdatePledgeCycleInput,
   UpdateRecurringContestInput,
 } from '../schemas/recurring-contest.schema.js';
 import { getUtcMonthBoundaries, utcCycleMonth } from './contest-schedule.js';
@@ -19,6 +20,13 @@ import {
   parseStoredCategories,
   type PledgeScoreCategory,
 } from './pledge-categories.js';
+import {
+  assertPledgeUploadSettings,
+  assertPositiveWinnerCount,
+  pledgeConfigPhase,
+  readStoredFormats,
+} from './pledge-cycle-config.js';
+import { PLEDGE_SERIES_SLUG } from './contest-schedule.js';
 
 /**
  * Admin template rows. A template is a Contest with cycleMonth null.
@@ -62,6 +70,17 @@ export interface RecurringTemplateRow {
   configFrozenAt: Date | null;
   scoringCategories?: PledgeScoreCategory[] | null;
   combinedScoreEnabled?: boolean;
+  winnerCount: number | null;
+  maxVideoSizeMb: number | null;
+  maxVideoDurationSeconds: number | null;
+  allowedVideoFormats: string[] | null;
+  rankingNeedsReview: boolean;
+  isWinnersFinalized: boolean;
+  winnersPublished: boolean;
+  submissionCount: number;
+  startDate: Date | null;
+  endDate: Date | null;
+  votingClosesAt: Date | null;
 }
 
 export interface RecurringAuditWrite {
@@ -141,6 +160,11 @@ export function toTemplateView(
     autoAdvanceDelayMs: row.autoAdvanceDelayMs,
     minOverallVoters: row.minOverallVoters,
     minCategoryVoters: row.minCategoryVoters,
+    winnerCount: row.winnerCount,
+    maxVideoSizeMb: row.maxVideoSizeMb,
+    maxVideoDurationSeconds: row.maxVideoDurationSeconds,
+    allowedVideoFormats: row.allowedVideoFormats,
+    configPhase: 'template' as const,
     nextCycleMonth: next.cycleMonth,
     lastCycleMonth: last?.cycleMonth ?? null,
     lastGenerationStatus: last?.status ?? null,
@@ -170,6 +194,11 @@ function asPledgeTemplate(row: RecurringTemplateRow): PledgeMonthRow {
     prizeSummary: row.prizeSummary,
     configFrozenAt: null,
     isWinnersFinalized: false,
+    winnerCount: row.winnerCount,
+    maxVideoSizeMb: row.maxVideoSizeMb,
+    maxVideoDurationSeconds: row.maxVideoDurationSeconds,
+    allowedVideoFormats: row.allowedVideoFormats,
+    rankingNeedsReview: false,
     tagline: row.tagline,
     bannerUrl: row.bannerUrl,
     bannerObjectKey: row.bannerObjectKey,
@@ -211,6 +240,10 @@ export function previewTemplate(
     prizeSummary: built.prizeSummary,
     minOverallVoters: built.minOverallVoters,
     minCategoryVoters: built.minCategoryVoters,
+    winnerCount: built.winnerCount ?? null,
+    maxVideoSizeMb: built.maxVideoSizeMb ?? null,
+    maxVideoDurationSeconds: built.maxVideoDurationSeconds ?? null,
+    allowedVideoFormats: built.allowedVideoFormats ?? null,
     autoAdvanceDelayMs: built.autoAdvanceDelayMs,
     timezone: 'UTC' as const,
     startDate: built.startDate.toISOString(),
@@ -268,6 +301,7 @@ export class RecurringContestService {
       if (!ok) throw new NotFoundError('Category not found');
     }
     const bannerObjectKey = assertBanner(input.bannerObjectKey) ?? null;
+    const settings = pledgeSettingsForWrite(input.seriesSlug, input, null);
     const row: RecurringTemplateRow = {
       id: crypto.randomUUID(),
       title: input.title,
@@ -290,6 +324,17 @@ export class RecurringContestService {
       configFrozenAt: null,
       scoringCategories: parseStoredCategories(input.scoringCategories ?? null),
       combinedScoreEnabled: input.combinedScoreEnabled === true,
+      winnerCount: settings.winnerCount ?? null,
+      maxVideoSizeMb: settings.maxVideoSizeMb ?? null,
+      maxVideoDurationSeconds: settings.maxVideoDurationSeconds ?? null,
+      allowedVideoFormats: settings.allowedVideoFormats ?? null,
+      rankingNeedsReview: false,
+      isWinnersFinalized: false,
+      winnersPublished: false,
+      submissionCount: 0,
+      startDate: null,
+      endDate: null,
+      votingClosesAt: null,
     };
     const created = await store.insert(row);
     try {
@@ -346,6 +391,8 @@ export class RecurringContestService {
     if (input.combinedScoreEnabled !== undefined) {
       data.combinedScoreEnabled = input.combinedScoreEnabled;
     }
+    const pledgePatch = pledgeSettingsForWrite(current.seriesSlug, input, current);
+    Object.assign(data, pledgePatch);
     if (input.enabled !== undefined) {
       data.status = input.enabled ? ContestStatus.SCHEDULED : ContestStatus.DRAFT;
     }
@@ -390,7 +437,11 @@ export class RecurringContestService {
     return previewTemplate(template, await store.listCycles(template.seriesSlug), now);
   }
 
-  static async cycles(id: string, store: RecurringStore = prismaRecurringStore) {
+  static async cycles(
+    id: string,
+    now = new Date(),
+    store: RecurringStore = prismaRecurringStore,
+  ) {
     const template = await requireTemplate(store, id);
     const cycles = await store.listCycles(template.seriesSlug);
     return cycles
@@ -407,8 +458,190 @@ export class RecurringContestService {
         minCategoryVoters: cycle.minCategoryVoters,
         description: cycle.description,
         rules: cycle.rules,
+        winnerCount: cycle.winnerCount,
+        maxVideoSizeMb: cycle.maxVideoSizeMb,
+        maxVideoDurationSeconds: cycle.maxVideoDurationSeconds,
+        allowedVideoFormats: cycle.allowedVideoFormats,
+        rankingNeedsReview: cycle.rankingNeedsReview,
+        isWinnersFinalized: cycle.isWinnersFinalized,
+        startDate: cycle.startDate?.toISOString() ?? null,
+        endDate: cycle.endDate?.toISOString() ?? null,
+        votingClosesAt: cycle.votingClosesAt?.toISOString() ?? null,
+        scoringCategories: cycle.scoringCategories ?? [],
+        configPhase: pledgeConfigPhase({
+          cycleMonth: cycle.cycleMonth,
+          status: cycle.status,
+          winnersPublished: cycle.winnersPublished,
+          now,
+        }),
       }));
   }
+
+  static async updateCycle(
+    actorId: string,
+    id: string,
+    input: UpdatePledgeCycleInput,
+    now = new Date(),
+    store: RecurringStore = prismaRecurringStore,
+  ) {
+    const current = await store.findById(id);
+    if (!current || current.cycleMonth === null || !current.isRecurringMonthly) {
+      throw new NotFoundError('Pledge monthly cycle not found');
+    }
+    if (current.seriesSlug !== PLEDGE_SERIES_SLUG) {
+      throw new ConflictError('Only a Pledge monthly cycle can be configured here');
+    }
+    if (current.winnersPublished) {
+      throw new ConflictError(
+        'Published historical Pledge configuration cannot be modified',
+      );
+    }
+    const data: Partial<RecurringTemplateRow> = {};
+    if (input.winnerCount !== undefined) {
+      data.winnerCount = assertPositiveWinnerCount(input.winnerCount);
+      if (
+        data.winnerCount !== current.winnerCount &&
+        (current.submissionCount > 0 || current.isWinnersFinalized)
+      ) {
+        data.rankingNeedsReview = true;
+      }
+    }
+    if (
+      input.maxVideoSizeMb !== undefined ||
+      input.maxVideoDurationSeconds !== undefined ||
+      input.allowedVideoFormats !== undefined
+    ) {
+      const upload = assertPledgeUploadSettings({
+        maxVideoSizeMb: input.maxVideoSizeMb ?? current.maxVideoSizeMb ?? Number.NaN,
+        maxVideoDurationSeconds:
+          input.maxVideoDurationSeconds ?? current.maxVideoDurationSeconds ?? Number.NaN,
+        allowedVideoFormats:
+          input.allowedVideoFormats ?? current.allowedVideoFormats ?? undefined,
+      });
+      if (input.maxVideoSizeMb !== undefined) data.maxVideoSizeMb = upload.maxVideoSizeMb;
+      if (input.maxVideoDurationSeconds !== undefined) {
+        data.maxVideoDurationSeconds = upload.maxVideoDurationSeconds;
+      }
+      if (input.allowedVideoFormats !== undefined) {
+        data.allowedVideoFormats = upload.allowedVideoFormats;
+      }
+    }
+    if (
+      input.startDate !== undefined ||
+      input.endDate !== undefined ||
+      input.votingClosesAt !== undefined
+    ) {
+      const start = input.startDate ? new Date(input.startDate) : current.startDate;
+      const end = input.endDate ? new Date(input.endDate) : current.endDate;
+      const voting = input.votingClosesAt
+        ? new Date(input.votingClosesAt)
+        : current.votingClosesAt;
+      if (!start || !end || !(end.getTime() > start.getTime())) {
+        throw new ValidationError(
+          'Submission deadline must be after submission opening.',
+        );
+      }
+      if (voting && voting.getTime() < end.getTime()) {
+        throw new ValidationError(
+          'Voting closure must be after the submission deadline.',
+        );
+      }
+      if (input.startDate !== undefined) data.startDate = start;
+      if (input.endDate !== undefined) data.endDate = end;
+      if (input.votingClosesAt !== undefined) data.votingClosesAt = voting;
+    }
+    if (input.description !== undefined) data.description = input.description;
+    if (input.rules !== undefined) data.rules = input.rules;
+    if (input.prizeSummary !== undefined) data.prizeSummary = input.prizeSummary;
+    if (input.minOverallVoters !== undefined)
+      data.minOverallVoters = input.minOverallVoters;
+    if (input.minCategoryVoters !== undefined)
+      data.minCategoryVoters = input.minCategoryVoters;
+    if (input.scoringCategories !== undefined) {
+      data.scoringCategories = parseStoredCategories(input.scoringCategories);
+    }
+    const updated = await store.update(current.id, data);
+    await store.audit({
+      actorId,
+      action: 'RECURRENCE_UPDATE',
+      seriesSlug: updated.seriesSlug,
+      templateId: updated.id,
+    });
+    return {
+      id: updated.id,
+      cycleMonth: updated.cycleMonth,
+      winnerCount: updated.winnerCount,
+      maxVideoSizeMb: updated.maxVideoSizeMb,
+      maxVideoDurationSeconds: updated.maxVideoDurationSeconds,
+      allowedVideoFormats: updated.allowedVideoFormats,
+      rankingNeedsReview: updated.rankingNeedsReview,
+      configPhase: pledgeConfigPhase({
+        cycleMonth: updated.cycleMonth,
+        status: updated.status,
+        winnersPublished: updated.winnersPublished,
+        now,
+      }),
+      startDate: updated.startDate?.toISOString() ?? null,
+      endDate: updated.endDate?.toISOString() ?? null,
+      votingClosesAt: updated.votingClosesAt?.toISOString() ?? null,
+    };
+  }
+}
+
+function pledgeSettingsForWrite(
+  seriesSlug: string,
+  input: {
+    winnerCount?: number;
+    maxVideoSizeMb?: number;
+    maxVideoDurationSeconds?: number;
+    allowedVideoFormats?: string[];
+  },
+  current: RecurringTemplateRow | null,
+): Partial<RecurringTemplateRow> {
+  const data: Partial<RecurringTemplateRow> = {};
+  const touched =
+    input.winnerCount !== undefined ||
+    input.maxVideoSizeMb !== undefined ||
+    input.maxVideoDurationSeconds !== undefined ||
+    input.allowedVideoFormats !== undefined;
+  if (seriesSlug === PLEDGE_SERIES_SLUG && current === null) {
+    if (
+      input.winnerCount === undefined ||
+      input.maxVideoSizeMb === undefined ||
+      input.maxVideoDurationSeconds === undefined
+    ) {
+      throw new ValidationError(
+        'Pledge requires winnerCount, maxVideoSizeMb, and maxVideoDurationSeconds',
+      );
+    }
+  }
+  if (!touched && current) return data;
+  if (input.winnerCount !== undefined) {
+    data.winnerCount = assertPositiveWinnerCount(input.winnerCount);
+  } else if (current === null && seriesSlug === PLEDGE_SERIES_SLUG) {
+    data.winnerCount = assertPositiveWinnerCount(input.winnerCount ?? Number.NaN);
+  }
+  if (
+    input.maxVideoSizeMb !== undefined ||
+    input.maxVideoDurationSeconds !== undefined ||
+    input.allowedVideoFormats !== undefined ||
+    (current === null && seriesSlug === PLEDGE_SERIES_SLUG)
+  ) {
+    const upload = assertPledgeUploadSettings({
+      maxVideoSizeMb: input.maxVideoSizeMb ?? current?.maxVideoSizeMb ?? Number.NaN,
+      maxVideoDurationSeconds:
+        input.maxVideoDurationSeconds ?? current?.maxVideoDurationSeconds ?? Number.NaN,
+      allowedVideoFormats: input.allowedVideoFormats,
+    });
+    if (input.maxVideoSizeMb !== undefined || current === null) {
+      data.maxVideoSizeMb = upload.maxVideoSizeMb;
+    }
+    if (input.maxVideoDurationSeconds !== undefined || current === null) {
+      data.maxVideoDurationSeconds = upload.maxVideoDurationSeconds;
+    }
+    data.allowedVideoFormats = upload.allowedVideoFormats;
+  }
+  return data;
 }
 
 const categorySelect = {
@@ -418,29 +651,44 @@ const categorySelect = {
   description: true,
 } as const;
 
-function toRow(row: {
-  id: string;
-  title: string;
-  description: string;
-  seriesSlug: string | null;
-  cycleMonth: string | null;
-  status: ContestStatus;
-  tagline: string | null;
-  bannerUrl: string | null;
-  bannerObjectKey: string | null;
-  thumbnailUrl: string | null;
-  categoryId: string | null;
-  category: RecurringCategory | null;
-  rules: Prisma.JsonValue;
-  prizeSummary: string | null;
-  autoAdvanceDelayMs: number;
-  minOverallVoters: number;
-  minCategoryVoters: number;
-  isRecurringMonthly: boolean;
-  configFrozenAt: Date | null;
-  scoringCategories?: unknown;
-  combinedScoreEnabled?: boolean;
-}): RecurringTemplateRow {
+function toRow(
+  row: {
+    id: string;
+    title: string;
+    description: string;
+    seriesSlug: string | null;
+    cycleMonth: string | null;
+    status: ContestStatus;
+    tagline: string | null;
+    bannerUrl: string | null;
+    bannerObjectKey: string | null;
+    thumbnailUrl: string | null;
+    categoryId: string | null;
+    category: RecurringCategory | null;
+    rules: Prisma.JsonValue;
+    prizeSummary: string | null;
+    autoAdvanceDelayMs: number;
+    minOverallVoters: number;
+    minCategoryVoters: number;
+    isRecurringMonthly: boolean;
+    configFrozenAt: Date | null;
+    scoringCategories?: unknown;
+    combinedScoreEnabled?: boolean;
+    winnerCount?: number | null;
+    maxVideoSizeMb?: number | null;
+    maxVideoDurationSeconds?: number | null;
+    allowedVideoFormats?: unknown;
+    rankingNeedsReview?: boolean;
+    isWinnersFinalized?: boolean;
+    startDate?: Date;
+    endDate?: Date;
+    votingClosesAt?: Date | null;
+    winnersData?: unknown;
+  },
+  submissionCount = 0,
+): RecurringTemplateRow {
+  const winnersPublished =
+    row.status === ContestStatus.COMPLETED || row.status === ContestStatus.ARCHIVED;
   return {
     id: row.id,
     title: row.title,
@@ -463,6 +711,17 @@ function toRow(row: {
     configFrozenAt: row.configFrozenAt,
     scoringCategories: parseStoredCategories(row.scoringCategories ?? null),
     combinedScoreEnabled: row.combinedScoreEnabled === true,
+    winnerCount: row.winnerCount ?? null,
+    maxVideoSizeMb: row.maxVideoSizeMb ?? null,
+    maxVideoDurationSeconds: row.maxVideoDurationSeconds ?? null,
+    allowedVideoFormats: readStoredFormats(row.allowedVideoFormats),
+    rankingNeedsReview: row.rankingNeedsReview === true,
+    isWinnersFinalized: row.isWinnersFinalized === true,
+    winnersPublished,
+    submissionCount,
+    startDate: row.startDate ?? null,
+    endDate: row.endDate ?? null,
+    votingClosesAt: row.votingClosesAt ?? null,
   };
 }
 
@@ -480,7 +739,11 @@ const prismaRecurringStore: RecurringStore = {
       where: { id },
       include: { category: { select: categorySelect } },
     });
-    return row ? toRow(row) : null;
+    if (!row) return null;
+    const submissionCount = await prisma.submission.count({
+      where: { contestId: id, deletedAt: null },
+    });
+    return toRow(row, submissionCount);
   },
   async findTemplateBySlug(seriesSlug) {
     const row = await prisma.contest.findFirst({
@@ -529,6 +792,14 @@ const prismaRecurringStore: RecurringStore = {
           rules:
             row.rules === null ? Prisma.JsonNull : (row.rules as Prisma.InputJsonValue),
           configFrozenAt: null,
+          winnerCount: row.winnerCount,
+          maxVideoSizeMb: row.maxVideoSizeMb,
+          maxVideoDurationSeconds: row.maxVideoDurationSeconds,
+          allowedVideoFormats:
+            row.allowedVideoFormats == null
+              ? Prisma.JsonNull
+              : (row.allowedVideoFormats as unknown as Prisma.InputJsonValue),
+          rankingNeedsReview: false,
         },
         include: { category: { select: categorySelect } },
       });
@@ -572,6 +843,19 @@ const prismaRecurringStore: RecurringStore = {
             : data.rules === null
               ? Prisma.JsonNull
               : (data.rules as Prisma.InputJsonValue),
+        winnerCount: data.winnerCount,
+        maxVideoSizeMb: data.maxVideoSizeMb,
+        maxVideoDurationSeconds: data.maxVideoDurationSeconds,
+        allowedVideoFormats:
+          data.allowedVideoFormats === undefined
+            ? undefined
+            : data.allowedVideoFormats === null
+              ? Prisma.JsonNull
+              : (data.allowedVideoFormats as unknown as Prisma.InputJsonValue),
+        rankingNeedsReview: data.rankingNeedsReview,
+        startDate: data.startDate ?? undefined,
+        endDate: data.endDate ?? undefined,
+        votingClosesAt: data.votingClosesAt,
       },
       include: { category: { select: categorySelect } },
     });

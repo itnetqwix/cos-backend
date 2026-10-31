@@ -162,6 +162,7 @@ export class ContestRepository {
         winnersData,
         isWinnersFinalized: true,
         winnersFinalizedAt: new Date(),
+        rankingNeedsReview: false,
         ...(closeJudging ? { status: ContestStatus.COMPLETED } : {}),
       },
       include: contestInclude,

@@ -154,6 +154,15 @@ model Contest {
   // One Toke ReviewCategory is a different model and is not used here.
   scoringCategories     Json?
   combinedScoreEnabled  Boolean @default(false)
+  // Pledge cycle settings. Null on ordinary contests and One Toke.
+  // Copied from the template when a month is generated. Template edits do
+  // not rewrite an existing month. There is no product default for the count
+  // or the upload ceiling: Admin stores the values for that cycle.
+  winnerCount              Int?
+  maxVideoSizeMb           Int?
+  maxVideoDurationSeconds  Int?
+  allowedVideoFormats      Json?
+  rankingNeedsReview       Boolean @default(false)
   prizeSummary       String?
   rules              Json?
   autoAdvanceDelayMs Int           @default(1800)
