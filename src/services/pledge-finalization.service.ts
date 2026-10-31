@@ -43,6 +43,15 @@ export interface PledgeCandidate {
   categoryAverages?: Record<string, { average: number | null; count: number }>;
 }
 
+export type PledgeWinnerBadge = 'gold' | 'silver' | 'bronze';
+
+export interface TeamEvaluation {
+  score: number | null;
+  notes: string;
+  updatedById: string;
+  updatedAt: string;
+}
+
 export interface WinnerSlot {
   submissionId: string;
   creatorId: string;
@@ -53,6 +62,8 @@ export interface WinnerSlot {
   distinctVoterCount: number;
   validRatingCount: number;
   coWinner: boolean;
+  rank?: number;
+  badge?: PledgeWinnerBadge | null;
 }
 
 export interface WinnerSnapshot {
@@ -87,6 +98,7 @@ export interface WinnerSnapshot {
     reason: string | null;
     previous: WinnerSnapshot | null;
   }>;
+  teamEvaluations?: Record<string, TeamEvaluation>;
 }
 
 export interface FinalizableContest {
@@ -402,6 +414,69 @@ export function correctWinnerSnapshot(input: {
   };
 }
 
+export function badgeForRank(rank: number): PledgeWinnerBadge | null {
+  if (rank === 1) return 'gold';
+  if (rank === 2) return 'silver';
+  if (rank === 3) return 'bronze';
+  return null;
+}
+
+/**
+ * Admin order is the ranking. Community score is copied onto the slot and
+ * is not used to sort or fill the list.
+ */
+export function manualWinnerSlots(input: {
+  orderedIds: string[];
+  candidates: PledgeCandidate[];
+  winnerCount: number;
+}): { winners: WinnerSlot[]; shortfallExplanation: string | null } {
+  if (input.orderedIds.length === 0) {
+    throw new ValidationError('Select at least one winner');
+  }
+  if (input.orderedIds.length > input.winnerCount) {
+    throw new ValidationError(`Select at most ${input.winnerCount} winners`);
+  }
+  if (new Set(input.orderedIds).size !== input.orderedIds.length) {
+    throw new ValidationError('Each winner can be selected once');
+  }
+  const byId = new Map(
+    input.candidates.map((candidate) => [candidate.submissionId, candidate]),
+  );
+  const winners = input.orderedIds.map((id, index) => {
+    const candidate = byId.get(id);
+    if (!candidate) {
+      throw new ValidationError(
+        'Selected videos must be approved entries for this month',
+      );
+    }
+    const rank = index + 1;
+    return { ...slot(candidate, false), rank, badge: badgeForRank(rank) };
+  });
+  const shortfallExplanation =
+    winners.length < input.winnerCount
+      ? `Admin selected ${winners.length} of ${input.winnerCount} configured winners.`
+      : null;
+  return { winners, shortfallExplanation };
+}
+
+export function readTeamMap(value: unknown): Record<string, TeamEvaluation> {
+  if (!value || typeof value !== 'object') return {};
+  const raw = (value as { teamEvaluations?: unknown }).teamEvaluations;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const map: Record<string, TeamEvaluation> = {};
+  for (const [id, entry] of Object.entries(raw)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Partial<TeamEvaluation>;
+    map[id] = {
+      score: typeof row.score === 'number' ? row.score : null,
+      notes: typeof row.notes === 'string' ? row.notes : '',
+      updatedById: typeof row.updatedById === 'string' ? row.updatedById : '',
+      updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : '',
+    };
+  }
+  return map;
+}
+
 export function candidatesFromRatings(
   submissions: Array<Omit<PledgeCandidate, 'distinctVoterCount' | 'validRatingCount'>>,
   ratings: VoterRatingRow[],
@@ -555,6 +630,210 @@ export class PledgeFinalizationService {
       true,
     );
     return snapshot;
+  }
+
+  static async selectMonthlyWinners(
+    contestId: string,
+    adminId: string,
+    submissionIds: string[],
+    now = new Date(),
+  ): Promise<WinnerSnapshot> {
+    const contest = await ContestRepository.findById(contestId);
+    if (!contest) throw new NotFoundError('Contest not found');
+    const finalizable: FinalizableContest = {
+      id: contest.id,
+      seriesSlug: contest.seriesSlug,
+      cycleMonth: contest.cycleMonth,
+      status: contest.status,
+      votingClosesAt: contest.votingClosesAt,
+      minOverallVoters: contest.minOverallVoters,
+      minCategoryVoters: contest.minCategoryVoters,
+      isWinnersFinalized: contest.isWinnersFinalized,
+      winnersData: asSnapshot(contest.winnersData),
+      winnerCount: contest.winnerCount,
+      rankingNeedsReview: contest.rankingNeedsReview,
+      categoryName: contest.category?.name ?? null,
+      scoringCategories: parseStoredCategories(contest.scoringCategories),
+    };
+    if (finalizable.seriesSlug !== PLEDGE_SERIES_SLUG || !finalizable.cycleMonth) {
+      throw new ConflictError('Only a Pledge monthly contest can be finalized');
+    }
+    if (
+      finalizable.status !== ContestStatus.JUDGING &&
+      finalizable.status !== ContestStatus.COMPLETED
+    ) {
+      throw new ConflictError('Voting must be closed before winners are certified');
+    }
+    if (
+      !finalizable.votingClosesAt ||
+      finalizable.votingClosesAt.getTime() > now.getTime()
+    ) {
+      throw new ConflictError('Voting must be closed before winners are certified');
+    }
+    const previous = asSnapshot(contest.winnersData);
+    if (
+      contest.status === ContestStatus.COMPLETED &&
+      previous?.published !== false &&
+      contest.rankingNeedsReview !== true
+    ) {
+      throw new ConflictError('Published winners cannot be reselected');
+    }
+    if (!finalizable.winnerCount || finalizable.winnerCount < 1) {
+      throw new ValidationError('Set a positive winner count before certifying winners');
+    }
+    const submissions = await SubmissionRepository.listApprovedForContest(contestId);
+    const ratings = await RatingRepository.listVoterRows(contestId);
+    const candidates = candidatesFromRatings(
+      submissions.map((submission) => ({
+        submissionId: submission.id,
+        creatorId: submission.creatorId,
+        creatorName: submission.creator.name,
+        title: submission.title,
+        videoUrl: submission.videoUrl,
+        categoryName: submission.contest.category?.name ?? null,
+        communityScore: submission.communityScore,
+      })),
+      ratings,
+    );
+    const picked = manualWinnerSlots({
+      orderedIds: submissionIds,
+      candidates,
+      winnerCount: finalizable.winnerCount,
+    });
+    const snapshot: WinnerSnapshot = {
+      contestId: contest.id,
+      seriesSlug: PLEDGE_SERIES_SLUG,
+      cycleMonth: contest.cycleMonth ?? '',
+      finalizedAt: now.toISOString(),
+      finalizedById: adminId,
+      certificationStatus: previous ? 'corrected' : 'certified',
+      published: false,
+      configuredWinnerCount: finalizable.winnerCount,
+      shortfallExplanation: picked.shortfallExplanation,
+      version: previous ? previous.version + 1 : 1,
+      thresholds: {
+        overallVoters: contest.minOverallVoters,
+        categoryRatings: contest.minCategoryVoters,
+      },
+      categoryNames: enabledCategories(
+        parseStoredCategories(contest.scoringCategories),
+      ).map((category) => category.name),
+      overall: {
+        result: picked.winners.length > 0 ? 'winners' : 'no-eligible-winner',
+        message: picked.shortfallExplanation,
+        winners: picked.winners,
+        tiedCandidates: [],
+      },
+      categories: [],
+      revisions: previous
+        ? [
+            ...previous.revisions,
+            {
+              version: previous.version,
+              at: now.toISOString(),
+              adminId,
+              reason: 'Manual winner selection',
+              previous: { ...previous, revisions: [] },
+            },
+          ]
+        : [],
+      teamEvaluations: readTeamMap(contest.winnersData),
+    };
+    await ContestRepository.certifyWinners(
+      contestId,
+      snapshot as unknown as Prisma.InputJsonValue,
+      false,
+    );
+    return snapshot;
+  }
+
+  static async reviewMonth(contestId: string) {
+    const contest = await ContestRepository.findById(contestId);
+    if (!contest || contest.seriesSlug !== PLEDGE_SERIES_SLUG || !contest.cycleMonth) {
+      throw new NotFoundError('Pledge month not found');
+    }
+    const submissions = await SubmissionRepository.listApprovedForContest(contestId);
+    const ratings = await RatingRepository.listVoterRows(contestId);
+    const candidates = candidatesFromRatings(
+      submissions.map((submission) => ({
+        submissionId: submission.id,
+        creatorId: submission.creatorId,
+        creatorName: submission.creator.name,
+        title: submission.title,
+        videoUrl: submission.videoUrl,
+        categoryName: submission.contest.category?.name ?? null,
+        communityScore: submission.communityScore,
+      })),
+      ratings,
+    );
+    const team = readTeamMap(contest.winnersData);
+    const snapshot = asSnapshot(contest.winnersData);
+    const rankOf = new Map(
+      (snapshot?.overall.winners ?? []).map((winner, index) => [
+        winner.submissionId,
+        winner.rank ?? index + 1,
+      ]),
+    );
+    return {
+      id: contest.id,
+      cycleMonth: contest.cycleMonth,
+      status: contest.status,
+      winnerCount: contest.winnerCount,
+      isWinnersFinalized: contest.isWinnersFinalized,
+      rankingNeedsReview: contest.rankingNeedsReview,
+      published:
+        contest.status === ContestStatus.COMPLETED && snapshot?.published !== false,
+      videos: candidates.map((candidate) => {
+        const selectedRank = rankOf.get(candidate.submissionId) ?? null;
+        return {
+          submissionId: candidate.submissionId,
+          title: candidate.title,
+          creatorName: candidate.creatorName,
+          videoUrl: candidate.videoUrl,
+          communityScore: candidate.communityScore,
+          distinctVoterCount: candidate.distinctVoterCount,
+          validRatingCount: candidate.validRatingCount,
+          teamEvaluation: team[candidate.submissionId] ?? null,
+          selectedRank,
+          badge: selectedRank ? badgeForRank(selectedRank) : null,
+        };
+      }),
+    };
+  }
+
+  static async saveTeamEvaluation(
+    contestId: string,
+    adminId: string,
+    input: { submissionId: string; score: number | null; notes: string },
+  ): Promise<TeamEvaluation> {
+    const contest = await ContestRepository.findById(contestId);
+    if (!contest || contest.seriesSlug !== PLEDGE_SERIES_SLUG || !contest.cycleMonth) {
+      throw new NotFoundError('Pledge month not found');
+    }
+    const snapshot = asSnapshot(contest.winnersData);
+    if (contest.status === ContestStatus.COMPLETED && snapshot?.published !== false) {
+      throw new ConflictError('Published Pledge results are closed');
+    }
+    const approved = await SubmissionRepository.listApprovedForContest(contestId);
+    if (!approved.some((submission) => submission.id === input.submissionId)) {
+      throw new ValidationError('Team notes are only for approved Pledge videos');
+    }
+    const saved: TeamEvaluation = {
+      score: input.score,
+      notes: input.notes.trim(),
+      updatedById: adminId,
+      updatedAt: new Date().toISOString(),
+    };
+    const teamEvaluations = {
+      ...readTeamMap(contest.winnersData),
+      [input.submissionId]: saved,
+    };
+    const next = snapshot ? { ...snapshot, teamEvaluations } : { teamEvaluations };
+    await ContestRepository.replaceWinnerSnapshot(
+      contestId,
+      next as unknown as Prisma.InputJsonValue,
+    );
+    return saved;
   }
 
   static async correctWinner(
