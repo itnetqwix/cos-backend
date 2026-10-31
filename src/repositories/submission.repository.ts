@@ -8,6 +8,8 @@ const submissionInclude = {
       id: true,
       title: true,
       status: true,
+      seriesSlug: true,
+      cycleMonth: true,
       category: {
         select: {
           id: true,

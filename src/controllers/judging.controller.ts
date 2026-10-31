@@ -74,6 +74,7 @@ export class JudgingController {
         ratingOpen: queue.ratingOpen,
         autoAdvanceDelayMs: queue.autoAdvanceDelayMs,
         utcMonthCutoff: queue.utcMonthCutoff,
+        scoringCategories: queue.scoringCategories ?? [],
         items: queue.items.map(toQueueItemView),
       },
       'Judging queue retrieved successfully',
@@ -98,6 +99,7 @@ export class JudgingController {
       voterFingerprint: body.voterFingerprint ?? null,
       voterIpHash: hashVoterIp(clientIp(request)),
       guestVoterId: guest.token,
+      categoryScores: body.categoryScores ?? null,
     });
     return sendSuccess(
       reply,

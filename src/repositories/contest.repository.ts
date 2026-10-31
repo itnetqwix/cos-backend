@@ -185,7 +185,7 @@ export class ContestRepository {
     tx: Prisma.TransactionClient = prisma,
   ): Promise<ContestRecord | null> {
     const rows = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM "contests" WHERE id = ${id}::uuid FOR UPDATE
+      SELECT id FROM "contests" WHERE id = ${id} FOR UPDATE
     `;
     if (!rows[0]) return null;
     return tx.contest.findUnique({ where: { id }, include: contestInclude });

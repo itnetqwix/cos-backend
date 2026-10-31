@@ -113,7 +113,7 @@ describe('recurring contest templates', () => {
     assert.equal(created.timezone, 'UTC');
     assert.equal(created.minOverallVoters, 10);
     assert.equal(created.minCategoryVoters, 5);
-    assert.equal(created.categoriesCount, 0);
+    assert.equal(created.categoriesCount, 4);
     assert.equal(store.audits[0]?.action, 'RECURRENCE_CREATE');
     await assert.rejects(
       RecurringContestService.create('admin-1', input, new Date('2026-10-15T00:00:00.000Z'), store),

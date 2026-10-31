@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { HTTP_STATUS } from '../config/constants.js';
 import { LeaderboardService } from '../services/leaderboard.service.js';
 import { PledgeFinalizationService } from '../services/pledge-finalization.service.js';
+import { PledgeRecurrenceService } from '../services/pledge-recurrence.service.js';
 import {
   getLeaderboardParamsSchema,
   getLeaderboardQuerySchema,
@@ -29,6 +30,18 @@ export class LeaderboardController {
       'Leaderboard retrieved successfully',
       HTTP_STATUS.OK,
     );
+  }
+
+  /** GET /api/v1/contests/pledge/current. Public month, or null when none exists. */
+  static async currentPledge(_request: FastifyRequest, reply: FastifyReply) {
+    const month = await PledgeRecurrenceService.currentPublic();
+    return sendSuccess(reply, month, 'Current Pledge month retrieved', HTTP_STATUS.OK);
+  }
+
+  /** GET /api/v1/contests/pledge/months. Public month list for the archive switcher. */
+  static async pledgeMonths(_request: FastifyRequest, reply: FastifyReply) {
+    const months = await PledgeRecurrenceService.listPublicMonths();
+    return sendSuccess(reply, months, 'Pledge months retrieved', HTTP_STATUS.OK);
   }
 
   /** GET /api/v1/contests/pledge/archive. Public certified snapshots only. */

@@ -17,6 +17,7 @@ export interface VoterRatingRow {
   guestVoterId: string | null;
   voterIpHash?: string | null;
   rating: number;
+  categoryScores?: unknown;
   creatorId: string;
   submissionStatus: string;
   deleted: boolean;

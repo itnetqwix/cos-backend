@@ -6,6 +6,7 @@ import {
   utcCycleMonth,
   type UtcMonthBoundaries,
 } from './contest-schedule.js';
+import { parseStoredCategories, type PledgeScoreCategory } from './pledge-categories.js';
 
 /**
  * Monthly Pledge instances. A template row, when present, has seriesSlug
@@ -38,6 +39,8 @@ export interface PledgeMonthRow {
   bannerUrl?: string | null;
   bannerObjectKey?: string | null;
   thumbnailUrl?: string | null;
+  scoringCategories?: PledgeScoreCategory[] | null;
+  combinedScoreEnabled?: boolean;
 }
 
 export class DuplicatePledgeMonthError extends Error {
@@ -139,6 +142,8 @@ export function buildPledgeMonth(
     minCategoryVoters: template?.minCategoryVoters ?? 5,
     autoAdvanceDelayMs: template?.autoAdvanceDelayMs ?? 1800,
     categoryId: template?.categoryId ?? null,
+    scoringCategories: parseStoredCategories(template?.scoringCategories ?? null),
+    combinedScoreEnabled: template?.combinedScoreEnabled === true,
     rules: Array.isArray(template?.rules)
       ? [...template.rules]
       : (template?.rules ?? null),
@@ -149,6 +154,64 @@ export function buildPledgeMonth(
 }
 
 export class PledgeRecurrenceService {
+  static async currentPublic(now = new Date()) {
+    const { year, month } = utcCycleMonth(now);
+    const boundaries = getUtcMonthBoundaries(year, month);
+    const current = await prisma.contest.findFirst({
+      where: { seriesSlug: PLEDGE_SERIES_SLUG, cycleMonth: boundaries.cycleMonth },
+    });
+    const row =
+      current ??
+      (await prisma.contest.findFirst({
+        where: {
+          seriesSlug: PLEDGE_SERIES_SLUG,
+          cycleMonth: { not: null },
+          status: {
+            in: [ContestStatus.ACTIVE, ContestStatus.JUDGING, ContestStatus.COMPLETED],
+          },
+        },
+        orderBy: { cycleMonth: 'desc' },
+      }));
+    if (!row || !row.cycleMonth) return null;
+    const [approvedEntries, ratings] = await Promise.all([
+      prisma.submission.count({
+        where: { contestId: row.id, status: 'APPROVED', deletedAt: null },
+      }),
+      prisma.rating.count({
+        where: { submission: { contestId: row.id, deletedAt: null } },
+      }),
+    ]);
+    return {
+      ...toPledgeMonth(row),
+      approvedEntries,
+      ratingCount: ratings,
+      rules: row.rules,
+    };
+  }
+
+  static async listPublicMonths() {
+    const rows = await prisma.contest.findMany({
+      where: { seriesSlug: PLEDGE_SERIES_SLUG, cycleMonth: { not: null } },
+      orderBy: { cycleMonth: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        cycleMonth: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        votingClosesAt: true,
+        isWinnersFinalized: true,
+      },
+    });
+    return rows.map((row) => ({
+      ...row,
+      startDate: row.startDate.toISOString(),
+      endDate: row.endDate.toISOString(),
+      votingClosesAt: row.votingClosesAt?.toISOString() ?? null,
+    }));
+  }
+
   static async ensureCurrentMonthlyContest(
     now = new Date(),
     store: PledgeRecurrenceStore = prismaPledgeStore,
@@ -172,6 +235,13 @@ export class PledgeRecurrenceService {
       (await store.findTemplate(PLEDGE_SERIES_SLUG));
     if (!templateGenerationEnabled(template)) return null;
     const created = buildPledgeMonth(boundaries, template, now, crypto.randomUUID());
+    if (
+      parseStoredCategories(created.scoringCategories ?? null).every(
+        (row) => !row.enabled,
+      )
+    ) {
+      return null;
+    }
     try {
       return await store.insertMonth(created);
     } catch (error) {
@@ -219,6 +289,10 @@ const prismaPledgeStore: PledgeRecurrenceStore = {
           minCategoryVoters: row.minCategoryVoters,
           autoAdvanceDelayMs: row.autoAdvanceDelayMs,
           categoryId: row.categoryId,
+          scoringCategories: parseStoredCategories(
+            row.scoringCategories ?? null,
+          ) as unknown as Prisma.InputJsonValue,
+          combinedScoreEnabled: row.combinedScoreEnabled === true,
           tagline: row.tagline ?? null,
           bannerUrl: row.bannerUrl ?? null,
           bannerObjectKey: row.bannerObjectKey ?? null,
@@ -272,6 +346,8 @@ function toPledgeMonth(row: {
   bannerUrl: string | null;
   bannerObjectKey: string | null;
   thumbnailUrl: string | null;
+  scoringCategories?: unknown;
+  combinedScoreEnabled?: boolean;
 }): PledgeMonthRow {
   return {
     id: row.id,
@@ -296,5 +372,7 @@ function toPledgeMonth(row: {
     bannerUrl: row.bannerUrl,
     bannerObjectKey: row.bannerObjectKey,
     thumbnailUrl: row.thumbnailUrl,
+    scoringCategories: parseStoredCategories(row.scoringCategories ?? null),
+    combinedScoreEnabled: row.combinedScoreEnabled === true,
   };
 }

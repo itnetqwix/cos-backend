@@ -212,4 +212,10 @@ export class ContestController {
     );
     return sendSuccess(reply, snapshot, 'Pledge winners corrected', HTTP_STATUS.OK);
   }
+
+  static async publishWinners(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = contestIdParamSchema.parse(request.params);
+    const snapshot = await PledgeFinalizationService.publishMonthlyWinners(id);
+    return sendSuccess(reply, snapshot, 'Pledge winners published', HTTP_STATUS.OK);
+  }
 }

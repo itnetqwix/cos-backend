@@ -149,6 +149,11 @@ model Contest {
   isWinnersFinalized Boolean       @default(false)
   winnersFinalizedAt DateTime?
   winnersData        Json?
+  // Frozen Pledge scoring dimensions. Null means the approved example set
+  // until an admin saves a list. Overall stays on Rating.rating.
+  // One Toke ReviewCategory is a different model and is not used here.
+  scoringCategories     Json?
+  combinedScoreEnabled  Boolean @default(false)
   prizeSummary       String?
   rules              Json?
   autoAdvanceDelayMs Int           @default(1800)
@@ -277,6 +282,9 @@ model Rating {
   voterFingerprint String?
   voterIpHash      String?
   rating           Int
+  // Pledge category integers keyed by scoring category slug. Missing keys
+  // are omitted from that category's mean. They are not stored as zero.
+  categoryScores   Json?
   createdAt        DateTime   @default(now())
 
   @@unique([submissionId, userId])
