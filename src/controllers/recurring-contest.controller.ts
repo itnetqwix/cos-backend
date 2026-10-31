@@ -3,6 +3,7 @@ import { HTTP_STATUS } from '../config/constants.js';
 import {
   createRecurringContestSchema,
   recurringContestIdParamSchema,
+  updatePledgeCycleSchema,
   updateRecurringContestSchema,
 } from '../schemas/recurring-contest.schema.js';
 import { RecurringContestService } from '../services/recurring-contest.service.js';
@@ -63,5 +64,12 @@ export class RecurringContestController {
     const { id } = recurringContestIdParamSchema.parse(request.params);
     const data = await RecurringContestService.cycles(id);
     return sendSuccess(reply, data, 'Generated cycles retrieved', HTTP_STATUS.OK);
+  }
+
+  static async updateCycle(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = recurringContestIdParamSchema.parse(request.params);
+    const input = updatePledgeCycleSchema.parse(request.body ?? {});
+    const data = await RecurringContestService.updateCycle(actorId(request), id, input);
+    return sendSuccess(reply, data, 'Pledge cycle updated', HTTP_STATUS.OK);
   }
 }

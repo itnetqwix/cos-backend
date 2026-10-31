@@ -57,6 +57,10 @@ export const createRecurringContestSchema = z
     minCategoryVoters: votersSchema.optional().default(5),
     scoringCategories: z.array(scoringCategorySchema).max(20).optional(),
     combinedScoreEnabled: z.boolean().optional(),
+    winnerCount: z.number().int().positive().max(1_000).optional(),
+    maxVideoSizeMb: z.number().int().positive().max(100).optional(),
+    maxVideoDurationSeconds: z.number().int().positive().max(60).optional(),
+    allowedVideoFormats: z.array(z.string()).max(3).optional(),
   })
   .strict();
 
@@ -79,6 +83,10 @@ export const updateRecurringContestSchema = z
     minCategoryVoters: votersSchema.optional(),
     scoringCategories: z.array(scoringCategorySchema).max(20).optional(),
     combinedScoreEnabled: z.boolean().optional(),
+    winnerCount: z.number().int().positive().max(1_000).optional(),
+    maxVideoSizeMb: z.number().int().positive().max(100).optional(),
+    maxVideoDurationSeconds: z.number().int().positive().max(60).optional(),
+    allowedVideoFormats: z.array(z.string()).max(3).optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
@@ -90,3 +98,28 @@ export type UpdateRecurringContestInput = z.infer<typeof updateRecurringContestS
 export const recurringContestIdParamSchema = z.object({
   id: z.string().uuid(),
 });
+
+const instantSchema = z.string().datetime();
+
+export const updatePledgeCycleSchema = z
+  .object({
+    winnerCount: z.number().int().positive().max(1_000).optional(),
+    maxVideoSizeMb: z.number().int().positive().max(100).optional(),
+    maxVideoDurationSeconds: z.number().int().positive().max(60).optional(),
+    allowedVideoFormats: z.array(z.string()).min(1).max(3).optional(),
+    startDate: instantSchema.optional(),
+    endDate: instantSchema.optional(),
+    votingClosesAt: instantSchema.optional(),
+    scoringCategories: z.array(scoringCategorySchema).max(20).optional(),
+    minOverallVoters: votersSchema.optional(),
+    minCategoryVoters: votersSchema.optional(),
+    description: z.string().trim().min(1).optional(),
+    rules: rulesSchema.nullable().optional(),
+    prizeSummary: z.string().trim().max(500).nullable().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one field is required',
+  });
+
+export type UpdatePledgeCycleInput = z.infer<typeof updatePledgeCycleSchema>;

@@ -4,6 +4,8 @@ import { HTTP_STATUS } from '../config/constants.js';
 import { LeaderboardService } from '../services/leaderboard.service.js';
 import { PledgeFinalizationService } from '../services/pledge-finalization.service.js';
 import { PledgeRecurrenceService } from '../services/pledge-recurrence.service.js';
+import { PledgeCreatorHistoryService } from '../services/pledge-creator-history.service.js';
+import { ForbiddenError } from '../utils/response.js';
 import {
   getLeaderboardParamsSchema,
   getLeaderboardQuerySchema,
@@ -42,6 +44,23 @@ export class LeaderboardController {
   static async pledgeMonths(_request: FastifyRequest, reply: FastifyReply) {
     const months = await PledgeRecurrenceService.listPublicMonths();
     return sendSuccess(reply, months, 'Pledge months retrieved', HTTP_STATUS.OK);
+  }
+
+  /** GET /api/v1/contests/pledge/entries/mine. The signed-in creator's Pledge months. */
+  static async myPledgeEntries(request: FastifyRequest, reply: FastifyReply) {
+    if (!request.user) {
+      throw new ForbiddenError('Forbidden: authenticated creator is required');
+    }
+    const data = await PledgeCreatorHistoryService.listMine({
+      id: request.user.id,
+      role: request.user.role,
+    });
+    return sendSuccess(
+      reply,
+      data,
+      'Pledge submission history retrieved',
+      HTTP_STATUS.OK,
+    );
   }
 
   /** GET /api/v1/contests/pledge/archive. Public certified snapshots only. */

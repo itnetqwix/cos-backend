@@ -1,4 +1,9 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from '../config/env.js';
 import { VIDEO_CONSTRAINTS } from '../config/constants.js';
@@ -25,6 +30,10 @@ export interface S3StorageAdapterOptions {
     key: string;
     expiresIn: number;
   }) => Promise<string>;
+  headObject?: (input: {
+    bucket: string;
+    key: string;
+  }) => Promise<{ contentLength: number; contentType: string | null } | null>;
 }
 
 /**
@@ -91,6 +100,19 @@ export class S3StorageAdapter implements StorageService {
         });
         return getSignedUrl(s3, command, { expiresIn });
       },
+      headObject: async ({ bucket, key }) => {
+        try {
+          const result = await s3.send(
+            new HeadObjectCommand({ Bucket: bucket, Key: key }),
+          );
+          return {
+            contentLength: result.ContentLength ?? 0,
+            contentType: result.ContentType ?? null,
+          };
+        } catch {
+          return null;
+        }
+      },
     });
   }
 
@@ -113,6 +135,11 @@ export class S3StorageAdapter implements StorageService {
       expiresInSeconds,
       method: 'PUT',
     };
+  }
+
+  async inspectUploadedObject(objectKey: string) {
+    if (!this.options.headObject || !isSignableObjectKey(objectKey)) return null;
+    return this.options.headObject({ bucket: this.options.bucket, key: objectKey });
   }
 
   async createPresignedDownload(objectKey: string): Promise<string> {

@@ -15,7 +15,10 @@ import {
   setStorageService,
   type StorageService,
 } from '../../src/services/storage.service.js';
-import { ConflictError, ForbiddenError } from '../../src/utils/response.js';
+import { ConflictError, ForbiddenError, ValidationError } from '../../src/utils/response.js';
+import { PledgeCreatorHistoryService } from '../../src/services/pledge-creator-history.service.js';
+import { VIDEO_CONSTRAINTS } from '../../src/config/constants.js';
+import { presignReviewSchema } from '../../src/schemas/product-review.schema.js';
 
 const DATABASE_URL = process.env.DATABASE_URL ?? '';
 const isolated =
@@ -31,10 +34,11 @@ const SCORES = {
   'musical-score': 9,
 };
 
-describe('pledge isolated postgres', { skip: isolated ? false : 'isolated database not selected' }, () => {
+describe('pledge isolated postgres', { skip: isolated ? false : 'isolated database not selected', concurrency: 1 }, () => {
   const adminId = randomUUID();
   const creatorId = randomUUID();
   const voterId = randomUUID();
+  const otherCreatorIds = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
   const now = new Date('2026-11-15T12:00:00.000Z');
 
   before(async () => {
@@ -52,6 +56,13 @@ describe('pledge isolated postgres', { skip: isolated ? false : 'isolated databa
         { id: adminId, email: `pledge-admin-${adminId}@isolated.test`, passwordHash: 'not-a-login', name: 'Pledge Admin', role: 'ADMIN' },
         { id: creatorId, email: `pledge-creator-${creatorId}@isolated.test`, passwordHash: 'not-a-login', name: 'Pledge Creator', role: 'CREATOR' },
         { id: voterId, email: `pledge-voter-${voterId}@isolated.test`, passwordHash: 'not-a-login', name: 'Pledge Voter', role: 'CREATOR' },
+        ...otherCreatorIds.map((id, index) => ({
+          id,
+          email: `pledge-creator-${index}-${id}@isolated.test`,
+          passwordHash: 'not-a-login',
+          name: `Pledge Creator ${index}`,
+          role: 'CREATOR' as const,
+        })),
       ],
     });
   });
@@ -86,6 +97,9 @@ describe('pledge isolated postgres', { skip: isolated ? false : 'isolated databa
       rules: ['Self-voting is prohibited'],
       minOverallVoters: 10,
       minCategoryVoters: 5,
+      winnerCount: 2,
+      maxVideoSizeMb: 100,
+      maxVideoDurationSeconds: 60,
       scoringCategories: [
         { name: 'Passion', slug: 'passion', sortOrder: 1, enabled: true, weight: 1 },
         { name: 'Storyline', slug: 'storyline', sortOrder: 2, enabled: true, weight: 1 },
@@ -127,9 +141,9 @@ describe('pledge isolated postgres', { skip: isolated ? false : 'isolated databa
     assert.equal(octoberAfter.configFrozenAt?.toISOString(), octoberBefore.configFrozenAt?.toISOString());
 
     const approved = await enterAndModerate(created.id, creatorId, adminId, 'Approved clip');
-    const rejected = await enterAndModerate(created.id, creatorId, adminId, 'Rejected clip', false);
-    const highA = await enterAndModerate(created.id, creatorId, adminId, 'Tie A');
-    const highB = await enterAndModerate(created.id, creatorId, adminId, 'Tie B');
+    const rejected = await enterAndModerate(created.id, otherCreatorIds[0], adminId, 'Rejected clip', false);
+    const highA = await enterAndModerate(created.id, otherCreatorIds[1], adminId, 'Tie A');
+    const highB = await enterAndModerate(created.id, otherCreatorIds[2], adminId, 'Tie B');
     const queue = await JudgingService.getQueue(created.id);
     assert.equal(queue.items.some((item) => item.id === approved.id), true);
     assert.equal(queue.items.some((item) => item.id === rejected.id), false);
@@ -158,7 +172,7 @@ describe('pledge isolated postgres', { skip: isolated ? false : 'isolated databa
       await JudgingService.rateSubmission(rate(created.id, highA.id, `guest-tie-a-${index}`, null, 9));
       await JudgingService.rateSubmission(rate(created.id, highB.id, `guest-tie-b-${index}`, null, 9));
     }
-    const short = await enterAndModerate(created.id, creatorId, adminId, 'Short quorum');
+    const short = await enterAndModerate(created.id, otherCreatorIds[3], adminId, 'Short quorum');
     for (let index = 0; index < 4; index += 1) {
       await JudgingService.rateSubmission(rate(created.id, short.id, `guest-b-${index}`, null, 10));
     }
@@ -240,7 +254,394 @@ describe('pledge isolated postgres', { skip: isolated ? false : 'isolated databa
     assert.equal(octoberFinal.scoringCategories, null);
     assert.equal(octoberFinal.title, 'Existing October');
   });
+
+  it('configures winner counts and upload limits per month and keeps one entry per creator', async () => {
+    await prisma.$executeRawUnsafe(
+      'TRUNCATE TABLE "ratings", "audit_logs", "comments", "notifications", "creator_activity_logs", "submissions", "contests", "users" RESTART IDENTITY CASCADE',
+    );
+    let inspected: { contentLength: number; contentType: string | null } | null = null;
+    setStorageService({
+      getPublicUrl: (objectKey: string) => `https://isolated-test.invalid/${objectKey}`,
+      async createPresignedUpload(request) {
+        return {
+          uploadUrl: 'https://isolated-test.invalid/upload',
+          objectKey: request.objectKey,
+          headers: { 'Content-Type': request.contentType },
+          expiresInSeconds: 900,
+          method: 'PUT' as const,
+        };
+      },
+      async inspectUploadedObject() {
+        return inspected;
+      },
+    });
+    const adminId = randomUUID();
+    const heroId = randomUUID();
+    const rejectedCreatorId = randomUUID();
+    const quietCreatorId = randomUUID();
+    await prisma.user.createMany({
+      data: [
+        { id: adminId, email: `${adminId}@isolated.test`, passwordHash: 'x', name: 'Admin', role: 'ADMIN' },
+        { id: heroId, email: `${heroId}@isolated.test`, passwordHash: 'x', name: 'Hero', role: 'CREATOR' },
+        { id: rejectedCreatorId, email: `${rejectedCreatorId}@isolated.test`, passwordHash: 'x', name: 'Rejected', role: 'CREATOR' },
+        { id: quietCreatorId, email: `${quietCreatorId}@isolated.test`, passwordHash: 'x', name: 'Quiet', role: 'CREATOR' },
+      ],
+    });
+    const categories = [
+      { name: 'Passion', slug: 'passion', sortOrder: 1, enabled: true, weight: 1 },
+    ];
+    const template = await RecurringContestService.create(adminId, {
+      title: 'Pledge of aWEEEEEDgence',
+      description: 'Monthly community video contest.',
+      seriesSlug: 'pledge',
+      minOverallVoters: 1,
+      minCategoryVoters: 1,
+      winnerCount: 10,
+      maxVideoSizeMb: 100,
+      maxVideoDurationSeconds: 60,
+      scoringCategories: categories,
+      enabled: true,
+    });
+    const october = await PledgeRecurrenceService.ensureCurrentMonthlyContest(new Date('2026-10-15T12:00:00.000Z'));
+    assert.ok(october);
+    const hero = { id: heroId, role: 'CREATOR' as const };
+    const within = await SubmissionService.presign(hero, {
+      contestId: october.id,
+      contentType: 'video/mp4',
+      fileSizeBytes: 80 * 1024 * 1024,
+      durationSeconds: 60,
+    });
+    await SubmissionService.complete(hero, {
+      contestId: october.id,
+      objectKey: within.objectKey,
+      title: 'October hero',
+      description: 'October hero',
+      durationSeconds: 60,
+      otherCategoryLabel: 'Pledge',
+    });
+    await assert.rejects(
+      SubmissionService.presign(hero, {
+        contestId: october.id,
+        contentType: 'video/mp4',
+        fileSizeBytes: 10 * 1024 * 1024,
+        durationSeconds: 20,
+      }),
+      (error: unknown) => error instanceof ConflictError && /already submitted/.test(error.message),
+    );
+    await assert.rejects(
+      SubmissionService.complete(hero, {
+        contestId: october.id,
+        objectKey: buildSubmissionObjectKey({
+          contestId: october.id,
+          creatorId: heroId,
+          contentType: 'video/mp4',
+          objectId: randomUUID(),
+        }),
+        title: 'Second October',
+        description: 'Second October',
+        durationSeconds: 20,
+        otherCategoryLabel: 'Pledge',
+      }),
+      (error: unknown) => error instanceof ConflictError && /already submitted/.test(error.message),
+    );
+    const octoberMates: string[] = [];
+    for (let index = 0; index < 9; index += 1) {
+      const id = randomUUID();
+      octoberMates.push(id);
+      await prisma.user.create({
+        data: { id, email: `${id}@isolated.test`, passwordHash: 'x', name: `October ${index}`, role: 'CREATOR' },
+      });
+      await enterAndModerate(october.id, id, adminId, `October ${index}`);
+    }
+    const rejected = await enterAndModerate(october.id, rejectedCreatorId, adminId, 'Rejected October', false);
+    await RecurringContestService.update(adminId, template.id, {
+      winnerCount: 5,
+      maxVideoSizeMb: 50,
+      maxVideoDurationSeconds: 45,
+    });
+    const november = await PledgeRecurrenceService.ensureCurrentMonthlyContest(new Date('2026-11-15T12:00:00.000Z'));
+    assert.ok(november);
+    const octoberRow = await prisma.contest.findUniqueOrThrow({ where: { id: october.id } });
+    const novemberRow = await prisma.contest.findUniqueOrThrow({ where: { id: november.id } });
+    assert.equal(octoberRow.winnerCount, 10);
+    assert.equal(octoberRow.maxVideoSizeMb, 100);
+    assert.equal(octoberRow.maxVideoDurationSeconds, 60);
+    assert.equal(novemberRow.winnerCount, 5);
+    assert.equal(novemberRow.maxVideoSizeMb, 50);
+    assert.equal(novemberRow.maxVideoDurationSeconds, 45);
+    await RecurringContestService.updateCycle(adminId, november.id, { description: 'november-only' });
+    const octoberAfterEdit = await prisma.contest.findUniqueOrThrow({ where: { id: october.id } });
+    assert.equal(octoberAfterEdit.description, octoberRow.description);
+    assert.equal(octoberAfterEdit.winnerCount, 10);
+
+    await assert.rejects(
+      SubmissionService.presign(hero, {
+        contestId: november.id,
+        contentType: 'video/mp4',
+        fileSizeBytes: 60 * 1024 * 1024,
+        durationSeconds: 30,
+      }),
+      ValidationError,
+    );
+    await assert.rejects(
+      SubmissionService.presign(hero, {
+        contestId: november.id,
+        contentType: 'video/mp4',
+        fileSizeBytes: 20 * 1024 * 1024,
+        durationSeconds: 50,
+      }),
+      ValidationError,
+    );
+    inspected = { contentLength: 51 * 1024 * 1024, contentType: 'video/mp4' };
+    const oversizedKey = buildSubmissionObjectKey({
+      contestId: november.id,
+      creatorId: heroId,
+      contentType: 'video/mp4',
+      objectId: randomUUID(),
+    });
+    await assert.rejects(
+      SubmissionService.complete(hero, {
+        contestId: november.id,
+        objectKey: oversizedKey,
+        title: 'Too big',
+        description: 'Too big',
+        durationSeconds: 20,
+        otherCategoryLabel: 'Pledge',
+      }),
+      ValidationError,
+    );
+    inspected = null;
+    const novemberUpload = await SubmissionService.presign(hero, {
+      contestId: november.id,
+      contentType: 'video/mp4',
+      fileSizeBytes: 40 * 1024 * 1024,
+      durationSeconds: 45,
+    });
+    const novemberEntry = await SubmissionService.complete(hero, {
+      contestId: november.id,
+      objectKey: novemberUpload.objectKey,
+      title: 'November hero',
+      description: 'November hero',
+      durationSeconds: 45,
+      otherCategoryLabel: 'Pledge',
+    });
+
+    const novemberMates: string[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      const id = randomUUID();
+      novemberMates.push(id);
+      await prisma.user.create({
+        data: { id, email: `${id}@isolated.test`, passwordHash: 'x', name: `November ${index}`, role: 'CREATOR' },
+      });
+      await enterAndModerate(november.id, id, adminId, `November ${index}`);
+    }
+    const quiet = await enterAndModerate(november.id, quietCreatorId, adminId, 'Quiet November');
+    await ModerationService.approve({ id: adminId, role: 'ADMIN' }, novemberEntry.submission.id);
+    const heroOctober = await prisma.submission.findFirstOrThrow({
+      where: { creatorId: heroId, contestId: october.id },
+    });
+    await ModerationService.approve({ id: adminId, role: 'ADMIN' }, heroOctober.id);
+
+    const octoberEntries = [heroOctober.id, ...await idsFor(octoberMates, october.id)];
+    for (let index = 0; index < octoberEntries.length; index += 1) {
+      await JudgingService.rateSubmission(rate(october.id, octoberEntries[index], `oct-${index}`, null, 10 - index));
+    }
+    const novemberIds = await idsFor(novemberMates, november.id);
+    for (let index = 0; index < novemberIds.length; index += 1) {
+      await JudgingService.rateSubmission(rate(november.id, novemberIds[index], `nov-${index}`, null, 10 - index));
+    }
+    await JudgingService.rateSubmission(rate(november.id, novemberEntry.submission.id, 'nov-hero', null, 4));
+
+    await RecurringContestService.updateCycle(adminId, october.id, { winnerCount: 9 });
+    const flagged = await prisma.contest.findUniqueOrThrow({ where: { id: october.id } });
+    assert.equal(flagged.rankingNeedsReview, true);
+    assert.equal(novemberRow.winnerCount, 5);
+    await RecurringContestService.updateCycle(adminId, october.id, { winnerCount: 10 });
+
+    await closeMonth(october.id);
+    await assert.rejects(
+      PledgeFinalizationService.publishMonthlyWinners(october.id),
+      ConflictError,
+    );
+    const octoberFinal = await PledgeFinalizationService.finalizeMonthlyWinners(
+      october.id,
+      adminId,
+      false,
+      new Date('2026-11-02T00:00:00.000Z'),
+    );
+    assert.equal(octoberFinal.configuredWinnerCount, 10);
+    assert.equal(octoberFinal.overall.winners.length, 10);
+    const pendingHistory = await PledgeCreatorHistoryService.listMine({ id: heroId, role: 'CREATOR' });
+    const pendingOctober = pendingHistory.months.find((month) => month.cycleMonth === '2026-10');
+    assert.equal(pendingOctober?.entries[0]?.resultMessage, 'Results pending');
+    assert.equal(pendingOctober?.entries[0]?.winner, false);
+
+    const publishedOctober = await PledgeFinalizationService.publishMonthlyWinners(october.id);
+    assert.equal(publishedOctober.configuredWinnerCount, 10);
+    assert.equal(publishedOctober.overall.winners.length, 10);
+    const winnerHistory = await PledgeCreatorHistoryService.listMine({ id: heroId, role: 'CREATOR' });
+    const winnerOctober = winnerHistory.months.find((month) => month.cycleMonth === '2026-10')?.entries[0];
+    assert.equal(winnerOctober?.winner, true);
+    assert.equal(winnerOctober?.finalRank, 1);
+    const winnerNovember = winnerHistory.months.find((month) => month.cycleMonth === '2026-11')?.entries[0];
+    assert.equal(winnerNovember?.resultMessage, 'Results pending');
+
+    await closeMonth(november.id);
+    const novemberFinal = await PledgeFinalizationService.finalizeMonthlyWinners(
+      november.id,
+      adminId,
+      false,
+      new Date('2026-12-02T00:00:00.000Z'),
+    );
+    assert.equal(novemberFinal.configuredWinnerCount, 5);
+    assert.equal(novemberFinal.overall.winners.length, 5);
+    assert.equal(
+      novemberFinal.overall.winners.some((winner) => winner.submissionId === novemberEntry.submission.id),
+      false,
+    );
+    assert.equal(
+      novemberFinal.overall.winners.some((winner) => winner.submissionId === quiet.id),
+      false,
+    );
+    await PledgeFinalizationService.publishMonthlyWinners(november.id);
+    const after = await PledgeCreatorHistoryService.listMine({ id: heroId, role: 'CREATOR' });
+    assert.deepEqual(
+      after.months.map((month) => month.cycleMonth),
+      ['2026-11', '2026-10'],
+    );
+    const novemberView = after.months[0]?.entries[0];
+    assert.equal(novemberView?.winner, false);
+    assert.match(String(novemberView?.resultMessage), /Overall community rating of 4\/10/);
+    assert.match(String(novemberView?.resultMessage), /November/);
+    assert.match(String(novemberView?.resultMessage), /not among this month's selected winners/);
+    const rejectedHistory = await PledgeCreatorHistoryService.listMine({
+      id: rejectedCreatorId,
+      role: 'CREATOR',
+    });
+    assert.equal(rejectedHistory.months[0]?.entries[0]?.moderationStatus, 'REJECTED');
+    assert.equal(rejectedHistory.months[0]?.entries[0]?.rejectionReason, 'Not a Pledge entry');
+    const quietHistory = await PledgeCreatorHistoryService.listMine({
+      id: quietCreatorId,
+      role: 'CREATOR',
+    });
+    assert.equal(quietHistory.months[0]?.entries[0]?.resultState, 'insufficient');
+    assert.match(String(quietHistory.months[0]?.entries[0]?.resultMessage), /enough community ratings/);
+    assert.equal(quietHistory.months[0]?.entries[0]?.overallAverage, null);
+
+    await RecurringContestService.update(adminId, template.id, {
+      winnerCount: 3,
+      maxVideoSizeMb: 40,
+      maxVideoDurationSeconds: 30,
+    });
+    const december = await PledgeRecurrenceService.ensureCurrentMonthlyContest(new Date('2026-12-15T12:00:00.000Z'));
+    assert.ok(december);
+    assert.equal(december.winnerCount, 3);
+    const octoberStill = await prisma.contest.findUniqueOrThrow({ where: { id: october.id } });
+    const novemberStill = await prisma.contest.findUniqueOrThrow({ where: { id: november.id } });
+    assert.equal(octoberStill.winnerCount, 10);
+    assert.equal(octoberStill.maxVideoSizeMb, 100);
+    assert.equal(novemberStill.winnerCount, 5);
+    assert.equal(novemberStill.maxVideoSizeMb, 50);
+    const loneId = randomUUID();
+    await prisma.user.create({
+      data: { id: loneId, email: `${loneId}@isolated.test`, passwordHash: 'x', name: 'Lone', role: 'CREATOR' },
+    });
+    const lone = await enterAndModerate(december.id, loneId, adminId, 'Only December');
+    await JudgingService.rateSubmission(rate(december.id, lone.id, 'dec-lone', null, 8));
+    const missedId = randomUUID();
+    await prisma.user.create({
+      data: { id: missedId, email: `${missedId}@isolated.test`, passwordHash: 'x', name: 'Missed', role: 'CREATOR' },
+    });
+    const missed = await enterAndModerate(december.id, missedId, adminId, 'Below quorum');
+    await closeMonth(december.id);
+    const decemberFinal = await PledgeFinalizationService.finalizeMonthlyWinners(
+      december.id,
+      adminId,
+      false,
+      new Date('2027-01-02T00:00:00.000Z'),
+    );
+    assert.equal(decemberFinal.overall.winners.length, 1);
+    assert.equal(decemberFinal.configuredWinnerCount, 3);
+    assert.match(decemberFinal.shortfallExplanation ?? '', /fewer than the configured count of 3/);
+    assert.equal(
+      decemberFinal.overall.winners.some((winner) => winner.submissionId === missed.id),
+      false,
+    );
+    await assert.rejects(
+      RecurringContestService.updateCycle(adminId, october.id, { winnerCount: 4 }),
+      ConflictError,
+    );
+
+    const genericId = randomUUID();
+    await prisma.contest.create({
+      data: {
+        id: genericId,
+        title: 'Ordinary contest',
+        description: 'Not Pledge',
+        status: 'ACTIVE',
+        timezone: 'UTC',
+        startDate: new Date('2026-10-01T00:00:00.000Z'),
+        endDate: new Date('2026-11-01T00:00:00.000Z'),
+      },
+    });
+    const ordinary = { id: heroId, role: 'CREATOR' as const };
+    await SubmissionService.presign(ordinary, {
+      contestId: genericId,
+      contentType: 'video/mp4',
+      fileSizeBytes: 90 * 1024 * 1024,
+      durationSeconds: 60,
+    });
+    await assert.rejects(
+      SubmissionService.presign(ordinary, {
+        contestId: genericId,
+        contentType: 'video/mp4',
+        fileSizeBytes: VIDEO_CONSTRAINTS.MAX_FILE_SIZE_BYTES + 1,
+        durationSeconds: 30,
+      }),
+      ValidationError,
+    );
+    await assert.rejects(
+      SubmissionService.presign(ordinary, {
+        contestId: genericId,
+        contentType: 'video/mp4',
+        fileSizeBytes: 1024,
+        durationSeconds: VIDEO_CONSTRAINTS.MAX_DURATION_SECONDS + 1,
+      }),
+      ValidationError,
+    );
+    presignReviewSchema.parse({
+      contentType: 'video/mp4',
+      fileSizeBytes: VIDEO_CONSTRAINTS.MAX_FILE_SIZE_BYTES,
+      durationSeconds: VIDEO_CONSTRAINTS.MAX_DURATION_SECONDS,
+    });
+    assert.throws(() =>
+      presignReviewSchema.parse({
+        contentType: 'video/mp4',
+        fileSizeBytes: VIDEO_CONSTRAINTS.MAX_FILE_SIZE_BYTES + 1,
+        durationSeconds: 30,
+      }),
+    );
+  });
 });
+
+async function idsFor(creatorIds: string[], contestId: string) {
+  const rows = await prisma.submission.findMany({
+    where: { contestId, creatorId: { in: creatorIds } },
+    select: { id: true, creatorId: true },
+  });
+  return creatorIds.map((creatorId) => {
+    const row = rows.find((item) => item.creatorId === creatorId);
+    if (!row) throw new Error(`missing submission for ${creatorId}`);
+    return row.id;
+  });
+}
+
+async function closeMonth(id: string) {
+  await prisma.contest.update({
+    where: { id },
+    data: { status: 'JUDGING', votingClosesAt: new Date('2026-01-01T00:00:00.000Z') },
+  });
+}
 
 async function tokeCounts() {
   const [categories, reviews] = await Promise.all([

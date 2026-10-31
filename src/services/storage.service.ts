@@ -122,8 +122,18 @@ export interface PresignedUploadResult {
   method: 'PUT';
 }
 
+export interface UploadedObjectMetadata {
+  contentLength: number;
+  contentType: string | null;
+}
+
 export interface StorageService {
   createPresignedUpload(request: PresignedUploadRequest): Promise<PresignedUploadResult>;
+  /**
+   * Head of an object that was just uploaded. Absent when the adapter cannot
+   * read metadata. A null result means the object was not found.
+   */
+  inspectUploadedObject?(objectKey: string): Promise<UploadedObjectMetadata | null>;
   /**
    * Temporary GET for a submission objectKey already loaded from the database.
    * Callers must not pass a client-supplied key.

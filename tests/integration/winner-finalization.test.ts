@@ -7,6 +7,7 @@ import {
   buildWinnerSnapshot,
   correctWinnerSnapshot,
   publicArchiveSnapshot,
+  selectConfiguredWinners,
   type FinalizableContest,
   type PledgeCandidate,
 } from '../../src/services/pledge-finalization.service.js';
@@ -125,5 +126,46 @@ describe('pledge winner certification', () => {
     assert.equal(corrected.revisions[0]?.previous?.overall.winners.length, 2);
     assert.equal(corrected.overall.winners.length, 1);
     assert.equal(publicArchiveSnapshot(corrected).revisions, undefined);
+  });
+
+  it('uses the configured winner count and does not fill the list with ineligible entries', () => {
+    const eligible = Array.from({ length: 6 }, (_, index) =>
+      candidate({
+        submissionId: `sub-${index}`,
+        creatorId: `creator-${index}`,
+        communityScore: 10 - index,
+        distinctVoterCount: 10,
+      }),
+    );
+    const ineligible = candidate({
+      submissionId: 'short',
+      distinctVoterCount: 2,
+      communityScore: 10,
+    });
+    const ten = selectConfiguredWinners(eligible, 10, false);
+    assert.equal(ten.winners.length, 6);
+    assert.equal(ten.winners.some((winner) => winner.submissionId === 'short'), false);
+    assert.match(ten.shortfallExplanation ?? '', /fewer than the configured count of 10/);
+
+    const five = selectConfiguredWinners(eligible, 5, false);
+    assert.deepEqual(
+      five.winners.map((winner) => winner.submissionId),
+      ['sub-0', 'sub-1', 'sub-2', 'sub-3', 'sub-4'],
+    );
+    assert.equal(five.shortfallExplanation, null);
+
+    const snapshot = buildWinnerSnapshot({
+      contest: contest({ winnerCount: 5 }),
+      candidates: [...eligible, ineligible],
+      adminId: 'admin-1',
+      now,
+      acceptTies: false,
+    });
+    assert.equal(snapshot.snapshot.configuredWinnerCount, 5);
+    assert.equal(snapshot.snapshot.overall.winners.length, 5);
+    assert.equal(
+      snapshot.snapshot.overall.winners.some((winner) => winner.submissionId === 'short'),
+      false,
+    );
   });
 });

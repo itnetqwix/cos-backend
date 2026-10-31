@@ -131,7 +131,45 @@ export interface CreateSubmissionData {
  * Community score writes go through RatingRepository (M08).
  */
 export class SubmissionRepository {
-  static async create(data: CreateSubmissionData): Promise<SubmissionRecord> {
+  static async create(
+    data: CreateSubmissionData,
+    options?: { onePledgeEntry?: boolean },
+  ): Promise<SubmissionRecord> {
+    if (options?.onePledgeEntry) {
+      return prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${data.contestId}:${data.creatorId}`}))`;
+        const existing = await tx.submission.findFirst({
+          where: {
+            contestId: data.contestId,
+            creatorId: data.creatorId,
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
+        if (existing) {
+          throw new ConflictError('You already submitted a Pledge entry for this month');
+        }
+        return tx.submission.create({
+          data: {
+            contestId: data.contestId,
+            creatorId: data.creatorId,
+            title: data.title,
+            description: data.description,
+            videoUrl: data.videoUrl,
+            objectKey: data.objectKey,
+            thumbnailUrl: data.thumbnailUrl,
+            durationSeconds: data.durationSeconds,
+            tags: data.tags,
+            categoryId: data.categoryId ?? null,
+            otherCategoryLabel: data.otherCategoryLabel ?? null,
+            status: SubmissionStatus.PENDING_REVIEW,
+            communityScore: 0,
+            totalVotes: 0,
+          },
+          include: submissionInclude,
+        });
+      });
+    }
     return prisma.submission.create({
       data: {
         contestId: data.contestId,
@@ -193,6 +231,17 @@ export class SubmissionRepository {
     return prisma.submission.findUnique({
       where: { id },
       include: submissionInclude,
+    });
+  }
+
+  static async findActiveByCreatorContest(
+    creatorId: string,
+    contestId: string,
+  ): Promise<SubmissionRecord | null> {
+    return prisma.submission.findFirst({
+      where: { creatorId, contestId, ...notDeleted },
+      include: submissionInclude,
+      orderBy: { createdAt: 'desc' },
     });
   }
 

@@ -29,6 +29,8 @@ import {
 } from './storage.service.js';
 import { NotificationService } from './notification.service.js';
 import { resolveSubmissionCategory } from './video-category.service.js';
+import { PLEDGE_SERIES_SLUG } from './contest-schedule.js';
+import { readStoredFormats } from './pledge-cycle-config.js';
 
 /**
  * Creator submission ingest (M06-P03-T02).
@@ -54,31 +56,92 @@ async function assertCreator(actor: SubmissionActor): Promise<void> {
   await assertCreatorAccountActive(actor.id);
 }
 
-function assertVideoConstraints(input: {
-  contentType?: string;
-  fileSizeBytes?: number;
-  durationSeconds: number;
-}): void {
-  if (input.contentType !== undefined && !isAllowedVideoContentType(input.contentType)) {
+interface UploadLimits {
+  maxFileSizeBytes: number;
+  maxDurationSeconds: number;
+  allowedContentTypes: readonly string[];
+}
+
+function platformUploadLimits(): UploadLimits {
+  return {
+    maxFileSizeBytes: VIDEO_CONSTRAINTS.MAX_FILE_SIZE_BYTES,
+    maxDurationSeconds: VIDEO_CONSTRAINTS.MAX_DURATION_SECONDS,
+    allowedContentTypes: VIDEO_CONSTRAINTS.ALLOWED_CONTENT_TYPES,
+  };
+}
+
+function uploadLimitsForContest(contest: {
+  seriesSlug: string | null;
+  cycleMonth: string | null;
+  maxVideoSizeMb: number | null;
+  maxVideoDurationSeconds: number | null;
+  allowedVideoFormats: unknown;
+}): UploadLimits {
+  if (contest.seriesSlug !== PLEDGE_SERIES_SLUG || !contest.cycleMonth) {
+    return platformUploadLimits();
+  }
+  if (
+    !contest.maxVideoSizeMb ||
+    !contest.maxVideoDurationSeconds ||
+    contest.maxVideoSizeMb < 1 ||
+    contest.maxVideoDurationSeconds < 1
+  ) {
+    throw new ValidationError('This Pledge month has no upload configuration');
+  }
+  const formats = readStoredFormats(contest.allowedVideoFormats) ?? [
+    ...VIDEO_CONSTRAINTS.ALLOWED_CONTENT_TYPES,
+  ];
+  return {
+    maxFileSizeBytes: contest.maxVideoSizeMb * 1024 * 1024,
+    maxDurationSeconds: contest.maxVideoDurationSeconds,
+    allowedContentTypes: formats,
+  };
+}
+
+function assertVideoConstraints(
+  input: {
+    contentType?: string;
+    fileSizeBytes?: number;
+    durationSeconds: number;
+  },
+  limits: UploadLimits = platformUploadLimits(),
+): void {
+  if (
+    input.contentType !== undefined &&
+    !limits.allowedContentTypes.includes(input.contentType)
+  ) {
     throw new ValidationError(VIDEO_CONTENT_TYPE_MESSAGE);
   }
   if (
     input.fileSizeBytes !== undefined &&
-    (input.fileSizeBytes < 1 ||
-      input.fileSizeBytes > VIDEO_CONSTRAINTS.MAX_FILE_SIZE_BYTES)
+    (input.fileSizeBytes < 1 || input.fileSizeBytes > limits.maxFileSizeBytes)
   ) {
     throw new ValidationError(
-      `fileSizeBytes must be between 1 and ${VIDEO_CONSTRAINTS.MAX_FILE_SIZE_BYTES}`,
+      `fileSizeBytes must be between 1 and ${limits.maxFileSizeBytes}`,
     );
   }
   if (
     !Number.isInteger(input.durationSeconds) ||
     input.durationSeconds < VIDEO_CONSTRAINTS.MIN_DURATION_SECONDS ||
-    input.durationSeconds > VIDEO_CONSTRAINTS.MAX_DURATION_SECONDS
+    input.durationSeconds > limits.maxDurationSeconds
   ) {
     throw new ValidationError(
-      `durationSeconds must be an integer between ${VIDEO_CONSTRAINTS.MIN_DURATION_SECONDS} and ${VIDEO_CONSTRAINTS.MAX_DURATION_SECONDS}`,
+      `durationSeconds must be an integer between ${VIDEO_CONSTRAINTS.MIN_DURATION_SECONDS} and ${limits.maxDurationSeconds}`,
     );
+  }
+}
+
+async function assertPledgeSingleSubmission(
+  contest: { id: string; seriesSlug: string | null; cycleMonth: string | null },
+  creatorId: string,
+): Promise<void> {
+  if (contest.seriesSlug !== PLEDGE_SERIES_SLUG || !contest.cycleMonth) return;
+  const existing = await SubmissionRepository.findActiveByCreatorContest(
+    creatorId,
+    contest.id,
+  );
+  if (existing) {
+    throw new ConflictError('You already submitted a Pledge entry for this month');
   }
 }
 
@@ -108,11 +171,6 @@ function storedThumbnail(videoObjectKey: string, value: string | null | undefine
 export class SubmissionService {
   static async presign(actor: SubmissionActor, input: PresignSubmissionInput) {
     await assertCreator(actor);
-    assertVideoConstraints({
-      contentType: input.contentType,
-      fileSizeBytes: input.fileSizeBytes,
-      durationSeconds: input.durationSeconds,
-    });
 
     const contest = await ContestRepository.findById(input.contestId);
     if (!contest) {
@@ -123,6 +181,16 @@ export class SubmissionService {
         'Submissions are only accepted while the contest is ACTIVE',
       );
     }
+    const limits = uploadLimitsForContest(contest);
+    assertVideoConstraints(
+      {
+        contentType: input.contentType,
+        fileSizeBytes: input.fileSizeBytes,
+        durationSeconds: input.durationSeconds,
+      },
+      limits,
+    );
+    await assertPledgeSingleSubmission(contest, actor.id);
 
     const objectKey = buildSubmissionObjectKey({
       contestId: contest.id,
@@ -134,6 +202,7 @@ export class SubmissionService {
     const signed = await storage.createPresignedUpload({
       objectKey,
       contentType: input.contentType,
+      contentLength: input.fileSizeBytes,
     });
     const thumbnailKey = thumbnailKeyForSubmission(objectKey);
     const thumbnail = thumbnailKey
@@ -151,7 +220,6 @@ export class SubmissionService {
     input: CompleteSubmissionInput,
   ): Promise<{ submission: SubmissionRecord; created: boolean }> {
     await assertCreator(actor);
-    assertVideoConstraints({ durationSeconds: input.durationSeconds });
 
     const parsed = parseSubmissionObjectKey(input.objectKey);
     if (!parsed) {
@@ -175,6 +243,8 @@ export class SubmissionService {
         'Submissions are only accepted while the contest is ACTIVE',
       );
     }
+    const limits = uploadLimitsForContest(contest);
+    assertVideoConstraints({ durationSeconds: input.durationSeconds }, limits);
 
     const existing = await SubmissionRepository.findByObjectKey(input.objectKey);
     if (existing) {
@@ -185,6 +255,23 @@ export class SubmissionService {
         return { submission: existing, created: false };
       }
       throw new ConflictError('objectKey is already registered');
+    }
+
+    await assertPledgeSingleSubmission(contest, actor.id);
+    const storage = getStorageService();
+    if (storage.inspectUploadedObject) {
+      const inspected = await storage.inspectUploadedObject(input.objectKey);
+      if (inspected) {
+        if (inspected.contentLength > limits.maxFileSizeBytes) {
+          throw new ValidationError(
+            `Uploaded video exceeds the configured size limit of ${limits.maxFileSizeBytes} bytes`,
+          );
+        }
+        const uploadedType = inspected.contentType?.split(';')[0]?.trim();
+        if (uploadedType && !limits.allowedContentTypes.includes(uploadedType)) {
+          throw new ValidationError(VIDEO_CONTENT_TYPE_MESSAGE);
+        }
+      }
     }
 
     const category = await resolveSubmissionCategory(input);
@@ -204,7 +291,10 @@ export class SubmissionService {
     };
 
     try {
-      const submission = await SubmissionRepository.create(data);
+      const submission = await SubmissionRepository.create(data, {
+        onePledgeEntry:
+          contest.seriesSlug === PLEDGE_SERIES_SLUG && Boolean(contest.cycleMonth),
+      });
       await CreatorActivityService.record({
         creatorId: actor.id,
         action: CreatorActivityAction.SUBMISSION_UPLOADED,

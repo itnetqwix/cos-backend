@@ -63,6 +63,8 @@ export interface WinnerSnapshot {
   finalizedById: string;
   certificationStatus: 'certified' | 'corrected';
   published?: boolean;
+  configuredWinnerCount?: number;
+  shortfallExplanation?: string | null;
   version: number;
   thresholds: { overallVoters: number; categoryRatings: number };
   categoryNames: string[];
@@ -97,6 +99,8 @@ export interface FinalizableContest {
   minCategoryVoters: number;
   isWinnersFinalized: boolean;
   winnersData: WinnerSnapshot | null;
+  winnerCount?: number | null;
+  rankingNeedsReview?: boolean;
   categoryName: string | null;
   scoringCategories?: PledgeScoreCategory[];
 }
@@ -144,11 +148,58 @@ export function assertPledgeFinalizable(contest: FinalizableContest, now: Date):
   if (!contest.votingClosesAt || contest.votingClosesAt.getTime() > now.getTime()) {
     throw new ConflictError('Voting must be closed before winners are certified');
   }
-  if (contest.isWinnersFinalized) {
+  if (contest.isWinnersFinalized && contest.rankingNeedsReview !== true) {
     throw new ConflictError(
       'Winners are already certified. Use correct-winner to revise them.',
     );
   }
+}
+
+/**
+ * Eligible entries only. The cutoff is the configured winner count.
+ * A tie that does not fit inside that count is left for the admin.
+ * Entries below the voter threshold are not added to fill the count.
+ */
+export function selectConfiguredWinners(
+  eligible: PledgeCandidate[],
+  winnerCount: number,
+  acceptTies: boolean,
+): {
+  winners: PledgeCandidate[];
+  tiePending: PledgeCandidate[];
+  shortfallExplanation: string | null;
+} {
+  const sorted = [...eligible].sort((a, b) => {
+    if (a.communityScore !== b.communityScore) return b.communityScore - a.communityScore;
+    return b.distinctVoterCount - a.distinctVoterCount;
+  });
+  const shortfallExplanation =
+    sorted.length < winnerCount
+      ? `Only ${sorted.length} eligible ${sorted.length === 1 ? 'entry' : 'entries'} met the voter threshold. Publishing ${sorted.length} ${sorted.length === 1 ? 'winner' : 'winners'}, fewer than the configured count of ${winnerCount}. Ineligible entries were not promoted.`
+      : null;
+  if (sorted.length === 0) {
+    return { winners: [], tiePending: [], shortfallExplanation: null };
+  }
+  const take = Math.min(winnerCount, sorted.length);
+  const selected = sorted.slice(0, take);
+  const cutoff = selected[selected.length - 1];
+  const next = sorted[take];
+  const sameRank = (candidate: PledgeCandidate) =>
+    cutoff !== undefined &&
+    candidate.communityScore === cutoff.communityScore &&
+    candidate.distinctVoterCount === cutoff.distinctVoterCount;
+  if (next && sameRank(next)) {
+    return {
+      winners: [],
+      tiePending: sorted.filter((candidate) => sameRank(candidate)),
+      shortfallExplanation: null,
+    };
+  }
+  const tiedInside = selected.filter((candidate) => sameRank(candidate));
+  if (tiedInside.length > 1 && !acceptTies) {
+    return { winners: [], tiePending: tiedInside, shortfallExplanation: null };
+  }
+  return { winners: selected, tiePending: [], shortfallExplanation };
 }
 
 export function buildWinnerSnapshot(input: {
@@ -161,9 +212,23 @@ export function buildWinnerSnapshot(input: {
   const overallEligible = input.candidates.filter(
     (candidate) => candidate.distinctVoterCount >= input.contest.minOverallVoters,
   );
-  const leaders = tiedLeaders(overallEligible);
-  const tiePending = leaders.length > 1 && !input.acceptTies ? leaders : [];
-  const overallWinners = leaders.length > 1 && !input.acceptTies ? [] : leaders;
+  const configuredCount = input.contest.winnerCount;
+  const ranked =
+    typeof configuredCount === 'number' && configuredCount > 0
+      ? selectConfiguredWinners(overallEligible, configuredCount, input.acceptTies)
+      : null;
+  const leaders = ranked ? ranked.tiePending : tiedLeaders(overallEligible);
+  const tiePending = ranked
+    ? ranked.tiePending
+    : leaders.length > 1 && !input.acceptTies
+      ? leaders
+      : [];
+  const overallWinners = ranked
+    ? ranked.winners
+    : leaders.length > 1 && !input.acceptTies
+      ? []
+      : leaders;
+  const shortfallExplanation = ranked?.shortfallExplanation ?? null;
   const categoryNames = [
     ...new Set(
       input.candidates
@@ -205,6 +270,9 @@ export function buildWinnerSnapshot(input: {
     finalizedById: input.adminId,
     certificationStatus: 'certified',
     published: false,
+    ...(typeof configuredCount === 'number' && configuredCount > 0
+      ? { configuredWinnerCount: configuredCount, shortfallExplanation }
+      : {}),
     version: 1,
     thresholds: {
       overallVoters: input.contest.minOverallVoters,
@@ -218,7 +286,10 @@ export function buildWinnerSnapshot(input: {
           : [],
     overall: {
       result: overallWinners.length > 0 ? 'winners' : 'no-eligible-winner',
-      message: overallWinners.length > 0 ? null : 'No eligible winner this month',
+      message:
+        overallWinners.length === 0
+          ? 'No eligible winner this month'
+          : shortfallExplanation,
       winners: overallWinners.map((candidate) =>
         slot(candidate, overallWinners.length > 1),
       ),
@@ -350,6 +421,12 @@ export function publicArchiveSnapshot(snapshot: WinnerSnapshot) {
     finalizedAt: snapshot.finalizedAt,
     certificationStatus: snapshot.certificationStatus,
     version: snapshot.version,
+    ...(snapshot.configuredWinnerCount != null
+      ? {
+          configuredWinnerCount: snapshot.configuredWinnerCount,
+          shortfallExplanation: snapshot.shortfallExplanation ?? null,
+        }
+      : {}),
     thresholds: snapshot.thresholds,
     categoryNames: snapshot.categoryNames,
     overall: snapshot.overall,
@@ -396,10 +473,15 @@ export class PledgeFinalizationService {
       minCategoryVoters: contest.minCategoryVoters,
       isWinnersFinalized: contest.isWinnersFinalized,
       winnersData: asSnapshot(contest.winnersData),
+      winnerCount: contest.winnerCount,
+      rankingNeedsReview: contest.rankingNeedsReview,
       categoryName: contest.category?.name ?? null,
       scoringCategories: parseStoredCategories(contest.scoringCategories),
     };
     assertPledgeFinalizable(finalizable, now);
+    if (!finalizable.winnerCount || finalizable.winnerCount < 1) {
+      throw new ValidationError('Set a positive winner count before certifying winners');
+    }
     const submissions = await SubmissionRepository.listLeaderboardForContest(contestId);
     const ratings = await RatingRepository.listVoterRows(contestId);
     const scoring = enabledCategories(parseStoredCategories(contest.scoringCategories));
@@ -457,6 +539,11 @@ export class PledgeFinalizationService {
     const current = asSnapshot(contest.winnersData);
     if (!contest.isWinnersFinalized || !current) {
       throw new ConflictError('Finalize the month before publishing it');
+    }
+    if (contest.rankingNeedsReview) {
+      throw new ConflictError(
+        'Winner count changed after nominations. Review the ranking before publishing.',
+      );
     }
     if (contest.status === ContestStatus.COMPLETED && current.published !== false) {
       throw new ConflictError('This month is already published');

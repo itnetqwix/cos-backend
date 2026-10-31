@@ -33,6 +33,17 @@ function template(partial: Partial<RecurringTemplateRow> = {}): RecurringTemplat
     minCategoryVoters: 5,
     isRecurringMonthly: true,
     configFrozenAt: null,
+    winnerCount: null,
+    maxVideoSizeMb: null,
+    maxVideoDurationSeconds: null,
+    allowedVideoFormats: null,
+    rankingNeedsReview: false,
+    isWinnersFinalized: false,
+    winnersPublished: false,
+    submissionCount: 0,
+    startDate: null,
+    endDate: null,
+    votingClosesAt: null,
     ...partial,
   };
 }
@@ -106,6 +117,9 @@ describe('recurring contest templates', () => {
       description: 'monthly',
       seriesSlug: 'pledge',
       rules: ['Self-voting is prohibited'],
+      winnerCount: 10,
+      maxVideoSizeMb: 100,
+      maxVideoDurationSeconds: 60,
     });
     const created = await RecurringContestService.create('admin-1', input, new Date('2026-10-15T00:00:00.000Z'), store);
     assert.equal(created.enabled, true);
@@ -114,6 +128,9 @@ describe('recurring contest templates', () => {
     assert.equal(created.minOverallVoters, 10);
     assert.equal(created.minCategoryVoters, 5);
     assert.equal(created.categoriesCount, 4);
+    assert.equal(created.winnerCount, 10);
+    assert.equal(created.maxVideoSizeMb, 100);
+    assert.equal(created.maxVideoDurationSeconds, 60);
     assert.equal(store.audits[0]?.action, 'RECURRENCE_CREATE');
     await assert.rejects(
       RecurringContestService.create('admin-1', input, new Date('2026-10-15T00:00:00.000Z'), store),
@@ -176,7 +193,11 @@ describe('recurring contest templates', () => {
     );
     assert.equal(resumed.enabled, true);
     assert.equal(store.audits.at(-1)?.action, 'RECURRENCE_RESUME');
-    const cycles = await RecurringContestService.cycles('template-1', store);
+    const cycles = await RecurringContestService.cycles(
+      'template-1',
+      new Date('2026-10-20T00:00:00.000Z'),
+      store,
+    );
     assert.equal(cycles.length, 1);
     assert.equal(cycles[0]?.description, 'frozen-october');
   });

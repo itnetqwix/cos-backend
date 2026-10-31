@@ -188,6 +188,25 @@ export class LocalDemoStorageAdapter implements StorageService {
     };
   }
 
+  async inspectUploadedObject(objectKey: string) {
+    try {
+      const filePath = this.resolveObjectPath(objectKey);
+      const info = await stat(filePath);
+      const extension = objectKey.split('.').pop()?.toLowerCase();
+      const contentType =
+        extension === 'webm'
+          ? 'video/webm'
+          : extension === 'mov'
+            ? 'video/quicktime'
+            : extension === 'mp4'
+              ? 'video/mp4'
+              : null;
+      return { contentLength: info.size, contentType };
+    } catch {
+      return null;
+    }
+  }
+
   getPublicUrl(objectKey: string): string {
     const token = this.sign(`get\n${objectKey}`);
     const params = new URLSearchParams({ key: objectKey, token });
