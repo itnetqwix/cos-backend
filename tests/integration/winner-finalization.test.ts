@@ -1,11 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { ContestStatus } from '@prisma/client';
-import { ConflictError } from '../../src/utils/response.js';
+import { ConflictError, ValidationError } from '../../src/utils/response.js';
 import {
   assertPledgeFinalizable,
   buildWinnerSnapshot,
   correctWinnerSnapshot,
+  manualWinnerSlots,
   publicArchiveSnapshot,
   selectConfiguredWinners,
   type FinalizableContest,
@@ -166,6 +167,38 @@ describe('pledge winner certification', () => {
     assert.equal(
       snapshot.snapshot.overall.winners.some((winner) => winner.submissionId === 'short'),
       false,
+    );
+  });
+
+  it('keeps the admin order and badges the first three', () => {
+    const picked = manualWinnerSlots({
+      orderedIds: ['low', 'high', 'mid', 'tail'],
+      winnerCount: 5,
+      candidates: [
+        candidate({ submissionId: 'high', communityScore: 10 }),
+        candidate({ submissionId: 'mid', communityScore: 7 }),
+        candidate({ submissionId: 'low', communityScore: 1 }),
+        candidate({ submissionId: 'tail', communityScore: 9 }),
+      ],
+    });
+    assert.deepEqual(
+      picked.winners.map((winner) => winner.submissionId),
+      ['low', 'high', 'mid', 'tail'],
+    );
+    assert.deepEqual(
+      picked.winners.map((winner) => winner.badge),
+      ['gold', 'silver', 'bronze', null],
+    );
+    assert.equal(picked.winners[0]?.rank, 1);
+    assert.match(picked.shortfallExplanation ?? '', /4 of 5/);
+    assert.throws(
+      () =>
+        manualWinnerSlots({
+          orderedIds: ['low', 'missing'],
+          winnerCount: 2,
+          candidates: [candidate({ submissionId: 'low' })],
+        }),
+      ValidationError,
     );
   });
 });

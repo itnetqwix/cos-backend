@@ -490,6 +490,16 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     RecurringContestController.updateCycle,
   );
 
+  fastify.get(
+    '/admin/contests/:id/pledge-review',
+    { onRequest: contestGuards },
+    ContestController.pledgeReview,
+  );
+  fastify.put(
+    '/admin/contests/:id/team-evaluation',
+    { onRequest: contestGuards },
+    ContestController.saveTeamEvaluation,
+  );
   fastify.post(
     '/admin/contests/:id/finalize-winners',
     { onRequest: contestGuards },

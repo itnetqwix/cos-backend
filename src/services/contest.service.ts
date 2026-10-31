@@ -170,13 +170,19 @@ function resolveBannerObjectKey(
   return value;
 }
 
+/** Admin All Contests. Pledge months and other series cycles stay on their own screens. */
+export function isOrdinaryContest(row: { seriesSlug?: string | null }): boolean {
+  return !row.seriesSlug;
+}
+
 export class ContestService {
   static async list(actor: ContestActor, query: ListContestsQueryInput) {
     assertContestManager(actor);
-    return ContestRepository.list({
+    const rows = await ContestRepository.list({
       status: query.status,
       categorySlug: query.category,
     });
+    return rows.filter(isOrdinaryContest);
   }
 
   static async create(actor: ContestActor, input: CreateContestInput) {

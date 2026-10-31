@@ -53,6 +53,7 @@ export async function toContestView(contest: ContestRecord) {
     prizeSummary: contest.prizeSummary,
     rules: contest.rules,
     autoAdvanceDelayMs: contest.autoAdvanceDelayMs,
+    seriesSlug: contest.seriesSlug,
     createdAt: iso(contest.createdAt),
     updatedAt: iso(contest.updatedAt),
   };
@@ -184,15 +185,41 @@ export class ContestController {
   static async finalizeWinners(request: FastifyRequest, reply: FastifyReply) {
     const { id } = contestIdParamSchema.parse(request.params);
     const body = z
-      .object({ acceptTies: z.boolean().optional() })
+      .object({
+        submissionIds: z.array(z.string().uuid()).min(1).max(1_000),
+      })
       .strict()
       .parse(request.body ?? {});
-    const snapshot = await PledgeFinalizationService.finalizeMonthlyWinners(
+    const snapshot = await PledgeFinalizationService.selectMonthlyWinners(
       id,
       request.user.id,
-      body.acceptTies === true,
+      body.submissionIds,
     );
-    return sendSuccess(reply, snapshot, 'Pledge winners certified', HTTP_STATUS.OK);
+    return sendSuccess(reply, snapshot, 'Pledge winners selected', HTTP_STATUS.OK);
+  }
+
+  static async pledgeReview(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = contestIdParamSchema.parse(request.params);
+    const data = await PledgeFinalizationService.reviewMonth(id);
+    return sendSuccess(reply, data, 'Pledge review retrieved', HTTP_STATUS.OK);
+  }
+
+  static async saveTeamEvaluation(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = contestIdParamSchema.parse(request.params);
+    const body = z
+      .object({
+        submissionId: z.string().uuid(),
+        score: z.number().int().min(1).max(10).nullable(),
+        notes: z.string().trim().max(2000).optional().default(''),
+      })
+      .strict()
+      .parse(request.body);
+    const data = await PledgeFinalizationService.saveTeamEvaluation(
+      id,
+      request.user.id,
+      body,
+    );
+    return sendSuccess(reply, data, 'Team evaluation saved', HTTP_STATUS.OK);
   }
 
   static async correctWinner(request: FastifyRequest, reply: FastifyReply) {
