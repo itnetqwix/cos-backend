@@ -36,6 +36,7 @@ export interface PledgeCandidate {
   creatorName: string;
   title: string;
   videoUrl: string;
+  thumbnailUrl?: string | null;
   categoryName: string | null;
   communityScore: number;
   distinctVoterCount: number;
@@ -48,6 +49,7 @@ export type PledgeWinnerBadge = 'gold' | 'silver' | 'bronze';
 export interface TeamEvaluation {
   score: number | null;
   notes: string;
+  nominated?: boolean;
   updatedById: string;
   updatedAt: string;
 }
@@ -58,6 +60,7 @@ export interface WinnerSlot {
   creatorName: string;
   title: string;
   videoUrl: string;
+  thumbnailUrl?: string | null;
   communityScore: number;
   distinctVoterCount: number;
   validRatingCount: number;
@@ -124,6 +127,7 @@ function slot(candidate: PledgeCandidate, coWinner: boolean): WinnerSlot {
     creatorName: candidate.creatorName,
     title: candidate.title,
     videoUrl: candidate.videoUrl,
+    thumbnailUrl: candidate.thumbnailUrl ?? null,
     communityScore: candidate.communityScore,
     distinctVoterCount: candidate.distinctVoterCount,
     validRatingCount: candidate.validRatingCount,
@@ -572,6 +576,7 @@ export class PledgeFinalizationService {
           creatorName: submission.creator.name,
           title: submission.title,
           videoUrl: submission.videoUrl,
+          thumbnailUrl: submission.thumbnailUrl,
           categoryName: submission.contest.category?.name ?? null,
           communityScore:
             arithmeticMean(rows.map((row) => row.rating)) ?? submission.communityScore,
@@ -690,11 +695,18 @@ export class PledgeFinalizationService {
         creatorName: submission.creator.name,
         title: submission.title,
         videoUrl: submission.videoUrl,
+        thumbnailUrl: submission.thumbnailUrl,
         categoryName: submission.contest.category?.name ?? null,
         communityScore: submission.communityScore,
       })),
       ratings,
     );
+    const team = readTeamMap(contest.winnersData);
+    for (const id of submissionIds) {
+      if (!team[id]?.nominated) {
+        throw new ValidationError('Only nominated videos can be selected as winners');
+      }
+    }
     const picked = manualWinnerSlots({
       orderedIds: submissionIds,
       candidates,
@@ -761,6 +773,7 @@ export class PledgeFinalizationService {
         creatorName: submission.creator.name,
         title: submission.title,
         videoUrl: submission.videoUrl,
+        thumbnailUrl: submission.thumbnailUrl,
         categoryName: submission.contest.category?.name ?? null,
         communityScore: submission.communityScore,
       })),
@@ -785,15 +798,18 @@ export class PledgeFinalizationService {
         contest.status === ContestStatus.COMPLETED && snapshot?.published !== false,
       videos: candidates.map((candidate) => {
         const selectedRank = rankOf.get(candidate.submissionId) ?? null;
+        const evaluation = team[candidate.submissionId] ?? null;
         return {
           submissionId: candidate.submissionId,
           title: candidate.title,
           creatorName: candidate.creatorName,
           videoUrl: candidate.videoUrl,
+          thumbnailUrl: candidate.thumbnailUrl ?? null,
           communityScore: candidate.communityScore,
           distinctVoterCount: candidate.distinctVoterCount,
           validRatingCount: candidate.validRatingCount,
-          teamEvaluation: team[candidate.submissionId] ?? null,
+          teamEvaluation: evaluation,
+          isNominated: Boolean(evaluation?.nominated),
           selectedRank,
           badge: selectedRank ? badgeForRank(selectedRank) : null,
         };
@@ -804,7 +820,12 @@ export class PledgeFinalizationService {
   static async saveTeamEvaluation(
     contestId: string,
     adminId: string,
-    input: { submissionId: string; score: number | null; notes: string },
+    input: {
+      submissionId: string;
+      score?: number | null;
+      notes?: string;
+      nominated?: boolean;
+    },
   ): Promise<TeamEvaluation> {
     const contest = await ContestRepository.findById(contestId);
     if (!contest || contest.seriesSlug !== PLEDGE_SERIES_SLUG || !contest.cycleMonth) {
@@ -818,14 +839,20 @@ export class PledgeFinalizationService {
     if (!approved.some((submission) => submission.id === input.submissionId)) {
       throw new ValidationError('Team notes are only for approved Pledge videos');
     }
+    const currentTeam = readTeamMap(contest.winnersData);
+    const existingEval = currentTeam[input.submissionId];
     const saved: TeamEvaluation = {
-      score: input.score,
-      notes: input.notes.trim(),
+      score: input.score !== undefined ? input.score : (existingEval?.score ?? null),
+      notes: input.notes !== undefined ? input.notes.trim() : (existingEval?.notes ?? ''),
+      nominated:
+        input.nominated !== undefined
+          ? input.nominated
+          : (existingEval?.nominated ?? false),
       updatedById: adminId,
       updatedAt: new Date().toISOString(),
     };
     const teamEvaluations = {
-      ...readTeamMap(contest.winnersData),
+      ...currentTeam,
       [input.submissionId]: saved,
     };
     const next = snapshot ? { ...snapshot, teamEvaluations } : { teamEvaluations };

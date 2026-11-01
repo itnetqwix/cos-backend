@@ -112,16 +112,14 @@ export function formatRating(value: number): string {
 }
 
 export function nonWinnerResultMessage(
-  cycleMonth: string | null,
-  overallRating: number,
+  _cycleMonth: string | null,
+  _overallRating: number,
 ): string {
-  const month = cycleMonthName(cycleMonth);
-  return `Thank you for participating in Pledge of aWEEEEEDgence! Your ${month} entry received an Overall community rating of ${formatRating(overallRating)}/10. Unfortunately, you were not among this month's selected winners. Keep creating and join us again next month!`;
+  return "Unfortunately, you weren't among this month's winners. Thank you for participating!";
 }
 
-export function insufficientResultMessage(cycleMonth: string | null): string {
-  const month = cycleMonthName(cycleMonth);
-  return `Thank you for participating in Pledge of aWEEEEEDgence! Your ${month} entry did not receive enough community ratings to show an Overall rating. You were not among this month's selected winners. Keep creating and join us again next month!`;
+export function insufficientResultMessage(_cycleMonth: string | null): string {
+  return "Unfortunately, you weren't among this month's winners. Thank you for participating!";
 }
 
 export type PledgeConfigPhase =

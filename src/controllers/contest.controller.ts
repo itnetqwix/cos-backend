@@ -209,8 +209,9 @@ export class ContestController {
     const body = z
       .object({
         submissionId: z.string().uuid(),
-        score: z.number().int().min(1).max(10).nullable(),
-        notes: z.string().trim().max(2000).optional().default(''),
+        score: z.number().int().min(1).max(10).nullable().optional(),
+        notes: z.string().trim().max(2000).optional(),
+        nominated: z.boolean().optional(),
       })
       .strict()
       .parse(request.body);
