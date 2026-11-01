@@ -166,6 +166,11 @@ export function buildPledgeMonth(
 
 export class PledgeRecurrenceService {
   static async currentPublic(now = new Date()) {
+    try {
+      await PledgeRecurrenceService.ensureCurrentMonthlyContest(now);
+    } catch {
+      // Best-effort ensure, continue to query
+    }
     const { year, month } = utcCycleMonth(now);
     const boundaries = getUtcMonthBoundaries(year, month);
     const current = await prisma.contest.findFirst({
@@ -239,7 +244,21 @@ export class PledgeRecurrenceService {
     const existing =
       series.find((row) => row.cycleMonth === boundaries.cycleMonth) ??
       (await store.findMonth(PLEDGE_SERIES_SLUG, boundaries.cycleMonth));
-    if (existing) return existing;
+    if (existing) {
+      if (
+        (existing.status === ContestStatus.SCHEDULED ||
+          existing.status === ContestStatus.DRAFT) &&
+        boundaries.start.getTime() <= now.getTime()
+      ) {
+        await prisma.contest.updateMany({
+          where: { id: existing.id },
+          data: { status: ContestStatus.ACTIVE, configFrozenAt: now },
+        });
+        existing.status = ContestStatus.ACTIVE;
+        existing.configFrozenAt = now;
+      }
+      return existing;
+    }
 
     const template =
       series.find((row) => row.cycleMonth === null) ??

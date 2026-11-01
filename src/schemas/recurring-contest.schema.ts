@@ -103,6 +103,10 @@ const instantSchema = z.string().datetime();
 
 export const updatePledgeCycleSchema = z
   .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    tagline: z.string().trim().max(300).nullable().optional(),
+    bannerUrl: z.string().trim().nullable().optional(),
+    bannerObjectKey: z.string().trim().nullable().optional(),
     winnerCount: z.number().int().positive().max(1_000).optional(),
     maxVideoSizeMb: z.number().int().positive().max(100).optional(),
     maxVideoDurationSeconds: z.number().int().positive().max(60).optional(),

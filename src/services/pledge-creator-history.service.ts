@@ -164,7 +164,7 @@ export class PledgeCreatorHistoryService {
         resultState = 'rejected';
       } else if (!published) {
         resultState = 'pending';
-        resultMessage = 'Results pending';
+        resultMessage = 'Results are pending.';
       } else if (isWinner) {
         resultState = 'winner';
       } else if (!quorumMet) {
@@ -175,7 +175,7 @@ export class PledgeCreatorHistoryService {
         resultMessage = nonWinnerResultMessage(cycleMonth, overallAverage);
       } else {
         resultState = 'pending';
-        resultMessage = 'Results pending';
+        resultMessage = 'Results are pending.';
       }
 
       const entry = {

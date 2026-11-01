@@ -443,13 +443,81 @@ export class RecurringContestService {
     store: RecurringStore = prismaRecurringStore,
   ) {
     const template = await requireTemplate(store, id);
-    const cycles = await store.listCycles(template.seriesSlug);
+    let cycles = await store.listCycles(template.seriesSlug);
+
+    // Pre-generate the next 3 upcoming calendar months if they don't exist yet
+    const { year, month } = utcCycleMonth(now);
+    for (let offset = 0; offset <= 3; offset++) {
+      let targetMonth = month + offset;
+      let targetYear = year;
+      while (targetMonth > 12) {
+        targetMonth -= 12;
+        targetYear += 1;
+      }
+      const boundaries = getUtcMonthBoundaries(targetYear, targetMonth);
+      const exists = cycles.some((c) => c.cycleMonth === boundaries.cycleMonth);
+      if (!exists && template.status !== ContestStatus.DRAFT) {
+        const isCurrent = offset === 0;
+        const built = buildPledgeMonth(
+          boundaries,
+          asPledgeTemplate(template),
+          now,
+          crypto.randomUUID(),
+        );
+        const rowToInsert: RecurringTemplateRow = {
+          id: built.id,
+          title: built.title,
+          description: built.description,
+          seriesSlug: built.seriesSlug ?? template.seriesSlug,
+          cycleMonth: built.cycleMonth,
+          status: isCurrent ? ContestStatus.ACTIVE : ContestStatus.SCHEDULED,
+          tagline: built.tagline ?? null,
+          bannerUrl: built.bannerUrl ?? null,
+          bannerObjectKey: built.bannerObjectKey ?? null,
+          thumbnailUrl: built.thumbnailUrl ?? null,
+          categoryId: built.categoryId ?? null,
+          category: null,
+          rules: built.rules,
+          prizeSummary: built.prizeSummary,
+          autoAdvanceDelayMs: built.autoAdvanceDelayMs,
+          minOverallVoters: built.minOverallVoters,
+          minCategoryVoters: built.minCategoryVoters,
+          isRecurringMonthly: true,
+          configFrozenAt: isCurrent ? now : null,
+          scoringCategories: built.scoringCategories ?? null,
+          combinedScoreEnabled: built.combinedScoreEnabled ?? false,
+          winnerCount: built.winnerCount ?? null,
+          maxVideoSizeMb: built.maxVideoSizeMb ?? null,
+          maxVideoDurationSeconds: built.maxVideoDurationSeconds ?? null,
+          allowedVideoFormats: built.allowedVideoFormats ?? null,
+          rankingNeedsReview: false,
+          isWinnersFinalized: false,
+          winnersPublished: false,
+          submissionCount: 0,
+          startDate: built.startDate,
+          endDate: built.endDate,
+          votingClosesAt: built.votingClosesAt,
+        };
+        try {
+          const inserted = await store.insert(rowToInsert);
+          cycles.push(inserted);
+        } catch {
+          // In case another process inserted concurrently
+        }
+      }
+    }
+
+    cycles = await store.listCycles(template.seriesSlug);
     return cycles
       .filter((cycle) => cycle.cycleMonth !== null)
       .sort((a, b) => (b.cycleMonth ?? '').localeCompare(a.cycleMonth ?? ''))
       .map((cycle) => ({
         id: cycle.id,
         title: cycle.title,
+        tagline: cycle.tagline,
+        bannerUrl: cycle.bannerUrl,
+        bannerObjectKey: cycle.bannerObjectKey,
+        thumbnailUrl: cycle.thumbnailUrl,
         seriesSlug: cycle.seriesSlug,
         cycleMonth: cycle.cycleMonth,
         status: cycle.status,
@@ -496,7 +564,33 @@ export class RecurringContestService {
         'Published historical Pledge configuration cannot be modified',
       );
     }
+    const currentPhase = pledgeConfigPhase({
+      cycleMonth: current.cycleMonth,
+      status: current.status,
+      winnersPublished: current.winnersPublished,
+      now,
+    });
+    // Requirement 6.1: Current-month settings must not allow changing rules, winner count, upload size, duration, formats.
+    if (currentPhase === 'active-frozen' || current.status === ContestStatus.ACTIVE) {
+      if (
+        input.rules !== undefined ||
+        input.winnerCount !== undefined ||
+        input.maxVideoSizeMb !== undefined ||
+        input.maxVideoDurationSeconds !== undefined ||
+        input.allowedVideoFormats !== undefined
+      ) {
+        throw new ConflictError(
+          'Competition rules, winner count, and upload limits cannot be changed for the current running month',
+        );
+      }
+    }
+
     const data: Partial<RecurringTemplateRow> = {};
+    if (input.title !== undefined) data.title = input.title.trim();
+    if (input.tagline !== undefined) data.tagline = blank(input.tagline);
+    if (input.bannerUrl !== undefined) data.bannerUrl = blank(input.bannerUrl);
+    if (input.bannerObjectKey !== undefined)
+      data.bannerObjectKey = assertBanner(input.bannerObjectKey) ?? null;
     if (input.winnerCount !== undefined) {
       data.winnerCount = assertPositiveWinnerCount(input.winnerCount);
       if (
@@ -569,6 +663,11 @@ export class RecurringContestService {
     });
     return {
       id: updated.id,
+      title: updated.title,
+      tagline: updated.tagline,
+      bannerUrl: updated.bannerUrl,
+      bannerObjectKey: updated.bannerObjectKey,
+      thumbnailUrl: updated.thumbnailUrl,
       cycleMonth: updated.cycleMonth,
       winnerCount: updated.winnerCount,
       maxVideoSizeMb: updated.maxVideoSizeMb,
@@ -584,6 +683,9 @@ export class RecurringContestService {
       startDate: updated.startDate?.toISOString() ?? null,
       endDate: updated.endDate?.toISOString() ?? null,
       votingClosesAt: updated.votingClosesAt?.toISOString() ?? null,
+      description: updated.description,
+      rules: updated.rules,
+      scoringCategories: updated.scoringCategories ?? [],
     };
   }
 }
