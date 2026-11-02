@@ -158,7 +158,8 @@ export function buildPledgeMonth(
     prizeSummary: template?.prizeSummary ?? null,
     configFrozenAt: now,
     isWinnersFinalized: false,
-    winnerCount: template?.winnerCount ?? null,
+    winnerCount:
+      template?.winnerCount && template.winnerCount > 0 ? template.winnerCount : 3,
     maxVideoSizeMb: template?.maxVideoSizeMb ?? null,
     maxVideoDurationSeconds: template?.maxVideoDurationSeconds ?? null,
     allowedVideoFormats: template?.allowedVideoFormats ?? null,

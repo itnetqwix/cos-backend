@@ -89,6 +89,7 @@ export interface RecurringAuditWrite {
     'RECURRENCE_CREATE' | 'RECURRENCE_UPDATE' | 'RECURRENCE_PAUSE' | 'RECURRENCE_RESUME';
   seriesSlug: string;
   templateId: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface RecurringStore {
@@ -618,10 +619,16 @@ export class RecurringContestService {
       now,
     });
     // Requirement 6.1: Current-month settings must not allow changing rules, winner count, upload size, duration, formats.
-    if (currentPhase === 'active-frozen' || current.status === ContestStatus.ACTIVE) {
+    // Safe correction exception: If winnerCount is missing/null/invalid on an existing cycle, Admin is allowed to correct it.
+    const isWinnerCountMissing = current.winnerCount === null || current.winnerCount < 1;
+    if (
+      currentPhase === 'active-frozen' ||
+      current.status === ContestStatus.ACTIVE ||
+      current.status === ContestStatus.JUDGING
+    ) {
       if (
         input.rules !== undefined ||
-        input.winnerCount !== undefined ||
+        (input.winnerCount !== undefined && !isWinnerCountMissing) ||
         input.maxVideoSizeMb !== undefined ||
         input.maxVideoDurationSeconds !== undefined ||
         input.allowedVideoFormats !== undefined
@@ -632,6 +639,8 @@ export class RecurringContestService {
       }
     }
 
+    const isWinnerCountCorrection =
+      input.winnerCount !== undefined && isWinnerCountMissing;
     const data: Partial<RecurringTemplateRow> = {};
     if (input.title !== undefined) data.title = input.title.trim();
     if (input.tagline !== undefined) data.tagline = blank(input.tagline);
@@ -712,6 +721,14 @@ export class RecurringContestService {
       action: 'RECURRENCE_UPDATE',
       seriesSlug: updated.seriesSlug,
       templateId: updated.id,
+      metadata: isWinnerCountCorrection
+        ? {
+            correction: 'CORRECT_WINNER_COUNT',
+            cycleMonth: current.cycleMonth,
+            previousWinnerCount: current.winnerCount,
+            newWinnerCount: data.winnerCount,
+          }
+        : undefined,
     });
     const bannerUrl = await resolveContestBannerUrl(
       updated.bannerObjectKey,
@@ -1040,6 +1057,7 @@ const prismaRecurringStore: RecurringStore = {
         seriesSlug: entry.seriesSlug,
         templateId: entry.templateId,
         operation: entry.action,
+        ...(entry.metadata ?? {}),
       },
     });
   },

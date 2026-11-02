@@ -435,7 +435,7 @@ export function manualWinnerSlots(input: {
   winnerCount: number;
 }): { winners: WinnerSlot[]; shortfallExplanation: string | null } {
   if (input.orderedIds.length === 0) {
-    throw new ValidationError('Select at least one winner');
+    throw new ValidationError('No eligible nominated submissions selected');
   }
   if (input.orderedIds.length > input.winnerCount) {
     throw new ValidationError(`Select at most ${input.winnerCount} winners`);
@@ -559,8 +559,11 @@ export class PledgeFinalizationService {
       scoringCategories: parseStoredCategories(contest.scoringCategories),
     };
     assertPledgeFinalizable(finalizable, now);
-    if (!finalizable.winnerCount || finalizable.winnerCount < 1) {
-      throw new ValidationError('Set a positive winner count before certifying winners');
+    if (finalizable.winnerCount === null || finalizable.winnerCount === undefined) {
+      throw new ValidationError('Missing monthly winner-count configuration');
+    }
+    if (finalizable.winnerCount < 1) {
+      throw new ValidationError('Invalid winner-count configuration');
     }
     const submissions = await SubmissionRepository.listLeaderboardForContest(contestId);
     const ratings = await RatingRepository.listVoterRows(contestId);
@@ -616,6 +619,12 @@ export class PledgeFinalizationService {
     if (!contest) throw new NotFoundError('Contest not found');
     if (contest.seriesSlug !== PLEDGE_SERIES_SLUG || !contest.cycleMonth) {
       throw new ConflictError('Only a Pledge monthly contest can be published');
+    }
+    if (contest.winnerCount === null || contest.winnerCount === undefined) {
+      throw new ValidationError('Missing monthly winner-count configuration');
+    }
+    if (contest.winnerCount < 1) {
+      throw new ValidationError('Invalid winner-count configuration');
     }
     const current = asSnapshot(contest.winnersData);
     if (!contest.isWinnersFinalized || !current) {
@@ -684,8 +693,14 @@ export class PledgeFinalizationService {
     ) {
       throw new ConflictError('Published winners cannot be reselected');
     }
-    if (!finalizable.winnerCount || finalizable.winnerCount < 1) {
-      throw new ValidationError('Set a positive winner count before certifying winners');
+    if (finalizable.winnerCount === null || finalizable.winnerCount === undefined) {
+      throw new ValidationError('Missing monthly winner-count configuration');
+    }
+    if (finalizable.winnerCount < 1) {
+      throw new ValidationError('Invalid winner-count configuration');
+    }
+    if (!submissionIds || submissionIds.length === 0) {
+      throw new ValidationError('No eligible nominated submissions selected');
     }
     const rawSubmissions = await SubmissionRepository.listApprovedForContest(contestId);
     const submissions = rawSubmissions.filter((sub) => !sub.tags?.includes('replaced'));
