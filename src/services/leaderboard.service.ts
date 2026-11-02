@@ -115,11 +115,41 @@ export class LeaderboardService {
       contestId,
       options.category,
     );
+
+    let eligibleSubmissions = rawSubmissions;
+    if (contest.seriesSlug === PLEDGE_SERIES_SLUG && contest.cycleMonth) {
+      const nonReplaced = rawSubmissions.filter((sub) => !sub.tags?.includes('replaced'));
+      const team =
+        (
+          contest.winnersData as {
+            teamEvaluations?: Record<string, { nominated?: boolean }>;
+          } | null
+        )?.teamEvaluations ?? {};
+      const sortedDesc = [...nonReplaced].sort((a, b) => {
+        const aNom = team[a.id]?.nominated ? 1 : 0;
+        const bNom = team[b.id]?.nominated ? 1 : 0;
+        if (bNom !== aNom) return bNom - aNom;
+        if (b.totalVotes !== a.totalVotes) return b.totalVotes - a.totalVotes;
+        if (b.communityScore !== a.communityScore)
+          return b.communityScore - a.communityScore;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+      const seenCreators = new Set<string>();
+      const uniqueSubmissions: typeof rawSubmissions = [];
+      for (const sub of sortedDesc) {
+        if (!seenCreators.has(sub.creatorId)) {
+          seenCreators.add(sub.creatorId);
+          uniqueSubmissions.push(sub);
+        }
+      }
+      eligibleSubmissions = uniqueSubmissions;
+    }
+
     const pledgeRatings =
       contest.seriesSlug === PLEDGE_SERIES_SLUG
         ? await RatingRepository.listVoterRows(contestId)
         : [];
-    const scoredSubmissions = rawSubmissions.map((record) => {
+    const scoredSubmissions = eligibleSubmissions.map((record) => {
       if (contest.seriesSlug !== PLEDGE_SERIES_SLUG) return record;
       const values = pledgeRatings
         .filter((row) => row.submissionId === record.id && isCountableRating(row))

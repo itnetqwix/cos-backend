@@ -1033,7 +1033,8 @@ export class ProductReviewRepository {
       if (patch.categoryScores) {
         await store.replaceScores(reviewId, patch.categoryScores);
       }
-      const { categoryScores: _scores, ...fields } = patch;
+      const fields = { ...patch };
+      delete fields.categoryScores;
       return store.updateReview(reviewId, fields);
     });
   }

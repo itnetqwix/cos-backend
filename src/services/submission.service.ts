@@ -21,7 +21,6 @@ import { CreatorActivityService } from './creator-activity.service.js';
 import {
   buildSubmissionObjectKey,
   getStorageService,
-  isAllowedVideoContentType,
   parseSubmissionObjectKey,
   parseThumbnailObjectKey,
   THUMBNAIL_CONTENT_TYPE,
@@ -193,7 +192,19 @@ export class SubmissionService {
       },
       limits,
     );
-    await assertPledgeSingleSubmission(contest, actor.id);
+    if (input.replacesSubmissionId) {
+      const old = await SubmissionRepository.findById(input.replacesSubmissionId);
+      if (
+        !old ||
+        old.creatorId !== actor.id ||
+        old.contestId !== contest.id ||
+        old.deletedAt
+      ) {
+        throw new NotFoundError('Submission to replace not found or is no longer active');
+      }
+    } else {
+      await assertPledgeSingleSubmission(contest, actor.id);
+    }
 
     const objectKey = buildSubmissionObjectKey({
       contestId: contest.id,
@@ -263,7 +274,19 @@ export class SubmissionService {
       throw new ConflictError('objectKey is already registered');
     }
 
-    await assertPledgeSingleSubmission(contest, actor.id);
+    if (input.replacesSubmissionId) {
+      const old = await SubmissionRepository.findById(input.replacesSubmissionId);
+      if (
+        !old ||
+        old.creatorId !== actor.id ||
+        old.contestId !== contest.id ||
+        old.deletedAt
+      ) {
+        throw new NotFoundError('Submission to replace not found or is no longer active');
+      }
+    } else {
+      await assertPledgeSingleSubmission(contest, actor.id);
+    }
     const storage = getStorageService();
     if (storage.inspectUploadedObject) {
       const inspected = await storage.inspectUploadedObject(input.objectKey);
@@ -300,17 +323,26 @@ export class SubmissionService {
       const submission = await SubmissionRepository.create(data, {
         onePledgeEntry:
           contest.seriesSlug === PLEDGE_SERIES_SLUG && Boolean(contest.cycleMonth),
+        replacesSubmissionId: input.replacesSubmissionId,
       });
       await CreatorActivityService.record({
         creatorId: actor.id,
         action: CreatorActivityAction.SUBMISSION_UPLOADED,
-        description: 'Submission upload completed',
+        description: input.replacesSubmissionId
+          ? 'Submission replaced'
+          : 'Submission upload completed',
         relatedSubmissionId: submission.id,
         relatedContestId: submission.contestId,
         performedByUserId: actor.id,
         metadata: {
           submissionTitle: submission.title,
           contestTitle: submission.contest.title,
+          ...(input.replacesSubmissionId
+            ? {
+                action: 'SUBMISSION_REPLACED',
+                replacesSubmissionId: input.replacesSubmissionId,
+              }
+            : {}),
         },
       });
       await NotificationService.notifySubmissionPendingReview(submission);

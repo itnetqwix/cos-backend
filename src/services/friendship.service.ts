@@ -1,7 +1,6 @@
 import { Prisma } from '@prisma/client';
 import {
   CreatorSearchHit,
-  FriendProfileUser,
   FriendshipRecord,
   FriendshipRepository,
 } from '../repositories/friendship.repository.js';

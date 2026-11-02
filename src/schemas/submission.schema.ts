@@ -31,6 +31,10 @@ export const presignSubmissionSchema = z
       .int()
       .min(VIDEO_CONSTRAINTS.MIN_DURATION_SECONDS)
       .max(VIDEO_CONSTRAINTS.MAX_DURATION_SECONDS),
+    replacesSubmissionId: z
+      .string()
+      .uuid('replacesSubmissionId must be a valid UUID')
+      .optional(),
   })
   .strict();
 
@@ -55,6 +59,10 @@ export const completeSubmissionSchema = z
       .trim()
       .min(1, 'Please specify your video category.')
       .max(80)
+      .optional(),
+    replacesSubmissionId: z
+      .string()
+      .uuid('replacesSubmissionId must be a valid UUID')
       .optional(),
   })
   .strict()

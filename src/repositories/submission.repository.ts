@@ -133,8 +133,58 @@ export interface CreateSubmissionData {
 export class SubmissionRepository {
   static async create(
     data: CreateSubmissionData,
-    options?: { onePledgeEntry?: boolean },
+    options?: { onePledgeEntry?: boolean; replacesSubmissionId?: string },
   ): Promise<SubmissionRecord> {
+    if (options?.replacesSubmissionId) {
+      return prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${data.contestId}:${data.creatorId}`}))`;
+        const oldSubmission = await tx.submission.findFirst({
+          where: {
+            id: options.replacesSubmissionId,
+            contestId: data.contestId,
+            creatorId: data.creatorId,
+            deletedAt: null,
+          },
+        });
+        if (!oldSubmission) {
+          throw new NotFoundError('Submission to replace not found');
+        }
+        const newSubmission = await tx.submission.create({
+          data: {
+            contestId: data.contestId,
+            creatorId: data.creatorId,
+            title: data.title,
+            description: data.description,
+            videoUrl: data.videoUrl,
+            objectKey: data.objectKey,
+            thumbnailUrl: data.thumbnailUrl,
+            durationSeconds: data.durationSeconds,
+            tags: [...data.tags, 'replacement', `replaces:${oldSubmission.id}`],
+            categoryId: data.categoryId ?? null,
+            otherCategoryLabel: data.otherCategoryLabel ?? null,
+            status: SubmissionStatus.PENDING_REVIEW,
+            communityScore: 0,
+            totalVotes: 0,
+          },
+          include: submissionInclude,
+        });
+        const oldTags = Array.isArray(oldSubmission.tags) ? oldSubmission.tags : [];
+        const updatedOldTags = Array.from(
+          new Set([...oldTags, 'replaced', `replaced_by:${newSubmission.id}`]),
+        );
+        await tx.submission.update({
+          where: { id: oldSubmission.id },
+          data: {
+            deletedAt: new Date(),
+            deletedById: data.creatorId,
+            rejectionReason: `REPLACED_BY:${newSubmission.id}`,
+            tags: updatedOldTags,
+          },
+        });
+        return newSubmission;
+      });
+    }
+
     if (options?.onePledgeEntry) {
       return prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${data.contestId}:${data.creatorId}`}))`;
