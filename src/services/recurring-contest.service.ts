@@ -14,7 +14,7 @@ import {
   pledgeInstanceTitle,
   type PledgeMonthRow,
 } from './pledge-recurrence.service.js';
-import { parseBannerObjectKey } from './storage.service.js';
+import { parseBannerObjectKey, resolveContestBannerUrl } from './storage.service.js';
 import {
   enabledCategories,
   parseStoredCategories,
@@ -122,7 +122,7 @@ function isTemplate(row: RecurringTemplateRow): boolean {
   return row.cycleMonth === null && row.isRecurringMonthly && row.seriesSlug.length > 0;
 }
 
-export function toTemplateView(
+export async function toTemplateView(
   row: RecurringTemplateRow,
   cycles: RecurringTemplateRow[],
   now = new Date(),
@@ -135,6 +135,7 @@ export function toTemplateView(
     (b.cycleMonth ?? '').localeCompare(a.cycleMonth ?? ''),
   )[0];
   const next = nextGenerationTarget(now, months);
+  const bannerUrl = await resolveContestBannerUrl(row.bannerObjectKey, row.bannerUrl);
   return {
     id: row.id,
     title: row.title,
@@ -144,7 +145,7 @@ export function toTemplateView(
     enabled: row.status !== ContestStatus.DRAFT,
     status: row.status,
     tagline: row.tagline,
-    bannerUrl: row.bannerUrl,
+    bannerUrl,
     bannerObjectKey: row.bannerObjectKey,
     thumbnailUrl: row.thumbnailUrl,
     timezone: 'UTC' as const,
@@ -275,7 +276,7 @@ export class RecurringContestService {
     const views = [];
     for (const template of templates) {
       const cycles = await store.listCycles(template.seriesSlug);
-      views.push(toTemplateView(template, cycles, now));
+      views.push(await toTemplateView(template, cycles, now));
     }
     return views;
   }
@@ -286,7 +287,11 @@ export class RecurringContestService {
     store: RecurringStore = prismaRecurringStore,
   ) {
     const template = await requireTemplate(store, id);
-    return toTemplateView(template, await store.listCycles(template.seriesSlug), now);
+    return await toTemplateView(
+      template,
+      await store.listCycles(template.seriesSlug),
+      now,
+    );
   }
 
   static async create(
@@ -349,7 +354,7 @@ export class RecurringContestService {
       await store.remove(created.id);
       throw error;
     }
-    return toTemplateView(created, [], now);
+    return await toTemplateView(created, [], now);
   }
 
   static async update(
@@ -374,7 +379,8 @@ export class RecurringContestService {
       if (bannerObjectKey) data.bannerUrl = null;
     }
     if (input.bannerUrl !== undefined && bannerObjectKey === undefined) {
-      data.bannerUrl = blank(input.bannerUrl);
+      const trimmed = blank(input.bannerUrl);
+      data.bannerUrl = trimmed && !trimmed.startsWith('blob:') ? trimmed : null;
     }
     if (input.thumbnailUrl !== undefined) data.thumbnailUrl = blank(input.thumbnailUrl);
     if (input.categoryId !== undefined) data.categoryId = input.categoryId;
@@ -404,7 +410,37 @@ export class RecurringContestService {
       seriesSlug: updated.seriesSlug,
       templateId: updated.id,
     });
-    return toTemplateView(updated, await store.listCycles(updated.seriesSlug), now);
+    if (
+      current.seriesSlug === PLEDGE_SERIES_SLUG &&
+      (bannerObjectKey !== undefined || input.bannerUrl !== undefined) &&
+      store === prismaRecurringStore
+    ) {
+      try {
+        const { year, month } = utcCycleMonth(now);
+        const boundaries = getUtcMonthBoundaries(year, month);
+        await prisma.contest.updateMany({
+          where: {
+            seriesSlug: PLEDGE_SERIES_SLUG,
+            cycleMonth: boundaries.cycleMonth,
+            status: ContestStatus.ACTIVE,
+          },
+          data: {
+            ...(bannerObjectKey !== undefined
+              ? {
+                  bannerObjectKey: bannerObjectKey ?? null,
+                  ...(bannerObjectKey ? { bannerUrl: null } : {}),
+                }
+              : {}),
+            ...(input.bannerUrl !== undefined && bannerObjectKey === undefined
+              ? { bannerUrl: data.bannerUrl ?? null }
+              : {}),
+          },
+        });
+      } catch {
+        // Best effort sync to active month cycle
+      }
+    }
+    return await toTemplateView(updated, await store.listCycles(updated.seriesSlug), now);
   }
 
   static async setEnabled(
@@ -417,7 +453,11 @@ export class RecurringContestService {
     const current = await requireTemplate(store, id);
     const status = enabled ? ContestStatus.SCHEDULED : ContestStatus.DRAFT;
     if (current.status === status) {
-      return toTemplateView(current, await store.listCycles(current.seriesSlug), now);
+      return await toTemplateView(
+        current,
+        await store.listCycles(current.seriesSlug),
+        now,
+      );
     }
     const updated = await store.update(current.id, { status });
     await store.audit({
@@ -426,7 +466,7 @@ export class RecurringContestService {
       seriesSlug: updated.seriesSlug,
       templateId: updated.id,
     });
-    return toTemplateView(updated, await store.listCycles(updated.seriesSlug), now);
+    return await toTemplateView(updated, await store.listCycles(updated.seriesSlug), now);
   }
 
   static async preview(
@@ -513,14 +553,15 @@ export class RecurringContestService {
     }
 
     cycles = await store.listCycles(template.seriesSlug);
-    return cycles
+    const cycleRows = cycles
       .filter((cycle) => cycle.cycleMonth !== null)
-      .sort((a, b) => (b.cycleMonth ?? '').localeCompare(a.cycleMonth ?? ''))
-      .map((cycle) => ({
+      .sort((a, b) => (b.cycleMonth ?? '').localeCompare(a.cycleMonth ?? ''));
+    return await Promise.all(
+      cycleRows.map(async (cycle) => ({
         id: cycle.id,
         title: cycle.title,
         tagline: cycle.tagline,
-        bannerUrl: cycle.bannerUrl,
+        bannerUrl: await resolveContestBannerUrl(cycle.bannerObjectKey, cycle.bannerUrl),
         bannerObjectKey: cycle.bannerObjectKey,
         thumbnailUrl: cycle.thumbnailUrl,
         seriesSlug: cycle.seriesSlug,
@@ -547,7 +588,8 @@ export class RecurringContestService {
           winnersPublished: cycle.winnersPublished,
           now,
         }),
-      }));
+      })),
+    );
   }
 
   static async updateCycle(
@@ -593,9 +635,14 @@ export class RecurringContestService {
     const data: Partial<RecurringTemplateRow> = {};
     if (input.title !== undefined) data.title = input.title.trim();
     if (input.tagline !== undefined) data.tagline = blank(input.tagline);
-    if (input.bannerUrl !== undefined) data.bannerUrl = blank(input.bannerUrl);
-    if (input.bannerObjectKey !== undefined)
+    if (input.bannerObjectKey !== undefined) {
       data.bannerObjectKey = assertBanner(input.bannerObjectKey) ?? null;
+      if (data.bannerObjectKey) data.bannerUrl = null;
+    }
+    if (input.bannerUrl !== undefined && input.bannerObjectKey === undefined) {
+      const trimmed = blank(input.bannerUrl);
+      data.bannerUrl = trimmed && !trimmed.startsWith('blob:') ? trimmed : null;
+    }
     if (input.winnerCount !== undefined) {
       data.winnerCount = assertPositiveWinnerCount(input.winnerCount);
       if (
@@ -666,11 +713,15 @@ export class RecurringContestService {
       seriesSlug: updated.seriesSlug,
       templateId: updated.id,
     });
+    const bannerUrl = await resolveContestBannerUrl(
+      updated.bannerObjectKey,
+      updated.bannerUrl,
+    );
     return {
       id: updated.id,
       title: updated.title,
       tagline: updated.tagline,
-      bannerUrl: updated.bannerUrl,
+      bannerUrl,
       bannerObjectKey: updated.bannerObjectKey,
       thumbnailUrl: updated.thumbnailUrl,
       cycleMonth: updated.cycleMonth,

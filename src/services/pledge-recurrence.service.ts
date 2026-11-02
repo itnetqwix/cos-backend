@@ -8,6 +8,7 @@ import {
 } from './contest-schedule.js';
 import { parseStoredCategories, type PledgeScoreCategory } from './pledge-categories.js';
 import { readStoredFormats } from './pledge-cycle-config.js';
+import { resolveContestBannerUrl } from './storage.service.js';
 
 /**
  * Monthly Pledge instances. A template row, when present, has seriesSlug
@@ -199,16 +200,25 @@ export class PledgeRecurrenceService {
       });
     }
     if (!row || !row.cycleMonth || row.status !== ContestStatus.ACTIVE) return null;
-    const [approvedEntries, ratings] = await Promise.all([
+    const template = await prisma.contest.findFirst({
+      where: { seriesSlug: PLEDGE_SERIES_SLUG, cycleMonth: null },
+    });
+    const effectiveBannerObjectKey =
+      row.bannerObjectKey ?? template?.bannerObjectKey ?? null;
+    const effectiveLegacyBannerUrl = row.bannerUrl ?? template?.bannerUrl ?? null;
+    const [approvedEntries, ratings, bannerUrl] = await Promise.all([
       prisma.submission.count({
         where: { contestId: row.id, status: 'APPROVED', deletedAt: null },
       }),
       prisma.rating.count({
         where: { submission: { contestId: row.id, deletedAt: null } },
       }),
+      resolveContestBannerUrl(effectiveBannerObjectKey, effectiveLegacyBannerUrl),
     ]);
     return {
       ...toPledgeMonth(row),
+      bannerUrl,
+      bannerObjectKey: effectiveBannerObjectKey,
       approvedEntries,
       ratingCount: ratings,
       rules: row.rules,

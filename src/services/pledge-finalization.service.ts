@@ -474,6 +474,7 @@ export function readTeamMap(value: unknown): Record<string, TeamEvaluation> {
     map[id] = {
       score: typeof row.score === 'number' ? row.score : null,
       notes: typeof row.notes === 'string' ? row.notes : '',
+      nominated: Boolean(row.nominated),
       updatedById: typeof row.updatedById === 'string' ? row.updatedById : '',
       updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : '',
     };
@@ -686,7 +687,8 @@ export class PledgeFinalizationService {
     if (!finalizable.winnerCount || finalizable.winnerCount < 1) {
       throw new ValidationError('Set a positive winner count before certifying winners');
     }
-    const submissions = await SubmissionRepository.listApprovedForContest(contestId);
+    const rawSubmissions = await SubmissionRepository.listApprovedForContest(contestId);
+    const submissions = rawSubmissions.filter((sub) => !sub.tags?.includes('replaced'));
     const ratings = await RatingRepository.listVoterRows(contestId);
     const candidates = candidatesFromRatings(
       submissions.map((submission) => ({
@@ -706,6 +708,17 @@ export class PledgeFinalizationService {
       if (!team[id]?.nominated) {
         throw new ValidationError('Only nominated videos can be selected as winners');
       }
+    }
+    // Enforce at most one winning video per creator
+    const chosenCandidates = candidates.filter((c) =>
+      submissionIds.includes(c.submissionId),
+    );
+    const seenWinnerCreators = new Set<string>();
+    for (const c of chosenCandidates) {
+      if (seenWinnerCreators.has(c.creatorId)) {
+        throw new ValidationError('Each creator can only have one winning entry');
+      }
+      seenWinnerCreators.add(c.creatorId);
     }
     const picked = manualWinnerSlots({
       orderedIds: submissionIds,
@@ -764,7 +777,12 @@ export class PledgeFinalizationService {
     if (!contest || contest.seriesSlug !== PLEDGE_SERIES_SLUG || !contest.cycleMonth) {
       throw new NotFoundError('Pledge month not found');
     }
-    const submissions = await SubmissionRepository.listApprovedForContest(contestId);
+    const rawSubmissions = await SubmissionRepository.listApprovedForContest(contestId);
+    const submissions = rawSubmissions.filter((sub) => !sub.tags?.includes('replaced'));
+    const creatorCount = new Map<string, number>();
+    for (const sub of submissions) {
+      creatorCount.set(sub.creatorId, (creatorCount.get(sub.creatorId) ?? 0) + 1);
+    }
     const ratings = await RatingRepository.listVoterRows(contestId);
     const candidates = candidatesFromRatings(
       submissions.map((submission) => ({
@@ -801,6 +819,7 @@ export class PledgeFinalizationService {
         const evaluation = team[candidate.submissionId] ?? null;
         return {
           submissionId: candidate.submissionId,
+          creatorId: candidate.creatorId,
           title: candidate.title,
           creatorName: candidate.creatorName,
           videoUrl: candidate.videoUrl,
@@ -810,6 +829,7 @@ export class PledgeFinalizationService {
           validRatingCount: candidate.validRatingCount,
           teamEvaluation: evaluation,
           isNominated: Boolean(evaluation?.nominated),
+          isDuplicateCreator: (creatorCount.get(candidate.creatorId) ?? 0) > 1,
           selectedRank,
           badge: selectedRank ? badgeForRank(selectedRank) : null,
         };

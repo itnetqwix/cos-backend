@@ -41,6 +41,15 @@ function publishedResult(status: ContestStatus, value: unknown): WinnerSnapshot 
   return snapshot;
 }
 
+export interface PledgeReplacedVersion {
+  id: string;
+  title: string;
+  thumbnailUrl: string | null;
+  videoUrl: string;
+  submittedAt: string;
+  replacedAt: string | null;
+}
+
 export interface PledgeHistoryEntry {
   id: string;
   title: string;
@@ -61,10 +70,12 @@ export interface PledgeHistoryEntry {
   }>;
   finalRank: number | null;
   winner: boolean;
+  isNominated: boolean;
   resultState: 'winner' | 'not-selected' | 'pending' | 'rejected' | 'insufficient';
   resultMessage: string | null;
   resultsPending: boolean;
   archivePath: string | null;
+  previousVersions: PledgeReplacedVersion[];
 }
 
 export interface PledgeHistoryMonth {
@@ -84,31 +95,73 @@ export class PledgeCreatorHistoryService {
         'Forbidden: User role does not have permission to access this resource',
       );
     }
-    const rows = await prisma.submission.findMany({
-      where: {
-        creatorId: actor.id,
-        deletedAt: null,
-        contest: { seriesSlug: PLEDGE_SERIES_SLUG, cycleMonth: { not: null } },
-      },
-      include: {
-        contest: true,
-        ratings: {
-          select: {
-            rating: true,
-            categoryScores: true,
-            userId: true,
-            guestVoterId: true,
+    const [rows, replacedRows] = await Promise.all([
+      prisma.submission.findMany({
+        where: {
+          creatorId: actor.id,
+          deletedAt: null,
+          contest: { seriesSlug: PLEDGE_SERIES_SLUG, cycleMonth: { not: null } },
+        },
+        include: {
+          contest: true,
+          ratings: {
+            select: {
+              rating: true,
+              categoryScores: true,
+              userId: true,
+              guestVoterId: true,
+            },
           },
         },
-      },
-      orderBy: [{ contest: { cycleMonth: 'desc' } }, { createdAt: 'desc' }],
-    });
+        orderBy: [{ contest: { cycleMonth: 'desc' } }, { createdAt: 'desc' }],
+      }),
+      prisma.submission.findMany({
+        where: {
+          creatorId: actor.id,
+          deletedAt: { not: null },
+          tags: { has: 'replaced' },
+          contest: { seriesSlug: PLEDGE_SERIES_SLUG, cycleMonth: { not: null } },
+        },
+        select: {
+          id: true,
+          contestId: true,
+          title: true,
+          thumbnailUrl: true,
+          videoUrl: true,
+          createdAt: true,
+          deletedAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
 
     const months = new Map<string, PledgeHistoryMonth>();
 
     for (const row of rows) {
       const cycleMonth = row.contest.cycleMonth ?? '';
       const published = publishedResult(row.contest.status, row.contest.winnersData);
+
+      const group = months.get(cycleMonth) ?? {
+        cycleMonth,
+        monthLabel: `${cycleMonthName(cycleMonth)} ${cycleMonth.slice(0, 4)}`,
+        contestId: row.contest.id,
+        contestTitle: row.contest.title,
+        contestStatus: row.contest.status,
+        resultsPublished: published !== null,
+        entries: [],
+      };
+
+      if (group.entries.length > 0) {
+        group.entries[0]!.previousVersions.push({
+          id: row.id,
+          title: row.title,
+          thumbnailUrl: row.thumbnailUrl,
+          videoUrl: row.videoUrl,
+          submittedAt: row.createdAt.toISOString(),
+          replacedAt: null,
+        });
+        continue;
+      }
       const countable = row.ratings.filter((rating) =>
         isCountableRating({
           submissionId: row.id,
@@ -178,7 +231,24 @@ export class PledgeCreatorHistoryService {
         resultMessage = 'Results are pending.';
       }
 
-      const entry = {
+      const teamEvaluations = (
+        row.contest.winnersData as {
+          teamEvaluations?: Record<string, { nominated?: boolean }>;
+        } | null
+      )?.teamEvaluations;
+      const isNominated = Boolean(teamEvaluations?.[row.id]?.nominated);
+      const contestReplaced = replacedRows
+        .filter((v) => v.contestId === row.contestId)
+        .map((v) => ({
+          id: v.id,
+          title: v.title,
+          thumbnailUrl: v.thumbnailUrl,
+          videoUrl: v.videoUrl,
+          submittedAt: v.createdAt.toISOString(),
+          replacedAt: v.deletedAt ? v.deletedAt.toISOString() : null,
+        }));
+
+      const entry: PledgeHistoryEntry = {
         id: row.id,
         title: row.title,
         thumbnailUrl: row.thumbnailUrl,
@@ -192,21 +262,14 @@ export class PledgeCreatorHistoryService {
         categoryRatings,
         finalRank: isWinner ? winnerIndex + 1 : null,
         winner: isWinner,
+        isNominated,
         resultState,
         resultMessage,
         resultsPending: resultState === 'pending',
         archivePath: published ? `/pledge/archive/${row.contest.id}` : null,
+        previousVersions: contestReplaced,
       };
 
-      const group = months.get(cycleMonth) ?? {
-        cycleMonth,
-        monthLabel: `${cycleMonthName(cycleMonth)} ${cycleMonth.slice(0, 4)}`,
-        contestId: row.contest.id,
-        contestTitle: row.contest.title,
-        contestStatus: row.contest.status,
-        resultsPublished: published !== null,
-        entries: [],
-      };
       group.entries.push(entry);
       months.set(cycleMonth, group);
     }
