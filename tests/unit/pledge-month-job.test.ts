@@ -66,6 +66,13 @@ function store(seed: PledgeMonthRow[] = []): PledgeRecurrenceStore & { rows: Ple
       const item = rows.find((existing) => existing.id === id);
       if (item?.status === ContestStatus.ACTIVE) item.status = ContestStatus.JUDGING;
     },
+    async activateMonth(id, configFrozenAt) {
+      const item = rows.find((existing) => existing.id === id);
+      if (item) {
+        item.status = ContestStatus.ACTIVE;
+        item.configFrozenAt = configFrozenAt;
+      }
+    },
   };
 }
 

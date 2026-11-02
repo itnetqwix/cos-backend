@@ -176,9 +176,12 @@ export class SubmissionService {
     if (!contest) {
       throw new NotFoundError('Contest not found');
     }
-    if (contest.status !== 'ACTIVE') {
+    if (
+      contest.status !== 'ACTIVE' ||
+      (contest.endDate && contest.endDate.getTime() <= Date.now())
+    ) {
       throw new ValidationError(
-        'Submissions are only accepted while the contest is ACTIVE',
+        'Submissions are only accepted while the contest is ACTIVE and before the deadline',
       );
     }
     const limits = uploadLimitsForContest(contest);
@@ -238,9 +241,12 @@ export class SubmissionService {
     if (!contest) {
       throw new NotFoundError('Contest not found');
     }
-    if (contest.status !== 'ACTIVE') {
+    if (
+      contest.status !== 'ACTIVE' ||
+      (contest.endDate && contest.endDate.getTime() <= Date.now())
+    ) {
       throw new ValidationError(
-        'Submissions are only accepted while the contest is ACTIVE',
+        'Submissions are only accepted while the contest is ACTIVE and before the deadline',
       );
     }
     const limits = uploadLimitsForContest(contest);
