@@ -62,6 +62,7 @@ export interface PledgeRecurrenceStore {
   listSeries(seriesSlug: string): Promise<PledgeMonthRow[]>;
   insertMonth(row: PledgeMonthRow): Promise<PledgeMonthRow>;
   markJudging(id: string): Promise<void>;
+  activateMonth(id: string, configFrozenAt: Date): Promise<void>;
 }
 
 const MONTH_NAMES = [
@@ -173,22 +174,31 @@ export class PledgeRecurrenceService {
     }
     const { year, month } = utcCycleMonth(now);
     const boundaries = getUtcMonthBoundaries(year, month);
-    const current = await prisma.contest.findFirst({
+    let row = await prisma.contest.findFirst({
       where: { seriesSlug: PLEDGE_SERIES_SLUG, cycleMonth: boundaries.cycleMonth },
     });
-    const row =
-      current ??
-      (await prisma.contest.findFirst({
+    if (
+      row &&
+      (row.status === ContestStatus.SCHEDULED || row.status === ContestStatus.DRAFT) &&
+      boundaries.start.getTime() <= now.getTime()
+    ) {
+      await prisma.contest.update({
+        where: { id: row.id },
+        data: { status: ContestStatus.ACTIVE, configFrozenAt: row.configFrozenAt ?? now },
+      });
+      row.status = ContestStatus.ACTIVE;
+    }
+    if (!row || row.status !== ContestStatus.ACTIVE) {
+      row = await prisma.contest.findFirst({
         where: {
           seriesSlug: PLEDGE_SERIES_SLUG,
           cycleMonth: { not: null },
-          status: {
-            in: [ContestStatus.ACTIVE, ContestStatus.JUDGING, ContestStatus.COMPLETED],
-          },
+          status: ContestStatus.ACTIVE,
         },
         orderBy: { cycleMonth: 'desc' },
-      }));
-    if (!row || !row.cycleMonth) return null;
+      });
+    }
+    if (!row || !row.cycleMonth || row.status !== ContestStatus.ACTIVE) return null;
     const [approvedEntries, ratings] = await Promise.all([
       prisma.submission.count({
         where: { contestId: row.id, status: 'APPROVED', deletedAt: null },
@@ -250,10 +260,7 @@ export class PledgeRecurrenceService {
           existing.status === ContestStatus.DRAFT) &&
         boundaries.start.getTime() <= now.getTime()
       ) {
-        await prisma.contest.updateMany({
-          where: { id: existing.id },
-          data: { status: ContestStatus.ACTIVE, configFrozenAt: now },
-        });
+        await store.activateMonth(existing.id, now);
         existing.status = ContestStatus.ACTIVE;
         existing.configFrozenAt = now;
       }
@@ -294,10 +301,34 @@ const prismaPledgeStore: PledgeRecurrenceStore = {
     const row = await prisma.contest.findFirst({
       where: { seriesSlug, cycleMonth: null },
     });
+    if (
+      row &&
+      row.seriesSlug === PLEDGE_SERIES_SLUG &&
+      row.status === ContestStatus.DRAFT
+    ) {
+      await prisma.contest.update({
+        where: { id: row.id },
+        data: { status: ContestStatus.SCHEDULED },
+      });
+      row.status = ContestStatus.SCHEDULED;
+    }
     return row ? toPledgeMonth(row) : null;
   },
   async listSeries(seriesSlug) {
     const rows = await prisma.contest.findMany({ where: { seriesSlug } });
+    for (const row of rows) {
+      if (
+        row.seriesSlug === PLEDGE_SERIES_SLUG &&
+        row.cycleMonth === null &&
+        row.status === ContestStatus.DRAFT
+      ) {
+        await prisma.contest.update({
+          where: { id: row.id },
+          data: { status: ContestStatus.SCHEDULED },
+        });
+        row.status = ContestStatus.SCHEDULED;
+      }
+    }
     return rows.map(toPledgeMonth);
   },
   async insertMonth(row) {
@@ -357,6 +388,12 @@ const prismaPledgeStore: PledgeRecurrenceStore = {
     await prisma.contest.updateMany({
       where: { id, seriesSlug: PLEDGE_SERIES_SLUG, status: ContestStatus.ACTIVE },
       data: { status: ContestStatus.JUDGING },
+    });
+  },
+  async activateMonth(id, configFrozenAt) {
+    await prisma.contest.updateMany({
+      where: { id, seriesSlug: PLEDGE_SERIES_SLUG },
+      data: { status: ContestStatus.ACTIVE, configFrozenAt },
     });
   },
 };

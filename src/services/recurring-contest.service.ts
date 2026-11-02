@@ -223,7 +223,8 @@ export function previewTemplate(
   );
   return {
     persisted: false as const,
-    generationEnabled: row.status !== ContestStatus.DRAFT,
+    generationEnabled:
+      row.seriesSlug === PLEDGE_SERIES_SLUG || row.status !== ContestStatus.DRAFT,
     seriesSlug: row.seriesSlug,
     title: pledgeInstanceTitle(row.title, target.boundaries),
     cycleMonth: built.cycleMonth,
@@ -456,7 +457,11 @@ export class RecurringContestService {
       }
       const boundaries = getUtcMonthBoundaries(targetYear, targetMonth);
       const exists = cycles.some((c) => c.cycleMonth === boundaries.cycleMonth);
-      if (!exists && template.status !== ContestStatus.DRAFT) {
+      if (
+        !exists &&
+        (template.seriesSlug === PLEDGE_SERIES_SLUG ||
+          template.status !== ContestStatus.DRAFT)
+      ) {
         const isCurrent = offset === 0;
         const built = buildPledgeMonth(
           boundaries,
