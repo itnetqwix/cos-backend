@@ -378,11 +378,16 @@ export class SubmissionRepository {
   /**
    * Pending-review queue. Oldest first. This is display order, not a moderation SLA.
    */
-  static async listPendingReview(): Promise<ModerationQueueRecord[]> {
+  static async listPendingReview(filter?: {
+    contestId?: string;
+    seriesSlug?: string;
+  }): Promise<ModerationQueueRecord[]> {
     return prisma.submission.findMany({
       where: {
         status: SubmissionStatus.PENDING_REVIEW,
         ...notDeleted,
+        ...(filter?.contestId ? { contestId: filter.contestId } : {}),
+        ...(filter?.seriesSlug ? { contest: { seriesSlug: filter.seriesSlug } } : {}),
       },
       include: queueInclude,
       orderBy: { createdAt: 'asc' },

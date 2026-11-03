@@ -11,11 +11,15 @@ const auditInclude = {
   submission: {
     select: {
       id: true,
+      contestId: true,
       title: true,
       status: true,
       contest: {
         select: {
           id: true,
+          title: true,
+          seriesSlug: true,
+          cycleMonth: true,
         },
       },
       creator: {
@@ -62,8 +66,22 @@ export class AuditLogRepository {
   }
 
   /** Newest first. */
-  static async list(): Promise<AuditLogRecord[]> {
+  static async list(filter?: {
+    contestId?: string;
+    seriesSlug?: string;
+  }): Promise<AuditLogRecord[]> {
     return prisma.auditLog.findMany({
+      where: {
+        ...(filter?.contestId ? { submission: { contestId: filter.contestId } } : {}),
+        ...(filter?.seriesSlug
+          ? {
+              OR: [
+                { submission: { contest: { seriesSlug: filter.seriesSlug } } },
+                { metadata: { path: ['seriesSlug'], equals: filter.seriesSlug } },
+              ],
+            }
+          : {}),
+      },
       include: auditInclude,
       orderBy: { createdAt: 'desc' },
     });

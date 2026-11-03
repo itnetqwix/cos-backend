@@ -76,8 +76,10 @@ export function toAuditLogView(entry: AuditLogRecord) {
     submission: entry.submission
       ? {
           id: entry.submission.id,
+          contestId: entry.submission.contestId,
           title: entry.submission.title,
           creatorName: entry.submission.creator?.name ?? null,
+          contest: entry.submission.contest,
         }
       : null,
   };
@@ -88,7 +90,11 @@ export class ModerationController {
    * GET /api/v1/admin/moderation/queue
    */
   static async queue(request: FastifyRequest, reply: FastifyReply) {
-    const submissions = await ModerationService.listQueue(actorFromRequest(request));
+    const query = (request.query || {}) as { contestId?: string; seriesSlug?: string };
+    const submissions = await ModerationService.listQueue(
+      actorFromRequest(request),
+      query,
+    );
     return sendSuccess(
       reply,
       await Promise.all(
@@ -142,7 +148,8 @@ export class ModerationController {
    * GET /api/v1/admin/moderation/audit-logs
    */
   static async auditLogs(request: FastifyRequest, reply: FastifyReply) {
-    const logs = await ModerationService.listAuditLogs(actorFromRequest(request));
+    const query = (request.query || {}) as { contestId?: string; seriesSlug?: string };
+    const logs = await ModerationService.listAuditLogs(actorFromRequest(request), query);
     return sendSuccess(
       reply,
       logs.map(toAuditLogView),
