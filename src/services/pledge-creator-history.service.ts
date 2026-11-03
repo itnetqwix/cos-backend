@@ -131,7 +131,7 @@ export class PledgeCreatorHistoryService {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
 
     // Determine current cycle (ACTIVE cycle or first cycle)

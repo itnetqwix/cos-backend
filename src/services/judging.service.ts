@@ -15,7 +15,11 @@ import {
   computeUpdatedCommunityScore,
   CommunityScoreResult,
 } from './community-score.js';
-import { playbackUrlForSubmission, signedAvatarUrl } from './storage.service.js';
+import {
+  playbackUrlForSubmission,
+  resolveThumbnailUrl,
+  signedAvatarUrl,
+} from './storage.service.js';
 import {
   ConflictError,
   ForbiddenError,
@@ -238,6 +242,10 @@ export class JudgingService {
         ...toQueueItem(row, await avatarFor(row.creator.avatarObjectKey)),
         videoUrl: await playbackUrlForSubmission(row.objectKey, row.videoUrl, {
           audience: 'public',
+        }),
+        thumbnailUrl: await resolveThumbnailUrl(row.thumbnailUrl, {
+          audience: 'public',
+          objectKey: row.objectKey,
         }),
       })),
     );

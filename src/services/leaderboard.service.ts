@@ -214,6 +214,7 @@ export class LeaderboardService {
           }),
           thumbnailUrl: await resolveThumbnailUrl(record.thumbnailUrl, {
             audience: 'public',
+            objectKey: record.objectKey,
           }),
           durationSeconds: record.durationSeconds,
           tags: record.tags,
@@ -246,6 +247,7 @@ export class LeaderboardService {
     const podium = (
       quorum ? items.filter((item) => item.isQuorumQualified) : items
     ).slice(0, 3);
+    const thumbMap = new Map(items.map((item) => [item.id, item.thumbnailUrl]));
     const categoryBoards =
       contest.seriesSlug === PLEDGE_SERIES_SLUG
         ? enabledCategories(parseStoredCategories(contest.scoringCategories)).map(
@@ -261,7 +263,7 @@ export class LeaderboardService {
                   return {
                     id: record.id,
                     title: record.title,
-                    thumbnailUrl: record.thumbnailUrl,
+                    thumbnailUrl: thumbMap.get(record.id) ?? null,
                     creatorName: record.creator.name,
                     average: stats.average,
                     validRatingCount: stats.count,
