@@ -34,7 +34,9 @@ export async function toSubmissionView(submission: SubmissionRecord) {
     description: submission.description,
     videoUrl: await playbackUrlForSubmission(submission.objectKey, submission.videoUrl),
     objectKey: submission.objectKey,
-    thumbnailUrl: await resolveThumbnailUrl(submission.thumbnailUrl),
+    thumbnailUrl: await resolveThumbnailUrl(submission.thumbnailUrl, {
+      objectKey: submission.objectKey,
+    }),
     durationSeconds: submission.durationSeconds,
     status: submission.status,
     rejectionReason: submission.rejectionReason,
