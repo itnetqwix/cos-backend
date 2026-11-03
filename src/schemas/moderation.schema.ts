@@ -66,6 +66,8 @@ const submissionDataSchema = {
         id: { type: 'string' },
         title: { type: 'string' },
         status: { type: 'string' },
+        seriesSlug: { type: 'string', nullable: true },
+        cycleMonth: { type: 'string', nullable: true },
         category: {
           type: 'object',
           nullable: true,

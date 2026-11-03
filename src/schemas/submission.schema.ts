@@ -94,6 +94,8 @@ const contestSummarySchema = {
     id: { type: 'string', format: 'uuid' },
     title: { type: 'string' },
     status: { type: 'string' },
+    seriesSlug: { type: 'string', nullable: true },
+    cycleMonth: { type: 'string', nullable: true },
     category: {
       type: 'object',
       nullable: true,
@@ -167,6 +169,7 @@ export const presignSubmissionSwaggerSchema: FastifySchema = {
         minimum: VIDEO_CONSTRAINTS.MIN_DURATION_SECONDS,
         maximum: VIDEO_CONSTRAINTS.MAX_DURATION_SECONDS,
       },
+      replacesSubmissionId: { type: 'string', format: 'uuid' },
     },
   },
   response: {
@@ -216,6 +219,7 @@ export const completeSubmissionSwaggerSchema: FastifySchema = {
       thumbnailUrl: { type: 'string', nullable: true },
       categoryId: { type: 'string', format: 'uuid' },
       otherCategoryLabel: { type: 'string', minLength: 1, maxLength: 80 },
+      replacesSubmissionId: { type: 'string', format: 'uuid' },
     },
   },
   response: {

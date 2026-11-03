@@ -5,6 +5,8 @@ import { ModerationService } from '../../src/services/moderation.service.js';
 import { SubmissionRepository, ModerationQueueRecord, SubmissionRecord } from '../../src/repositories/submission.repository.js';
 import { AuditLogRepository, AuditLogRecord } from '../../src/repositories/audit-log.repository.js';
 import { toModerationSubmissionView, toAuditLogView } from '../../src/controllers/moderation.controller.js';
+import { presignSubmissionSwaggerSchema, completeSubmissionSwaggerSchema } from '../../src/schemas/submission.schema.js';
+import { moderationQueueSwaggerSchema } from '../../src/schemas/moderation.schema.js';
 
 describe('Pledge Moderation Queue & Lifecycle Regression Suite (12 Scenarios)', () => {
   const NOV_CYCLE_ID = 'e17c5d4c-aca7-4b4d-a9ef-1bc01fdda754';
@@ -357,6 +359,53 @@ describe('Pledge Moderation Queue & Lifecycle Regression Suite (12 Scenarios)', 
     assert.equal(view.status, SubmissionStatus.PENDING_REVIEW);
     assert.equal(view.contestId, NOV_CYCLE_ID);
     assert.equal(view.contest?.seriesSlug, 'pledge');
+  });
+
+  // 13. presignSubmissionSwaggerSchema and completeSubmissionSwaggerSchema support replacesSubmissionId
+  it('13. presign and complete submission schemas accept replacesSubmissionId without validation rejection', () => {
+    const presignBody = presignSubmissionSwaggerSchema.body as any;
+    assert.ok(presignBody.properties.replacesSubmissionId, 'presign schema must include replacesSubmissionId');
+    assert.equal(presignBody.properties.replacesSubmissionId.type, 'string');
+    assert.equal(presignBody.properties.replacesSubmissionId.format, 'uuid');
+
+    const completeBody = completeSubmissionSwaggerSchema.body as any;
+    assert.ok(completeBody.properties.replacesSubmissionId, 'complete schema must include replacesSubmissionId');
+    assert.equal(completeBody.properties.replacesSubmissionId.type, 'string');
+    assert.equal(completeBody.properties.replacesSubmissionId.format, 'uuid');
+  });
+
+  // 14. moderationQueueSwaggerSchema includes seriesSlug and cycleMonth in contest properties
+  it('14. moderation queue response schema preserves seriesSlug and cycleMonth under contest', () => {
+    const response200 = (moderationQueueSwaggerSchema.response as any)[200];
+    const items = response200.properties.data.items;
+    assert.ok(items.properties.contest.properties.seriesSlug, 'contest must include seriesSlug');
+    assert.ok(items.properties.contest.properties.cycleMonth, 'contest must include cycleMonth');
+  });
+
+  // 15. Safe video replacement lifecycle preserves old version with replaced tag and deletedAt
+  it('15. Video replacement marks old submission deleted with REPLACED_BY tag', async () => {
+    const oldSub = makeRecord({
+      id: 'sub-old',
+      contestId: NOV_CYCLE_ID,
+      creatorId: CREATOR_ALICE,
+      status: SubmissionStatus.PENDING_REVIEW,
+      deletedAt: new Date(),
+      rejectionReason: 'REPLACED_BY:sub-new',
+      tags: ['replaced', 'replaced_by:sub-new'],
+    });
+    const newSub = makeRecord({
+      id: 'sub-new',
+      contestId: NOV_CYCLE_ID,
+      creatorId: CREATOR_ALICE,
+      status: SubmissionStatus.PENDING_REVIEW,
+      deletedAt: null,
+      tags: ['replacement', 'replaces:sub-old'],
+    });
+
+    submissionsStore.push(oldSub, newSub);
+    const queue = await ModerationService.listQueue(ADMIN_ACTOR, { contestId: NOV_CYCLE_ID });
+    assert.equal(queue.length, 1);
+    assert.equal(queue[0].id, 'sub-new');
   });
 });
 
