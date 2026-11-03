@@ -7,7 +7,12 @@ import {
   type UtcMonthBoundaries,
 } from './contest-schedule.js';
 import { parseStoredCategories, type PledgeScoreCategory } from './pledge-categories.js';
-import { readStoredFormats } from './pledge-cycle-config.js';
+import {
+  hasValidUploadConfig,
+  readStoredFormats,
+  resolvePledgeUploadConfig,
+  PLEDGE_PLATFORM_FORMATS,
+} from './pledge-cycle-config.js';
 import { resolveContestBannerUrl } from './storage.service.js';
 
 /**
@@ -128,7 +133,24 @@ export function buildPledgeMonth(
   template: PledgeMonthRow | null,
   now: Date,
   id: string,
+  inheritedUploadConfig?: {
+    maxVideoSizeMb: number;
+    maxVideoDurationSeconds: number;
+    allowedVideoFormats: string[];
+  } | null,
 ): PledgeMonthRow {
+  const upload =
+    inheritedUploadConfig ??
+    (template && hasValidUploadConfig(template)
+      ? {
+          maxVideoSizeMb: template.maxVideoSizeMb!,
+          maxVideoDurationSeconds: template.maxVideoDurationSeconds!,
+          allowedVideoFormats: readStoredFormats(template.allowedVideoFormats) ?? [
+            ...PLEDGE_PLATFORM_FORMATS,
+          ],
+        }
+      : null);
+
   return {
     id,
     seriesSlug: PLEDGE_SERIES_SLUG,
@@ -160,9 +182,14 @@ export function buildPledgeMonth(
     isWinnersFinalized: false,
     winnerCount:
       template?.winnerCount && template.winnerCount > 0 ? template.winnerCount : 3,
-    maxVideoSizeMb: template?.maxVideoSizeMb ?? null,
-    maxVideoDurationSeconds: template?.maxVideoDurationSeconds ?? null,
-    allowedVideoFormats: template?.allowedVideoFormats ?? null,
+    maxVideoSizeMb: upload?.maxVideoSizeMb ?? template?.maxVideoSizeMb ?? null,
+    maxVideoDurationSeconds:
+      upload?.maxVideoDurationSeconds ?? template?.maxVideoDurationSeconds ?? null,
+    allowedVideoFormats:
+      upload?.allowedVideoFormats ??
+      (Array.isArray(template?.allowedVideoFormats)
+        ? template?.allowedVideoFormats
+        : null),
     rankingNeedsReview: false,
   };
 }
@@ -204,6 +231,24 @@ export class PledgeRecurrenceService {
     const template = await prisma.contest.findFirst({
       where: { seriesSlug: PLEDGE_SERIES_SLUG, cycleMonth: null },
     });
+
+    const allCycles = await prisma.contest.findMany({
+      where: { seriesSlug: PLEDGE_SERIES_SLUG },
+    });
+    const resolvedUpload = resolvePledgeUploadConfig(row, allCycles, template, {
+      allowPlatformDefaults: true,
+    });
+    const effectiveMaxVideoSizeMb = hasValidUploadConfig(row)
+      ? row.maxVideoSizeMb!
+      : resolvedUpload!.maxVideoSizeMb;
+    const effectiveMaxVideoDurationSeconds = hasValidUploadConfig(row)
+      ? row.maxVideoDurationSeconds!
+      : resolvedUpload!.maxVideoDurationSeconds;
+    const effectiveAllowedVideoFormats = hasValidUploadConfig(row)
+      ? (readStoredFormats(row.allowedVideoFormats) ??
+        resolvedUpload!.allowedVideoFormats)
+      : resolvedUpload!.allowedVideoFormats;
+
     const effectiveBannerObjectKey =
       row.bannerObjectKey ?? template?.bannerObjectKey ?? null;
     const effectiveLegacyBannerUrl = row.bannerUrl ?? template?.bannerUrl ?? null;
@@ -218,6 +263,9 @@ export class PledgeRecurrenceService {
     ]);
     return {
       ...toPledgeMonth(row),
+      maxVideoSizeMb: effectiveMaxVideoSizeMb,
+      maxVideoDurationSeconds: effectiveMaxVideoDurationSeconds,
+      allowedVideoFormats: effectiveAllowedVideoFormats,
       bannerUrl,
       bannerObjectKey: effectiveBannerObjectKey,
       approvedEntries,
@@ -275,6 +323,11 @@ export class PledgeRecurrenceService {
         existing.status = ContestStatus.ACTIVE;
         existing.configFrozenAt = now;
       }
+      if (!hasValidUploadConfig(existing)) {
+        // Do not mutate DB row for existing running months on access.
+        // Public endpoints and submission upload limits resolve defaults/inheritance dynamically,
+        // preserving Admin's ability to explicitly configure the month without premature freeze.
+      }
       return existing;
     }
 
@@ -282,7 +335,18 @@ export class PledgeRecurrenceService {
       series.find((row) => row.cycleMonth === null) ??
       (await store.findTemplate(PLEDGE_SERIES_SLUG));
     if (!templateGenerationEnabled(template)) return null;
-    const created = buildPledgeMonth(boundaries, template, now, crypto.randomUUID());
+    const resolvedUpload = resolvePledgeUploadConfig(
+      { cycleMonth: boundaries.cycleMonth },
+      series,
+      template,
+    );
+    const created = buildPledgeMonth(
+      boundaries,
+      template,
+      now,
+      crypto.randomUUID(),
+      resolvedUpload,
+    );
     if (
       parseStoredCategories(created.scoringCategories ?? null).every(
         (row) => !row.enabled,

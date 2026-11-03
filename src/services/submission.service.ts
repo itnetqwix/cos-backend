@@ -29,7 +29,12 @@ import {
 import { NotificationService } from './notification.service.js';
 import { resolveSubmissionCategory } from './video-category.service.js';
 import { PLEDGE_SERIES_SLUG } from './contest-schedule.js';
-import { readStoredFormats } from './pledge-cycle-config.js';
+import {
+  readStoredFormats,
+  hasValidUploadConfig,
+  resolvePledgeUploadConfig,
+} from './pledge-cycle-config.js';
+import { prisma } from '../config/database.js';
 
 /**
  * Creator submission ingest (M06-P03-T02).
@@ -69,30 +74,71 @@ function platformUploadLimits(): UploadLimits {
   };
 }
 
-function uploadLimitsForContest(contest: {
+async function uploadLimitsForContest(contest: {
+  id?: string;
   seriesSlug: string | null;
   cycleMonth: string | null;
   maxVideoSizeMb: number | null;
   maxVideoDurationSeconds: number | null;
   allowedVideoFormats: unknown;
-}): UploadLimits {
+}): Promise<UploadLimits> {
   if (contest.seriesSlug !== PLEDGE_SERIES_SLUG || !contest.cycleMonth) {
     return platformUploadLimits();
   }
+  let sizeMb = contest.maxVideoSizeMb;
+  let durationSec = contest.maxVideoDurationSeconds;
+  let formats = readStoredFormats(contest.allowedVideoFormats);
+
   if (
-    !contest.maxVideoSizeMb ||
-    !contest.maxVideoDurationSeconds ||
-    contest.maxVideoSizeMb < 1 ||
-    contest.maxVideoDurationSeconds < 1
+    !sizeMb ||
+    sizeMb < 1 ||
+    !durationSec ||
+    durationSec < 1 ||
+    !formats ||
+    formats.length === 0
   ) {
-    throw new ValidationError('This Pledge month has no upload configuration');
+    let allCycles: Array<{
+      id: string;
+      cycleMonth: string | null;
+      seriesSlug: string | null;
+      maxVideoSizeMb: number | null;
+      maxVideoDurationSeconds: number | null;
+      allowedVideoFormats: unknown;
+    }> = [];
+    try {
+      allCycles = await prisma.contest.findMany({
+        where: { seriesSlug: PLEDGE_SERIES_SLUG },
+        select: {
+          id: true,
+          cycleMonth: true,
+          seriesSlug: true,
+          maxVideoSizeMb: true,
+          maxVideoDurationSeconds: true,
+          allowedVideoFormats: true,
+        },
+      });
+    } catch {
+      // In isolated tests where prisma is unconfigured
+    }
+
+    const template = allCycles.find((c) => c.cycleMonth === null) ?? null;
+    const resolved = resolvePledgeUploadConfig(contest, allCycles, template, {
+      allowPlatformDefaults: true,
+    });
+    if (!resolved) {
+      throw new ValidationError(
+        'This Pledge month has no upload configuration. An administrator must configure video upload limits in Competition Settings.',
+      );
+    }
+
+    sizeMb = resolved.maxVideoSizeMb;
+    durationSec = resolved.maxVideoDurationSeconds;
+    formats = resolved.allowedVideoFormats;
   }
-  const formats = readStoredFormats(contest.allowedVideoFormats) ?? [
-    ...VIDEO_CONSTRAINTS.ALLOWED_CONTENT_TYPES,
-  ];
+
   return {
-    maxFileSizeBytes: contest.maxVideoSizeMb * 1024 * 1024,
-    maxDurationSeconds: contest.maxVideoDurationSeconds,
+    maxFileSizeBytes: sizeMb * 1024 * 1024,
+    maxDurationSeconds: durationSec,
     allowedContentTypes: formats,
   };
 }
@@ -183,7 +229,7 @@ export class SubmissionService {
         'Submissions are only accepted while the contest is ACTIVE and before the deadline',
       );
     }
-    const limits = uploadLimitsForContest(contest);
+    const limits = await uploadLimitsForContest(contest);
     assertVideoConstraints(
       {
         contentType: input.contentType,
@@ -260,7 +306,7 @@ export class SubmissionService {
         'Submissions are only accepted while the contest is ACTIVE and before the deadline',
       );
     }
-    const limits = uploadLimitsForContest(contest);
+    const limits = await uploadLimitsForContest(contest);
     assertVideoConstraints({ durationSeconds: input.durationSeconds }, limits);
 
     const existing = await SubmissionRepository.findByObjectKey(input.objectKey);

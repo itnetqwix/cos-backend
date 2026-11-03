@@ -49,7 +49,7 @@ function contestRow(id: string, status: ContestStatus): ContestRecord {
     votingClosesAt: null,
     status,
     startDate: now,
-    endDate: new Date('2026-10-31T00:00:00.000Z'),
+    endDate: new Date(Date.now() + 30 * 86400 * 1000),
     prizeSummary: '25000 USD',
     rules: ['Be original'],
     autoAdvanceDelayMs: 1800,

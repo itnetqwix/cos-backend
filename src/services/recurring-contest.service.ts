@@ -23,8 +23,10 @@ import {
 import {
   assertPledgeUploadSettings,
   assertPositiveWinnerCount,
+  hasValidUploadConfig,
   pledgeConfigPhase,
   readStoredFormats,
+  resolvePledgeUploadConfig,
 } from './pledge-cycle-config.js';
 import { PLEDGE_SERIES_SLUG } from './contest-schedule.js';
 
@@ -504,11 +506,17 @@ export class RecurringContestService {
           template.status !== ContestStatus.DRAFT)
       ) {
         const isCurrent = offset === 0;
+        const resolvedUpload = resolvePledgeUploadConfig(
+          { cycleMonth: boundaries.cycleMonth },
+          cycles,
+          template,
+        );
         const built = buildPledgeMonth(
           boundaries,
           asPledgeTemplate(template),
           now,
           crypto.randomUUID(),
+          resolvedUpload,
         );
         const rowToInsert: RecurringTemplateRow = {
           id: built.id,
@@ -621,6 +629,7 @@ export class RecurringContestService {
     // Requirement 6.1: Current-month settings must not allow changing rules, winner count, upload size, duration, formats.
     // Safe correction exception: If winnerCount is missing/null/invalid on an existing cycle, Admin is allowed to correct it.
     const isWinnerCountMissing = current.winnerCount === null || current.winnerCount < 1;
+    const isUploadConfigMissing = !hasValidUploadConfig(current);
     if (
       currentPhase === 'active-frozen' ||
       current.status === ContestStatus.ACTIVE ||
@@ -629,9 +638,9 @@ export class RecurringContestService {
       if (
         input.rules !== undefined ||
         (input.winnerCount !== undefined && !isWinnerCountMissing) ||
-        input.maxVideoSizeMb !== undefined ||
-        input.maxVideoDurationSeconds !== undefined ||
-        input.allowedVideoFormats !== undefined
+        (input.maxVideoSizeMb !== undefined && !isUploadConfigMissing) ||
+        (input.maxVideoDurationSeconds !== undefined && !isUploadConfigMissing) ||
+        (input.allowedVideoFormats !== undefined && !isUploadConfigMissing)
       ) {
         throw new ConflictError(
           'Competition rules, winner count, and upload limits cannot be changed for the current running month',
@@ -641,6 +650,11 @@ export class RecurringContestService {
 
     const isWinnerCountCorrection =
       input.winnerCount !== undefined && isWinnerCountMissing;
+    const isUploadCorrection =
+      (input.maxVideoSizeMb !== undefined ||
+        input.maxVideoDurationSeconds !== undefined ||
+        input.allowedVideoFormats !== undefined) &&
+      isUploadConfigMissing;
     const data: Partial<RecurringTemplateRow> = {};
     if (input.title !== undefined) data.title = input.title.trim();
     if (input.tagline !== undefined) data.tagline = blank(input.tagline);
@@ -721,14 +735,28 @@ export class RecurringContestService {
       action: 'RECURRENCE_UPDATE',
       seriesSlug: updated.seriesSlug,
       templateId: updated.id,
-      metadata: isWinnerCountCorrection
-        ? {
-            correction: 'CORRECT_WINNER_COUNT',
-            cycleMonth: current.cycleMonth,
-            previousWinnerCount: current.winnerCount,
-            newWinnerCount: data.winnerCount,
-          }
-        : undefined,
+      metadata:
+        isWinnerCountCorrection || isUploadCorrection
+          ? {
+              ...(isWinnerCountCorrection
+                ? {
+                    correction: 'CORRECT_WINNER_COUNT',
+                    cycleMonth: current.cycleMonth,
+                    previousWinnerCount: current.winnerCount,
+                    newWinnerCount: data.winnerCount,
+                  }
+                : {}),
+              ...(isUploadCorrection
+                ? {
+                    uploadCorrection: 'CORRECT_UPLOAD_CONFIG',
+                    cycleMonth: current.cycleMonth,
+                    maxVideoSizeMb: data.maxVideoSizeMb,
+                    maxVideoDurationSeconds: data.maxVideoDurationSeconds,
+                    allowedVideoFormats: data.allowedVideoFormats,
+                  }
+                : {}),
+            }
+          : undefined,
     });
     const bannerUrl = await resolveContestBannerUrl(
       updated.bannerObjectKey,
