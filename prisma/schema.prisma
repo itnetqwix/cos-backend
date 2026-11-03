@@ -71,6 +71,10 @@ model User {
   // handle remains PLANNED and is not a column (M02-P01-T05 / T06).
   avatarObjectKey String?
 
+  // User preferences and onboarding tracking
+  pledgeIntroSeenAt       DateTime?
+  pledgeIntroVersion      String?
+
   // handle is a domain-model PLANNED field.
   // Persistence (nullability, uniqueness, @-prefix format) is NOT SPECIFIED.
 

@@ -74,6 +74,8 @@ import {
 import {
   listUsersSwaggerSchema,
   getUserByIdSwaggerSchema,
+  getUserPreferencesSwaggerSchema,
+  updateUserPreferencesSwaggerSchema,
   healthSwaggerSchema,
   rootSwaggerSchema,
 } from '../schemas/user.schema.js';
@@ -303,6 +305,43 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
 
   // User listing is ADMIN only. Self-profile remains GET /auth/me.
   // -------------------------------------------------------------
+
+  // User preferences for all authenticated users (registered before /users/:id)
+  fastify.get(
+    '/users/me/preferences',
+    {
+      schema: getUserPreferencesSwaggerSchema,
+      onRequest: [fastify.authenticate],
+    },
+    UserController.getMyPreferences,
+  );
+
+  fastify.patch(
+    '/users/me/preferences',
+    {
+      schema: updateUserPreferencesSwaggerSchema,
+      onRequest: [fastify.authenticate],
+    },
+    UserController.updateMyPreferences,
+  );
+
+  fastify.get(
+    '/auth/me/preferences',
+    {
+      schema: getUserPreferencesSwaggerSchema,
+      onRequest: [fastify.authenticate],
+    },
+    UserController.getMyPreferences,
+  );
+
+  fastify.patch(
+    '/auth/me/preferences',
+    {
+      schema: updateUserPreferencesSwaggerSchema,
+      onRequest: [fastify.authenticate],
+    },
+    UserController.updateMyPreferences,
+  );
 
   fastify.get(
     '/users',
