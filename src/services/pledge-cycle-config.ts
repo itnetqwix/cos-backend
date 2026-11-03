@@ -125,6 +125,147 @@ export function insufficientResultMessage(_cycleMonth: string | null): string {
 export type PledgeConfigPhase =
   'template' | 'upcoming' | 'active-frozen' | 'published-historical';
 
+export interface PledgeUploadCandidate {
+  id?: string;
+  cycleMonth?: string | null;
+  seriesSlug?: string | null;
+  maxVideoSizeMb?: number | null;
+  maxVideoDurationSeconds?: number | null;
+  allowedVideoFormats?: unknown;
+}
+
+export interface ResolvedPledgeUploadConfig {
+  maxVideoSizeMb: number;
+  maxVideoDurationSeconds: number;
+  allowedVideoFormats: string[];
+  isInherited: boolean;
+  isDefault?: boolean;
+  sourceCycleMonth?: string | null;
+}
+
+/**
+ * Checks whether an entity has explicit, complete, valid upload configuration.
+ */
+export function hasValidUploadConfig(candidate: {
+  maxVideoSizeMb?: number | null;
+  maxVideoDurationSeconds?: number | null;
+  allowedVideoFormats?: unknown;
+}): boolean {
+  if (
+    typeof candidate.maxVideoSizeMb !== 'number' ||
+    !Number.isInteger(candidate.maxVideoSizeMb) ||
+    candidate.maxVideoSizeMb < 1 ||
+    typeof candidate.maxVideoDurationSeconds !== 'number' ||
+    !Number.isInteger(candidate.maxVideoDurationSeconds) ||
+    candidate.maxVideoDurationSeconds < 1
+  ) {
+    return false;
+  }
+  const formats = readStoredFormats(candidate.allowedVideoFormats);
+  return formats !== null && formats.length > 0;
+}
+
+/**
+ * Resolves the authoritative upload configuration for a Pledge month.
+ * Priority:
+ * 1. Explicitly configured upload settings on the target cycle.
+ * 2. Inherited settings from the latest chronological preceding monthly cycle.
+ * 3. Fallback to permanent template upload settings (cycleMonth == null).
+ * 4. Fallback to platform defaults (100 MB, 60s, MP4/WebM/QuickTime) if allowPlatformDefaults is true.
+ * 5. Returns null if no valid configuration exists anywhere in the chain and allowPlatformDefaults is false.
+ */
+export function resolvePledgeUploadConfig(
+  target: PledgeUploadCandidate,
+  previousCycles: PledgeUploadCandidate[] = [],
+  template: PledgeUploadCandidate | null = null,
+  options: { allowPlatformDefaults?: boolean } = {},
+): ResolvedPledgeUploadConfig | null {
+  // 1. Explicit configuration on the target cycle takes highest priority
+  if (hasValidUploadConfig(target)) {
+    const formats = readStoredFormats(target.allowedVideoFormats) ?? [
+      ...PLEDGE_PLATFORM_FORMATS,
+    ];
+    return {
+      maxVideoSizeMb: target.maxVideoSizeMb!,
+      maxVideoDurationSeconds: target.maxVideoDurationSeconds!,
+      allowedVideoFormats: formats,
+      isInherited: false,
+      isDefault: false,
+      sourceCycleMonth: target.cycleMonth,
+    };
+  }
+
+  // 2. If target is a monthly cycle, find latest chronological predecessor with valid config
+  if (target.cycleMonth) {
+    const targetMonth = target.cycleMonth;
+    const candidates = previousCycles
+      .filter(
+        (c) => c.cycleMonth && c.cycleMonth < targetMonth && hasValidUploadConfig(c),
+      )
+      .sort((a, b) => (b.cycleMonth ?? '').localeCompare(a.cycleMonth ?? ''));
+
+    if (candidates.length > 0) {
+      const best = candidates[0]!;
+      const formats = readStoredFormats(best.allowedVideoFormats) ?? [
+        ...PLEDGE_PLATFORM_FORMATS,
+      ];
+      return {
+        maxVideoSizeMb: best.maxVideoSizeMb!,
+        maxVideoDurationSeconds: best.maxVideoDurationSeconds!,
+        allowedVideoFormats: formats,
+        isInherited: true,
+        isDefault: false,
+        sourceCycleMonth: best.cycleMonth,
+      };
+    }
+  }
+
+  // 3. Fallback to template if template has valid upload configuration
+  if (template && hasValidUploadConfig(template)) {
+    const formats = readStoredFormats(template.allowedVideoFormats) ?? [
+      ...PLEDGE_PLATFORM_FORMATS,
+    ];
+    return {
+      maxVideoSizeMb: template.maxVideoSizeMb!,
+      maxVideoDurationSeconds: template.maxVideoDurationSeconds!,
+      allowedVideoFormats: formats,
+      isInherited: true,
+      isDefault: false,
+      sourceCycleMonth: null,
+    };
+  }
+
+  // 4. Platform defaults (when allowPlatformDefaults is true)
+  if (options.allowPlatformDefaults) {
+    return {
+      maxVideoSizeMb: Math.floor(VIDEO_CONSTRAINTS.MAX_FILE_SIZE_BYTES / (1024 * 1024)),
+      maxVideoDurationSeconds: VIDEO_CONSTRAINTS.MAX_DURATION_SECONDS,
+      allowedVideoFormats: [...PLEDGE_PLATFORM_FORMATS],
+      isInherited: true,
+      isDefault: true,
+      sourceCycleMonth: 'platform-default',
+    };
+  }
+
+  // 5. No valid configuration resolved
+  return null;
+}
+
+export function assertResolvedPledgeUploadConfig(
+  target: PledgeUploadCandidate,
+  previousCycles: PledgeUploadCandidate[] = [],
+  template: PledgeUploadCandidate | null = null,
+  options: { allowPlatformDefaults?: boolean } = {},
+): ResolvedPledgeUploadConfig {
+  const resolved = resolvePledgeUploadConfig(target, previousCycles, template, options);
+  if (!resolved) {
+    throw new ValidationError(
+      'This Pledge month has no upload configuration. An administrator must configure video upload limits in Competition Settings.',
+    );
+  }
+  return resolved;
+}
+
 export function pledgeConfigPhase(input: {
   cycleMonth: string | null;
   status: string;
