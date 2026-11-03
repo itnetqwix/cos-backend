@@ -130,7 +130,13 @@ export class AuthService {
       throw new NotFoundError('User profile not found');
     }
 
-    return toPublicUser(user);
+    const publicUser = await toPublicUser(user);
+    const prefs = await UserRepository.getUserPreferences(userId);
+    return {
+      ...publicUser,
+      pledgeIntroSeenAt: prefs.pledgeIntroSeenAt,
+      pledgeIntroVersion: prefs.pledgeIntroVersion,
+    };
   }
 
   /**

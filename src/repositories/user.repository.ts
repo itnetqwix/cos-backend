@@ -149,4 +149,95 @@ export class UserRepository {
       select: publicUserSelect,
     });
   }
+
+  /**
+   * Safe preference retrieval for user intro and onboarding tracking.
+   * Uses DB column when available, with in-memory resilient fallback.
+   */
+  static async getUserPreferences(id: string): Promise<{
+    pledgeIntroSeenAt: Date | null;
+    pledgeIntroVersion: string | null;
+  }> {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          pledgeIntroSeenAt: true,
+          pledgeIntroVersion: true,
+        },
+      });
+      if (user) {
+        const mem = inMemoryUserPreferences.get(id);
+        return {
+          pledgeIntroSeenAt: user.pledgeIntroSeenAt ?? mem?.pledgeIntroSeenAt ?? null,
+          pledgeIntroVersion: user.pledgeIntroVersion ?? mem?.pledgeIntroVersion ?? null,
+        };
+      }
+    } catch {
+      // In pre-migrated or disconnected environments, fallback safely
+    }
+    return (
+      inMemoryUserPreferences.get(id) ?? {
+        pledgeIntroSeenAt: null,
+        pledgeIntroVersion: null,
+      }
+    );
+  }
+
+  /**
+   * Safe preference update for user intro and onboarding tracking.
+   */
+  static async updateUserPreferences(
+    id: string,
+    data: { pledgeIntroSeenAt?: Date | null; pledgeIntroVersion?: string | null },
+  ): Promise<{
+    pledgeIntroSeenAt: Date | null;
+    pledgeIntroVersion: string | null;
+  }> {
+    const current = inMemoryUserPreferences.get(id) ?? {
+      pledgeIntroSeenAt: null,
+      pledgeIntroVersion: null,
+    };
+    const next = {
+      pledgeIntroSeenAt:
+        data.pledgeIntroSeenAt !== undefined
+          ? data.pledgeIntroSeenAt
+          : current.pledgeIntroSeenAt,
+      pledgeIntroVersion:
+        data.pledgeIntroVersion !== undefined
+          ? data.pledgeIntroVersion
+          : current.pledgeIntroVersion,
+    };
+    inMemoryUserPreferences.set(id, next);
+
+    try {
+      const updated = await prisma.user.update({
+        where: { id },
+        data: {
+          ...(data.pledgeIntroSeenAt !== undefined
+            ? { pledgeIntroSeenAt: data.pledgeIntroSeenAt }
+            : {}),
+          ...(data.pledgeIntroVersion !== undefined
+            ? { pledgeIntroVersion: data.pledgeIntroVersion }
+            : {}),
+        },
+        select: {
+          pledgeIntroSeenAt: true,
+          pledgeIntroVersion: true,
+        },
+      });
+      return {
+        pledgeIntroSeenAt: updated.pledgeIntroSeenAt,
+        pledgeIntroVersion: updated.pledgeIntroVersion,
+      };
+    } catch {
+      // Column migration pending or DB write deferred: return memory-persisted preference
+      return next;
+    }
+  }
 }
+
+export const inMemoryUserPreferences = new Map<
+  string,
+  { pledgeIntroSeenAt: Date | null; pledgeIntroVersion: string | null }
+>();

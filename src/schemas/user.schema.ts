@@ -181,3 +181,89 @@ export const rootSwaggerSchema: FastifySchema = {
     },
   },
 };
+
+// -------------------------------------------------------------
+// 4. User Preferences Schemas
+// -------------------------------------------------------------
+
+export const userPreferencesSchema = z.object({
+  pledgeIntroSeenAt: z.string().datetime().nullable().optional(),
+  pledgeIntroVersion: z.string().trim().nullable().optional(),
+  pledgeIntroSeen: z.boolean().optional(),
+  pledgeIntroDismissed: z.boolean().optional(),
+});
+
+export type UserPreferencesInput = z.infer<typeof userPreferencesSchema>;
+
+export const SwaggerUserPreferencesSchema = {
+  type: 'object',
+  properties: {
+    pledgeIntroSeenAt: {
+      type: 'string',
+      format: 'date-time',
+      nullable: true,
+      example: '2026-11-04T00:00:00.000Z',
+    },
+    pledgeIntroVersion: {
+      type: 'string',
+      nullable: true,
+      example: 'pledge_intro_v1',
+    },
+  },
+};
+
+export const getUserPreferencesSwaggerSchema: FastifySchema = {
+  tags: ['Users'],
+  summary: 'Get current user preferences & intro status',
+  description:
+    'Retrieves the authenticated user preferences, including Pledge introduction seen state and version.',
+  security: [{ bearerAuth: [] }],
+  response: {
+    200: {
+      description: 'Preferences retrieved successfully',
+      ...swaggerSuccessEnvelope(
+        SwaggerUserPreferencesSchema,
+        'User preferences retrieved successfully',
+      ),
+    },
+    401: {
+      description: 'Unauthorized',
+      ...swaggerErrorEnvelope('Unauthorized: Authentication required or token invalid'),
+    },
+  },
+};
+
+export const updateUserPreferencesSwaggerSchema: FastifySchema = {
+  tags: ['Users'],
+  summary: 'Update current user preferences & intro status',
+  description:
+    'Updates preferences for the authenticated user, such as marking the Pledge introduction as seen or dismissed.',
+  security: [{ bearerAuth: [] }],
+  body: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      pledgeIntroSeenAt: { type: 'string', format: 'date-time', nullable: true },
+      pledgeIntroVersion: { type: 'string', nullable: true },
+      pledgeIntroSeen: { type: 'boolean' },
+      pledgeIntroDismissed: { type: 'boolean' },
+    },
+  },
+  response: {
+    200: {
+      description: 'Preferences updated successfully',
+      ...swaggerSuccessEnvelope(
+        SwaggerUserPreferencesSchema,
+        'User preferences updated successfully',
+      ),
+    },
+    400: {
+      description: 'Validation error',
+      ...swaggerErrorEnvelope('Validation error'),
+    },
+    401: {
+      description: 'Unauthorized',
+      ...swaggerErrorEnvelope('Unauthorized: Authentication required or token invalid'),
+    },
+  },
+};
