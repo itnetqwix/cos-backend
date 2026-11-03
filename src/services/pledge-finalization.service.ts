@@ -13,6 +13,7 @@ import {
   type VoterRatingRow,
 } from './voter-quorum.js';
 import { ConflictError, NotFoundError, ValidationError } from '../utils/response.js';
+import { resolveSubmissionMedia } from './storage.service.js';
 import {
   arithmeticMean,
   categoryAverage,
@@ -820,25 +821,31 @@ export class PledgeFinalizationService {
         winner.rank ?? index + 1,
       ]),
     );
-    return {
-      id: contest.id,
-      cycleMonth: contest.cycleMonth,
-      status: contest.status,
-      winnerCount: contest.winnerCount,
-      isWinnersFinalized: contest.isWinnersFinalized,
-      rankingNeedsReview: contest.rankingNeedsReview,
-      published:
-        contest.status === ContestStatus.COMPLETED && snapshot?.published !== false,
-      videos: candidates.map((candidate) => {
+    const submissionById = new Map(submissions.map((s) => [s.id, s]));
+
+    const videos = await Promise.all(
+      candidates.map(async (candidate) => {
         const selectedRank = rankOf.get(candidate.submissionId) ?? null;
         const evaluation = team[candidate.submissionId] ?? null;
+        const sub = submissionById.get(candidate.submissionId);
+        const media = sub
+          ? await resolveSubmissionMedia(sub.objectKey, sub.videoUrl, sub.thumbnailUrl, {
+              audience: 'restricted',
+              expiresInSeconds: 3600,
+            })
+          : {
+              videoUrl: candidate.videoUrl,
+              thumbnailUrl: candidate.thumbnailUrl ?? null,
+            };
+
         return {
           submissionId: candidate.submissionId,
           creatorId: candidate.creatorId,
           title: candidate.title,
           creatorName: candidate.creatorName,
-          videoUrl: candidate.videoUrl,
-          thumbnailUrl: candidate.thumbnailUrl ?? null,
+          videoUrl: media.videoUrl,
+          thumbnailUrl: media.thumbnailUrl,
+          objectKey: sub?.objectKey ?? null,
           communityScore: candidate.communityScore,
           distinctVoterCount: candidate.distinctVoterCount,
           validRatingCount: candidate.validRatingCount,
@@ -849,6 +856,18 @@ export class PledgeFinalizationService {
           badge: selectedRank ? badgeForRank(selectedRank) : null,
         };
       }),
+    );
+
+    return {
+      id: contest.id,
+      cycleMonth: contest.cycleMonth,
+      status: contest.status,
+      winnerCount: contest.winnerCount,
+      isWinnersFinalized: contest.isWinnersFinalized,
+      rankingNeedsReview: contest.rankingNeedsReview,
+      published:
+        contest.status === ContestStatus.COMPLETED && snapshot?.published !== false,
+      videos,
     };
   }
 

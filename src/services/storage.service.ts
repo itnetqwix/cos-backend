@@ -138,7 +138,10 @@ export interface StorageService {
    * Temporary GET for a submission objectKey already loaded from the database.
    * Callers must not pass a client-supplied key.
    */
-  createPresignedDownload?(objectKey: string): Promise<string>;
+  createPresignedDownload?(
+    objectKey: string,
+    options?: { expiresInSeconds?: number },
+  ): Promise<string>;
   getPublicUrl?(objectKey: string): string;
 }
 
@@ -425,6 +428,18 @@ export function buildPublicCdnMediaUrl(
   return `${prefix}/v1/${encoded}`;
 }
 
+export function extractObjectKeyFromUrl(urlOrKey: string): string {
+  try {
+    if (urlOrKey.startsWith('http://') || urlOrKey.startsWith('https://')) {
+      const parsed = new URL(urlOrKey);
+      return decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
+    }
+  } catch {
+    // Return original string if URL parsing fails
+  }
+  return urlOrKey;
+}
+
 /**
  * Response-time playback URL. `objectKey` is the source of truth.
  * The stored `videoUrl` is only the fallback when this process has no
@@ -441,7 +456,11 @@ export function buildPublicCdnMediaUrl(
 export async function playbackUrlForSubmission(
   objectKey: string,
   storedVideoUrl: string,
-  options?: { audience?: PlaybackAudience; cdnBaseUrl?: string | null },
+  options?: {
+    audience?: PlaybackAudience;
+    cdnBaseUrl?: string | null;
+    expiresInSeconds?: number;
+  },
 ): Promise<string> {
   const audience = options?.audience ?? 'restricted';
   const cdnBase =
@@ -457,11 +476,16 @@ export async function playbackUrlForSubmission(
   } catch {
     return storedVideoUrl;
   }
-  if (!storage.createPresignedDownload || !isPlaybackVideoKey(objectKey)) {
+  const resolvedKey = isPlaybackVideoKey(objectKey)
+    ? objectKey
+    : extractObjectKeyFromUrl(storedVideoUrl);
+  if (!storage.createPresignedDownload || !isPlaybackVideoKey(resolvedKey)) {
     return storedVideoUrl;
   }
   try {
-    return await storage.createPresignedDownload(objectKey);
+    return await storage.createPresignedDownload(resolvedKey, {
+      expiresInSeconds: options?.expiresInSeconds,
+    });
   } catch (error) {
     if (process.env.NODE_ENV === 'test') return storedVideoUrl;
     throw error;
@@ -476,6 +500,7 @@ export async function playbackUrlForSubmission(
 async function signedObjectUrl(
   objectKey: string | null | undefined,
   matches: (key: string) => boolean,
+  expiresInSeconds?: number,
 ): Promise<string | null> {
   if (!objectKey || !matches(objectKey)) return null;
   let storage: StorageService;
@@ -486,7 +511,7 @@ async function signedObjectUrl(
   }
   if (!storage.createPresignedDownload) return null;
   try {
-    return await storage.createPresignedDownload(objectKey);
+    return await storage.createPresignedDownload(objectKey, { expiresInSeconds });
   } catch {
     return null;
   }
@@ -531,22 +556,72 @@ export async function resolveContestBannerUrl(
  */
 export async function resolveThumbnailUrl(
   value: string | null | undefined,
-  options?: { audience?: PlaybackAudience },
+  options?: {
+    audience?: PlaybackAudience;
+    objectKey?: string;
+    expiresInSeconds?: number;
+  },
 ): Promise<string | null> {
-  if (!value) return null;
-  if (/^https?:\/\//i.test(value)) return value;
-  if (isKnownThumbnailKey(value)) {
+  let target = value?.trim();
+  if (!target && options?.objectKey) {
+    target = thumbnailKeyForSubmission(options.objectKey) ?? undefined;
+  }
+  if (!target) return null;
+
+  const keyCandidate = extractObjectKeyFromUrl(target);
+  if (/^https?:\/\//i.test(target)) {
+    if (
+      target.includes('X-Amz-Signature') ||
+      (env.MEDIA_CDN_BASE_URL && target.startsWith(env.MEDIA_CDN_BASE_URL))
+    ) {
+      return target;
+    }
+    if (isSignableObjectKey(keyCandidate)) {
+      target = keyCandidate;
+    } else {
+      return target;
+    }
+  }
+
+  if (isKnownThumbnailKey(target)) {
     if (options?.audience === 'public' && env.MEDIA_CDN_BASE_URL) {
-      const cdnUrl = buildPublicCdnMediaUrl(env.MEDIA_CDN_BASE_URL, value);
+      const cdnUrl = buildPublicCdnMediaUrl(env.MEDIA_CDN_BASE_URL, target);
       if (cdnUrl) return cdnUrl;
     }
-    return signedObjectUrl(value, (key) => isKnownThumbnailKey(key));
+    return signedObjectUrl(
+      target,
+      (key) => isKnownThumbnailKey(key),
+      options?.expiresInSeconds,
+    );
   }
-  if (!isSignableObjectKey(value)) return null;
+  if (!isSignableObjectKey(target)) return null;
   try {
-    const signed = await playbackUrlForSubmission(value, value);
+    const signed = await playbackUrlForSubmission(target, target, options);
     return /^https?:\/\//i.test(signed) ? signed : null;
   } catch {
     return null;
   }
+}
+
+export function resolveSubmissionThumbnailKey(
+  storedThumbnail: string | null | undefined,
+  objectKey: string,
+): string | null {
+  const trimmed = storedThumbnail?.trim();
+  if (trimmed) return trimmed;
+  return thumbnailKeyForSubmission(objectKey);
+}
+
+export async function resolveSubmissionMedia(
+  objectKey: string,
+  storedVideoUrl: string,
+  storedThumbnailUrl?: string | null,
+  options?: { audience?: PlaybackAudience; expiresInSeconds?: number },
+): Promise<{ videoUrl: string; thumbnailUrl: string | null }> {
+  const expiresInSeconds = options?.expiresInSeconds ?? 3600;
+  const [videoUrl, thumbnailUrl] = await Promise.all([
+    playbackUrlForSubmission(objectKey, storedVideoUrl, { ...options, expiresInSeconds }),
+    resolveThumbnailUrl(storedThumbnailUrl, { ...options, objectKey, expiresInSeconds }),
+  ]);
+  return { videoUrl, thumbnailUrl };
 }

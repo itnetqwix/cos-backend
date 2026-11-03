@@ -736,6 +736,14 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   );
 
   fastify.get(
+    '/admin/submissions/:id/playback-url',
+    {
+      onRequest: moderatorGuards,
+    },
+    ModerationController.playbackUrl,
+  );
+
+  fastify.get(
     '/admin/creators',
     {
       schema: listCreatorsSwaggerSchema,

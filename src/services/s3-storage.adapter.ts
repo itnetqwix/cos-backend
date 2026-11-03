@@ -142,7 +142,10 @@ export class S3StorageAdapter implements StorageService {
     return this.options.headObject({ bucket: this.options.bucket, key: objectKey });
   }
 
-  async createPresignedDownload(objectKey: string): Promise<string> {
+  async createPresignedDownload(
+    objectKey: string,
+    options?: { expiresInSeconds?: number },
+  ): Promise<string> {
     if (!isSignableObjectKey(objectKey)) {
       throw new ValidationError('objectKey is not a backend-issued submission key');
     }
@@ -152,7 +155,7 @@ export class S3StorageAdapter implements StorageService {
     return this.options.signGetObject({
       bucket: this.options.bucket,
       key: objectKey,
-      expiresIn: VIDEO_CONSTRAINTS.PRESIGN_EXPIRES_SECONDS,
+      expiresIn: options?.expiresInSeconds ?? VIDEO_CONSTRAINTS.PRESIGN_EXPIRES_SECONDS,
     });
   }
 

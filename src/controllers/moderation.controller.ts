@@ -11,8 +11,9 @@ import {
   submissionIdParamSchema,
 } from '../schemas/moderation.schema.js';
 import { ModerationService } from '../services/moderation.service.js';
-import { playbackUrlForSubmission } from '../services/storage.service.js';
-import { sendSuccess } from '../utils/response.js';
+import { resolveSubmissionMedia } from '../services/storage.service.js';
+import { NotFoundError, sendSuccess } from '../utils/response.js';
+import { SubmissionRepository } from '../repositories/submission.repository.js';
 
 function actorFromRequest(request: FastifyRequest) {
   return {
@@ -29,15 +30,21 @@ function iso(value: Date | string | null): string | null {
 export async function toModerationSubmissionView(
   submission: SubmissionRecord | ModerationQueueRecord,
 ) {
+  const media = await resolveSubmissionMedia(
+    submission.objectKey,
+    submission.videoUrl,
+    submission.thumbnailUrl,
+    { audience: 'restricted', expiresInSeconds: 3600 },
+  );
   return {
     id: submission.id,
     contestId: submission.contestId,
     creatorId: submission.creatorId,
     title: submission.title,
     description: submission.description,
-    videoUrl: await playbackUrlForSubmission(submission.objectKey, submission.videoUrl),
+    videoUrl: media.videoUrl,
     objectKey: submission.objectKey,
-    thumbnailUrl: submission.thumbnailUrl,
+    thumbnailUrl: media.thumbnailUrl,
     durationSeconds: submission.durationSeconds,
     status: submission.status,
     rejectionReason: submission.rejectionReason,
@@ -142,5 +149,23 @@ export class ModerationController {
       'Audit logs retrieved successfully',
       HTTP_STATUS.OK,
     );
+  }
+
+  /**
+   * GET /api/v1/admin/submissions/:id/playback-url
+   */
+  static async playbackUrl(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = submissionIdParamSchema.parse(request.params);
+    const submission = await SubmissionRepository.findById(id);
+    if (!submission) {
+      throw new NotFoundError('Submission not found');
+    }
+    const media = await resolveSubmissionMedia(
+      submission.objectKey,
+      submission.videoUrl,
+      submission.thumbnailUrl,
+      { audience: 'restricted', expiresInSeconds: 3600 },
+    );
+    return sendSuccess(reply, media, 'Playback URL retrieved', HTTP_STATUS.OK);
   }
 }
