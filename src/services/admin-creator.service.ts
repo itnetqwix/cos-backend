@@ -18,6 +18,7 @@ import {
   isSignableObjectKey,
   playbackUrlForSubmission,
   signedAvatarUrl,
+  thumbnailKeyForSubmission,
 } from './storage.service.js';
 
 /**
@@ -118,7 +119,10 @@ async function toVideo<
       withPlayback && submission.objectKey && submission.videoUrl
         ? await playbackUrlForSubmission(submission.objectKey, submission.videoUrl)
         : null,
-    thumbnailUrl: await resolveThumbnailUrl(submission.thumbnailUrl),
+    thumbnailUrl: await resolveThumbnailUrl(
+      submission.thumbnailUrl,
+      submission.objectKey,
+    ),
   };
 }
 
@@ -130,12 +134,17 @@ async function toVideo<
  */
 async function resolveThumbnailUrl(
   value: string | null | undefined,
+  objectKey?: string,
 ): Promise<string | null> {
-  if (!value) return null;
-  if (/^https?:\/\//i.test(value)) return value;
-  if (!isSignableObjectKey(value)) return null;
+  let target = value?.trim();
+  if (!target && objectKey) {
+    target = thumbnailKeyForSubmission(objectKey) ?? undefined;
+  }
+  if (!target) return null;
+  if (/^https?:\/\//i.test(target)) return target;
+  if (!isSignableObjectKey(target)) return null;
   try {
-    const signed = await playbackUrlForSubmission(value, value);
+    const signed = await playbackUrlForSubmission(target, target);
     return /^https?:\/\//i.test(signed) ? signed : null;
   } catch {
     return null;

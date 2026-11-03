@@ -291,7 +291,7 @@ export class SubmissionRepository {
     return prisma.submission.findFirst({
       where: { creatorId, contestId, ...notDeleted },
       include: submissionInclude,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
   }
 
@@ -312,7 +312,7 @@ export class SubmissionRepository {
         ...(options?.includeDeleted ? {} : notDeleted),
       },
       include: submissionInclude,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
   }
 
@@ -324,7 +324,7 @@ export class SubmissionRepository {
         ...notDeleted,
       },
       include: submissionInclude,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
   }
 
@@ -371,7 +371,7 @@ export class SubmissionRepository {
           },
         },
       },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
   }
 
@@ -451,7 +451,7 @@ export class SubmissionRepository {
         ...notDeleted,
       },
       include: judgingInclude,
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
   }
 
