@@ -110,8 +110,19 @@ const auditDataSchema = {
       nullable: true,
       properties: {
         id: { type: 'string' },
+        contestId: { type: 'string', nullable: true },
         title: { type: 'string' },
         creatorName: { type: 'string', nullable: true },
+        contest: {
+          type: 'object',
+          nullable: true,
+          properties: {
+            id: { type: 'string' },
+            title: { type: 'string' },
+            seriesSlug: { type: 'string', nullable: true },
+            cycleMonth: { type: 'string', nullable: true },
+          },
+        },
       },
     },
   },
@@ -124,6 +135,13 @@ export const moderationQueueSwaggerSchema: FastifySchema = {
   tags: ['Moderation'],
   summary: 'List the pending-review moderation queue',
   description: `${guardsDescription} Returns submissions in PENDING_REVIEW only. Moderation SLA is NOT SPECIFIED.`,
+  querystring: {
+    type: 'object',
+    properties: {
+      contestId: { type: 'string' },
+      seriesSlug: { type: 'string' },
+    },
+  },
   response: {
     200: swaggerSuccessEnvelope(
       { type: 'array', items: submissionDataSchema },
@@ -196,6 +214,13 @@ export const auditLogsSwaggerSchema: FastifySchema = {
   tags: ['Moderation'],
   summary: 'List moderation audit logs',
   description: `${guardsDescription} Append-only decision history. Retention is NOT SPECIFIED.`,
+  querystring: {
+    type: 'object',
+    properties: {
+      contestId: { type: 'string' },
+      seriesSlug: { type: 'string' },
+    },
+  },
   response: {
     200: swaggerSuccessEnvelope(
       { type: 'array', items: auditDataSchema },

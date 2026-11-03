@@ -185,14 +185,20 @@ async function decide(
 }
 
 export class ModerationService {
-  static async listQueue(actor: ModerationActor): Promise<ModerationQueueRecord[]> {
+  static async listQueue(
+    actor: ModerationActor,
+    filter?: { contestId?: string; seriesSlug?: string },
+  ): Promise<ModerationQueueRecord[]> {
     assertModeratorOnly(actor);
-    return SubmissionRepository.listPendingReview();
+    return SubmissionRepository.listPendingReview(filter);
   }
 
-  static async listAuditLogs(actor: ModerationActor): Promise<AuditLogRecord[]> {
+  static async listAuditLogs(
+    actor: ModerationActor,
+    filter?: { contestId?: string; seriesSlug?: string },
+  ): Promise<AuditLogRecord[]> {
     assertModeratorOnly(actor);
-    return AuditLogRepository.list();
+    return AuditLogRepository.list(filter);
   }
 
   static async approve(actor: ModerationActor, submissionId: string, note?: string) {
