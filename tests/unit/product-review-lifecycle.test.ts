@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { AccountStatus, ReviewStatus, Role } from '@prisma/client';
+import { AccountStatus, ReviewStatus, Role, TesterStatus } from '@prisma/client';
 import { ProductReviewRepository, setProductReviewDb } from '../../src/repositories/product-review.repository.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
 import {
@@ -30,19 +30,19 @@ const users = new Map<string, {
   id: string;
   role: Role;
   accountStatus: AccountStatus;
-  testerEnabled: boolean;
+  testerStatus: TesterStatus;
   reviewApprovalEnabled: boolean;
 }>();
 
 function actor(
   id: string,
-  flags: { role?: Role; testerEnabled?: boolean; reviewApprovalEnabled?: boolean; accountStatus?: AccountStatus },
+  flags: { role?: Role; testerEnabled?: boolean; testerStatus?: TesterStatus; reviewApprovalEnabled?: boolean; accountStatus?: AccountStatus },
 ) {
   users.set(id, {
     id,
     role: flags.role ?? Role.CREATOR,
     accountStatus: flags.accountStatus ?? AccountStatus.ACTIVE,
-    testerEnabled: flags.testerEnabled ?? false,
+    testerStatus: flags.testerStatus ?? (flags.testerEnabled ? TesterStatus.VERIFIED : TesterStatus.NOT_VERIFIED),
     reviewApprovalEnabled: flags.reviewApprovalEnabled ?? false,
   });
 }

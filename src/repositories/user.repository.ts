@@ -7,6 +7,9 @@ const publicUserSelect = {
   name: true,
   role: true,
   accountStatus: true,
+  testerStatus: true,
+  testerBio: true,
+  reviewApprovalEnabled: true,
   avatarObjectKey: true,
   createdAt: true,
   updatedAt: true,
@@ -121,7 +124,7 @@ export class UserRepository {
         id: true,
         role: true,
         accountStatus: true,
-        testerEnabled: true,
+        testerStatus: true,
         reviewApprovalEnabled: true,
       },
     });

@@ -12,6 +12,21 @@ enum Role {
   CREATOR
 }
 
+enum TesterApplicationStatus {
+  PENDING
+  UNDER_REVIEW
+  NEEDS_INFORMATION
+  APPROVED
+  REJECTED
+}
+
+enum TesterStatus {
+  NOT_VERIFIED
+  VERIFIED
+  SUSPENDED
+  REVOKED
+}
+
 // Creator management access. ACTIVE is the default for every user.
 // Only CREATOR rows are moved to BLOCKED. ADMIN is not blocked by this flow.
 enum AccountStatus {
@@ -41,7 +56,7 @@ model User {
   name                    String
   role                    Role                 @default(CREATOR)
   accountStatus           AccountStatus        @default(ACTIVE)
-  testerEnabled           Boolean              @default(false)
+  testerStatus            TesterStatus         @default(NOT_VERIFIED)
   reviewApprovalEnabled   Boolean              @default(false)
   testerBio               String?              @db.Text
   createdAt               DateTime             @default(now())
@@ -65,6 +80,16 @@ model User {
   reviewsApproved         ProductReview[]      @relation("ReviewApprover")
   reviewsDeleted          ProductReview[]      @relation("ReviewDeleter")
   reviewRevisionsAuthored ReviewRevision[]     @relation("ReviewRevisionAuthor")
+  testerApplications      TesterApplication[]  @relation("UserTesterApplications")
+  reviewedApplications    TesterApplication[]  @relation("ApplicationReviewer")
+  testerAuditActions      TesterAuditLog[]     @relation("TesterAuditActor")
+  testerAuditTargets      TesterAuditLog[]     @relation("TesterAuditTarget")
+  submittedProducts       Product[]            @relation("ProductSubmitter")
+  reviewedProducts        Product[]            @relation("ProductReviewer")
+  categoryProposals       ReviewCategoryProposal[] @relation("CategoryProposals")
+  reviewedCategoryProposals ReviewCategoryProposal[] @relation("CategoryProposalReviews")
+  reviewsCreatedForTesters ProductReview[]     @relation("ReviewAdminCreator")
+  tokeAuditLogs           TokeAuditLog[]       @relation("TokeAuditActor")
 
   // Private storage key for the creator profile image.
   // The API returns a short-lived presigned avatarUrl. That URL is not stored.
@@ -80,7 +105,7 @@ model User {
 
   @@index([role, accountStatus])
   @@index([role, createdAt])
-  @@index([testerEnabled])
+  @@index([testerStatus])
   @@index([reviewApprovalEnabled])
   @@map("users")
 }
@@ -527,34 +552,92 @@ model ProductType {
   @@map("product_types")
 }
 
+enum ProductApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model Product {
-  id            String           @id @default(uuid())
-  name          String
-  brandName     String
-  productTypeId String
-  productType   ProductType      @relation(fields: [productTypeId], references: [id], onDelete: Restrict)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  reviews       ProductReview[]
-  revisions     ReviewRevision[]
+  id                 String                @id @default(uuid())
+  name               String
+  brandName          String
+  productTypeId      String
+  productType        ProductType           @relation(fields: [productTypeId], references: [id], onDelete: Restrict)
+  description        String?               @db.Text
+  imageUrl           String?
+  imageObjectKey     String?
+  strain             String?
+  batchNumber        String?
+  reportedThcPercent Float?
+  reportedCbdPercent Float?
+  isActive           Boolean               @default(true)
+  approvalStatus     ProductApprovalStatus @default(APPROVED)
+  submittedById      String?
+  submittedBy        User?                 @relation("ProductSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
+  rejectionReason    String?               @db.Text
+  reviewedById       String?
+  reviewedBy         User?                 @relation("ProductReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt         DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  reviews            ProductReview[]
+  revisions          ReviewRevision[]
 
   @@unique([brandName, name, productTypeId])
   @@index([productTypeId])
+  @@index([approvalStatus, isActive])
+  @@index([brandName])
+  @@index([name])
   @@map("products")
 }
 
 model ReviewCategory {
-  id            String                @id @default(uuid())
+  id            String                   @id @default(uuid())
   name          String
-  slug          String                @unique
-  defaultWeight Float                 @default(1.0)
-  sortOrder     Int
-  isActive      Boolean               @default(true)
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
+  slug          String                   @unique
+  description   String?                  @db.Text
+  defaultWeight Float                    @default(1.0)
+  sortOrder     Int                      @default(0)
+  isActive      Boolean                  @default(true)
+  mergedIntoId  String?
+  mergedInto    ReviewCategory?          @relation("CategoryMerges", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom    ReviewCategory[]         @relation("CategoryMerges")
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
   scores        ReviewCategoryScore[]
+  proposals     ReviewCategoryProposal[]
 
+  @@index([isActive])
+  @@index([sortOrder])
   @@map("review_categories")
+}
+
+enum CategoryProposalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model ReviewCategoryProposal {
+  id                 String                 @id @default(uuid())
+  name               String
+  description        String                 @db.Text
+  status             CategoryProposalStatus @default(PENDING)
+  proposerId         String
+  proposer           User                   @relation("CategoryProposals", fields: [proposerId], references: [id], onDelete: Cascade)
+  reviewedById       String?
+  reviewedBy         User?                  @relation("CategoryProposalReviews", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewReason       String?                @db.Text
+  reviewedAt         DateTime?
+  approvedCategoryId String?
+  approvedCategory   ReviewCategory?        @relation(fields: [approvedCategoryId], references: [id], onDelete: SetNull)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@index([status])
+  @@index([proposerId])
+  @@map("review_category_proposals")
 }
 
 // publishedRevisionId is a plain id, not a foreign key. A FK back to ReviewRevision
@@ -567,6 +650,7 @@ model ProductReview {
   tester              User                  @relation("ReviewTester", fields: [testerId], references: [id], onDelete: Cascade)
   status              ReviewStatus          @default(DRAFT)
   dispensaryName      String?
+  dispensaryAddress   String?
   city                String?
   state               String?
   country             String?               @default("USA")
@@ -579,6 +663,8 @@ model ProductReview {
   reviewNotes         String?               @db.Text
   changeRequestNotes  String?               @db.Text
   rejectionReason     String?               @db.Text
+  createdByAdminId    String?
+  createdByAdmin      User?                 @relation("ReviewAdminCreator", fields: [createdByAdminId], references: [id], onDelete: SetNull)
   approvedById        String?
   approvedBy          User?                 @relation("ReviewApprover", fields: [approvedById], references: [id], onDelete: SetNull)
   approvedAt          DateTime?
@@ -596,6 +682,7 @@ model ProductReview {
   @@index([testerId, status])
   @@index([status, publishedAt])
   @@index([status, overallScore])
+  @@index([createdByAdminId])
   @@map("product_reviews")
 }
 
@@ -634,6 +721,7 @@ model ReviewRevision {
   reviewNotes        String?       @db.Text
   changeRequestNotes String?       @db.Text
   dispensaryName     String?
+  dispensaryAddress  String?
   city               String?
   state              String?
   country            String?       @default("USA")
@@ -646,3 +734,80 @@ model ReviewRevision {
   @@index([reviewId])
   @@map("review_revisions")
 }
+
+// Phase 2: Verified Tester Onboarding & Verification
+model TesterApplication {
+  id                        String                  @id @default(uuid())
+  userId                    String
+  user                      User                    @relation("UserTesterApplications", fields: [userId], references: [id], onDelete: Cascade)
+  status                    TesterApplicationStatus @default(PENDING)
+  fullName                  String
+  email                     String
+  phoneNumber               String?
+  avatarUrl                 String?
+  city                      String?
+  state                     String?
+  country                   String?                 @default("USA")
+  bio                       String?                 @db.Text
+  experienceYears           Int?
+  preferredProductTypes     String[]                @default([])
+  languages                 String[]                @default([])
+  credentials               String?                 @db.Text
+  sampleReviewUrl           String?
+  portfolioUrls             String[]                @default([])
+  applicantNotes            String?                 @db.Text
+  informationRequestedNotes String?                 @db.Text
+  informationResponseNotes  String?                 @db.Text
+  rejectionReason           String?                 @db.Text
+  reviewedById              String?
+  reviewedBy                User?                   @relation("ApplicationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt                DateTime?
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+  auditLogs                 TesterAuditLog[]
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@map("tester_applications")
+}
+
+// Audit history for tester application and access decisions
+model TesterAuditLog {
+  id            String             @id @default(uuid())
+  actorId       String
+  actor         User               @relation("TesterAuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+  targetUserId  String
+  targetUser    User               @relation("TesterAuditTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  applicationId String?
+  application   TesterApplication? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  action        String             // SUBMIT, REVIEW, REQUEST_INFO, RESPOND_INFO, APPROVE, REJECT, SUSPEND, REVOKE, REINSTATE
+  reason        String?            @db.Text
+  metadata      Json?
+  createdAt     DateTime           @default(now())
+
+  @@index([targetUserId])
+  @@index([applicationId])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("tester_audit_logs")
+}
+
+// Unified administrative audit history for One Toke Challenge
+model TokeAuditLog {
+  id         String   @id @default(uuid())
+  actorId    String
+  actor      User     @relation("TokeAuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+  entityType String   // TESTER, APPLICATION, PRODUCT, CATEGORY, PROPOSAL, REVIEW
+  entityId   String
+  action     String   // CREATE, UPDATE, APPROVE, REJECT, REQUEST_CHANGES, PUBLISH, DISQUALIFY, SUSPEND, REVOKE, REINSTATE, MERGE, DEACTIVATE
+  reason     String?  @db.Text
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("toke_audit_logs")
+}
+

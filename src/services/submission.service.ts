@@ -29,11 +29,7 @@ import {
 import { NotificationService } from './notification.service.js';
 import { resolveSubmissionCategory } from './video-category.service.js';
 import { PLEDGE_SERIES_SLUG } from './contest-schedule.js';
-import {
-  readStoredFormats,
-  hasValidUploadConfig,
-  resolvePledgeUploadConfig,
-} from './pledge-cycle-config.js';
+import { readStoredFormats, resolvePledgeUploadConfig } from './pledge-cycle-config.js';
 import { prisma } from '../config/database.js';
 
 /**

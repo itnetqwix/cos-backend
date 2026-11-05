@@ -1,4 +1,4 @@
-import { AccountStatus, CreatorActivityAction, Role } from '@prisma/client';
+import { AccountStatus, CreatorActivityAction, Role, TesterStatus } from '@prisma/client';
 import { FastifyInstance } from 'fastify';
 import { UserRepository } from '../repositories/user.repository.js';
 import { hashPassword, comparePassword } from '../utils/crypto.js';
@@ -32,6 +32,9 @@ interface ProfileRecord {
   accountStatus: AccountStatus;
   createdAt: Date;
   updatedAt: Date;
+  testerStatus?: TesterStatus;
+  testerBio?: string | null;
+  reviewApprovalEnabled?: boolean;
   avatarObjectKey?: string | null;
   passwordHash?: string;
 }

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { FastifySchema } from 'fastify';
+import { ReviewStatus } from '@prisma/client';
 import { VIDEO_CONSTRAINTS } from '../config/constants.js';
 import { swaggerErrorEnvelope, swaggerSuccessEnvelope } from './auth.schema.js';
 
@@ -36,6 +37,7 @@ const videoContentTypeSchema = z.enum(VIDEO_CONSTRAINTS.ALLOWED_CONTENT_TYPES);
 
 export const presignReviewSchema = z
   .object({
+    testerId: uuid('testerId').optional(),
     contentType: videoContentTypeSchema,
     fileSizeBytes: z.number().int().positive().max(VIDEO_CONSTRAINTS.MAX_FILE_SIZE_BYTES),
     durationSeconds: z
@@ -50,6 +52,7 @@ export type PresignReviewInput = z.infer<typeof presignReviewSchema>;
 
 const locationFields = {
   dispensaryName: z.string().trim().min(1).max(DISPENSARY_MAX).nullable().optional(),
+  dispensaryAddress: z.string().trim().min(1).max(255).nullable().optional(),
   city: z.string().trim().min(1).max(PLACE_MAX).nullable().optional(),
   state: z.string().trim().min(1).max(PLACE_MAX).nullable().optional(),
   country: z.string().trim().min(1).max(PLACE_MAX).nullable().optional(),
@@ -57,6 +60,7 @@ const locationFields = {
 
 export const createReviewDraftSchema = z
   .object({
+    testerId: uuid('testerId').optional(),
     productId: uuid('productId'),
     productTypeId: uuid('productTypeId').optional(),
     videoObjectKey: z.string().trim().min(1).max(512),
@@ -116,7 +120,11 @@ export const reviewListQuerySchema = z
   .object({
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
-    sort: z.enum(['score', 'publishedAt']).optional(),
+    sort: z
+      .enum(['score', 'publishedAt', 'newest', 'highest_rated', 'lowest_rated'])
+      .optional(),
+    search: z.string().trim().optional(),
+    brandName: z.string().trim().optional(),
     productId: uuid('productId').optional(),
     productTypeId: uuid('productTypeId').optional(),
     categoryId: uuid('categoryId').optional(),
@@ -144,6 +152,16 @@ export const reviewQueueQuerySchema = z
   .strict();
 
 export type ReviewQueueQuery = z.infer<typeof reviewQueueQuerySchema>;
+
+export const listMineQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    status: z.nativeEnum(ReviewStatus).optional(),
+  })
+  .strict();
+
+export type ListMineQuery = z.infer<typeof listMineQuerySchema>;
 
 const error400 = swaggerErrorEnvelope('Validation error', [
   { field: 'score', message: 'Too big' },
@@ -282,9 +300,37 @@ export const listMineReviewsSwaggerSchema: FastifySchema = {
     properties: {
       page: { type: 'integer', minimum: 1 },
       limit: { type: 'integer', minimum: 1, maximum: 100 },
+      status: {
+        type: 'string',
+        enum: [
+          'DRAFT',
+          'SUBMITTED',
+          'CHANGES_REQUESTED',
+          'APPROVED',
+          'PUBLISHED',
+          'REJECTED',
+        ],
+      },
     },
   },
   response: { 200: swaggerSuccessEnvelope(pageData), 401: error401, 403: error403 },
+};
+
+export const getMineReviewByIdSwaggerSchema: FastifySchema = {
+  tags: ['One Toke'],
+  summary: 'Get an authenticated tester’s own review (including drafts and feedback)',
+  security: secured,
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: { id: { type: 'string', format: 'uuid' } },
+  },
+  response: {
+    200: swaggerSuccessEnvelope(reviewData),
+    401: error401,
+    403: error403,
+    404: error404,
+  },
 };
 
 export const reviewQueueSwaggerSchema: FastifySchema = {

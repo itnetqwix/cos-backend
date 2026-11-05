@@ -3,6 +3,8 @@ import { ReviewStatus } from '@prisma/client';
 import {
   matchesPublicQuery,
   type ActiveReviewCategory,
+  type AdminReviewQuery,
+  type AdminReviewRecord,
   type CreateDraftInput,
   type ProductSnapshot,
   type PublicReviewQuery,
@@ -79,6 +81,7 @@ export class MemoryReviewDb implements ReviewDb {
       testerId: data.testerId,
       status: ReviewStatus.DRAFT,
       dispensaryName: data.dispensaryName ?? null,
+      dispensaryAddress: data.dispensaryAddress ?? null,
       city: data.city ?? null,
       state: data.state ?? null,
       country: data.country,
@@ -91,6 +94,7 @@ export class MemoryReviewDb implements ReviewDb {
       reviewNotes: data.reviewNotes ?? null,
       changeRequestNotes: null,
       rejectionReason: null,
+      createdByAdminId: data.createdByAdminId ?? null,
       approvedById: null,
       approvedAt: null,
       publishedAt: null,
@@ -102,6 +106,10 @@ export class MemoryReviewDb implements ReviewDb {
       categoryScores: [],
       product,
       publishedRevision: null,
+      tester: {
+        id: data.testerId,
+        name: data.testerId,
+      },
     };
     this.state.reviews.push(review);
     return this.assemble(review);
@@ -118,9 +126,19 @@ export class MemoryReviewDb implements ReviewDb {
       .map((review) => this.assemble(review));
   }
 
-  async listMinePage(testerId: string, skip: number, take: number): Promise<ReviewPage<ReviewRow>> {
+  async listMinePage(
+    testerId: string,
+    skip: number,
+    take: number,
+    status?: ReviewStatus,
+  ): Promise<ReviewPage<ReviewRow>> {
     const rows = this.state.reviews
-      .filter((review) => review.testerId === testerId && review.deletedAt === null)
+      .filter(
+        (review) =>
+          review.testerId === testerId &&
+          review.deletedAt === null &&
+          (!status || review.status === status),
+      )
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || (a.id < b.id ? -1 : 1))
       .map((review) => this.assemble(review));
     return { total: rows.length, rows: rows.slice(skip, skip + take) };
@@ -169,9 +187,14 @@ export class MemoryReviewDb implements ReviewDb {
             durationSeconds: revision.durationSeconds,
             reviewNotes: revision.reviewNotes,
             dispensaryName: revision.dispensaryName,
+            dispensaryAddress: revision.dispensaryAddress,
             city: revision.city,
             state: revision.state,
             country: revision.country,
+            tester: {
+              id: review.testerId,
+              name: review.testerId,
+            },
           },
         ];
       }),
@@ -191,6 +214,27 @@ export class MemoryReviewDb implements ReviewDb {
         ...review,
         tester: { id: review.testerId, name: review.testerId },
       })),
+    };
+  }
+
+  async listAdminReviewsPage(query: AdminReviewQuery): Promise<ReviewPage<AdminReviewRecord>> {
+    const rows = this.state.reviews
+      .filter((review) => review.deletedAt === null)
+      .filter((review) => !query.status || review.status === query.status)
+      .filter((review) => !query.productId || review.productId === query.productId)
+      .filter((review) => !query.testerId || review.testerId === query.testerId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? -1 : 1))
+      .map((review) => ({
+        ...this.assemble(review),
+        tester: {
+          id: review.testerId,
+          name: review.testerId,
+          email: `${review.testerId}@example.com`,
+        },
+      }));
+    return {
+      total: rows.length,
+      rows: rows.slice(query.skip, query.skip + query.take),
     };
   }
 
