@@ -1,6 +1,6 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { AccountStatus, Role } from '@prisma/client';
+import { AccountStatus, Role, TesterStatus } from '@prisma/client';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
@@ -11,7 +11,7 @@ const APPROVER = '22222222-2222-4222-8222-222222222222';
 
 function capability(flags: {
   role?: Role;
-  testerEnabled?: boolean;
+  testerStatus?: TesterStatus;
   reviewApprovalEnabled?: boolean;
   accountStatus?: AccountStatus;
 }) {
@@ -19,7 +19,7 @@ function capability(flags: {
     id: TESTER,
     role: flags.role ?? Role.CREATOR,
     accountStatus: flags.accountStatus ?? AccountStatus.ACTIVE,
-    testerEnabled: flags.testerEnabled ?? false,
+    testerStatus: flags.testerStatus ?? TesterStatus.NOT_VERIFIED,
     reviewApprovalEnabled: flags.reviewApprovalEnabled ?? false,
   };
 }
@@ -66,23 +66,33 @@ describe('toke capability guards', { concurrency: 1 }, () => {
     });
   }
 
-  it('rejects guests and ordinary users, and allows enabled testers and admins', async () => {
+  it('rejects guests and ordinary users, and allows verified testers and admins', async () => {
     const guest = await mine();
     assert.equal(guest.statusCode, 401);
     assert.equal(JSON.parse(guest.payload).success, false);
 
-    UserRepository.findReviewCapability = async () => capability({ testerEnabled: false });
+    UserRepository.findReviewCapability = async () => capability({ testerStatus: TesterStatus.NOT_VERIFIED });
     const ordinary = await mine(token(Role.CREATOR));
     assert.equal(ordinary.statusCode, 403);
-    assert.match(JSON.parse(ordinary.payload).message, /Tester capability/);
+    assert.match(JSON.parse(ordinary.payload).message, /Verified tester access required/);
 
-    UserRepository.findReviewCapability = async () => capability({ testerEnabled: true });
+    UserRepository.findReviewCapability = async () => capability({ testerStatus: TesterStatus.SUSPENDED });
+    const suspended = await mine(token(Role.CREATOR));
+    assert.equal(suspended.statusCode, 403);
+    assert.match(JSON.parse(suspended.payload).message, /suspended/);
+
+    UserRepository.findReviewCapability = async () => capability({ testerStatus: TesterStatus.REVOKED });
+    const revoked = await mine(token(Role.CREATOR));
+    assert.equal(revoked.statusCode, 403);
+    assert.match(JSON.parse(revoked.payload).message, /revoked/);
+
+    UserRepository.findReviewCapability = async () => capability({ testerStatus: TesterStatus.VERIFIED });
     const tester = await mine(token(Role.CREATOR));
     assert.equal(tester.statusCode, 200);
     assert.equal(JSON.parse(tester.payload).success, true);
 
     UserRepository.findReviewCapability = async () =>
-      capability({ role: Role.ADMIN, testerEnabled: false });
+      capability({ role: Role.ADMIN, testerStatus: TesterStatus.NOT_VERIFIED });
     const admin = await mine(token(Role.ADMIN));
     assert.equal(admin.statusCode, 200);
   });
@@ -92,14 +102,14 @@ describe('toke capability guards', { concurrency: 1 }, () => {
     assert.equal(guest.statusCode, 401);
 
     UserRepository.findReviewCapability = async () =>
-      capability({ testerEnabled: true, reviewApprovalEnabled: false });
+      capability({ testerStatus: TesterStatus.VERIFIED, reviewApprovalEnabled: false });
     const tester = await queue(token(Role.CREATOR));
     assert.equal(tester.statusCode, 403);
     assert.match(JSON.parse(tester.payload).message, /Review approval/);
 
     UserRepository.findReviewCapability = async (id: string) =>
       capability({
-        testerEnabled: false,
+        testerStatus: TesterStatus.NOT_VERIFIED,
         reviewApprovalEnabled: id === APPROVER,
       });
     const approver = await queue(token(Role.CREATOR, APPROVER));
@@ -111,7 +121,7 @@ describe('toke capability guards', { concurrency: 1 }, () => {
     assert.equal(admin.statusCode, 200);
 
     UserRepository.findReviewCapability = async () =>
-      capability({ reviewApprovalEnabled: false, testerEnabled: false });
+      capability({ reviewApprovalEnabled: false, testerStatus: TesterStatus.NOT_VERIFIED });
     const disabled = await queue(token(Role.CREATOR));
     assert.equal(disabled.statusCode, 403);
   });

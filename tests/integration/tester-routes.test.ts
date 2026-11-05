@@ -1,7 +1,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { AccountStatus, Role } from '@prisma/client';
+import { AccountStatus, Role, TesterStatus } from '@prisma/client';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import { ProductReviewRepository, setProductReviewDb } from '../../src/repositories/product-review.repository.js';
@@ -64,6 +64,7 @@ describe('tester review routes', { concurrency: 1 }, () => {
       id,
       role: Role.CREATOR,
       accountStatus: AccountStatus.ACTIVE,
+      testerStatus: id === TESTER || id === OTHER ? TesterStatus.VERIFIED : TesterStatus.NOT_VERIFIED,
       testerEnabled: id === TESTER || id === OTHER,
       reviewApprovalEnabled: false,
     });

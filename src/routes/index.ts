@@ -108,6 +108,63 @@ import { ChatController } from '../controllers/chat.controller.js';
 import { CounterController } from '../controllers/counter.controller.js';
 import { ProductReviewController } from '../controllers/product-review.controller.js';
 import { ProductReviewAdminController } from '../controllers/product-review-admin.controller.js';
+import { TesterApplicationController } from '../controllers/tester-application.controller.js';
+import { ProductCatalogController } from '../controllers/product-catalog.controller.js';
+import { ReviewCategoryController } from '../controllers/review-category.controller.js';
+import { TokeAdminController } from '../controllers/toke-admin.controller.js';
+import {
+  getTokeAdminMetricsSwaggerSchema,
+  listTokeAdminAuditSwaggerSchema,
+  listAdminAllReviewsSwaggerSchema,
+  getAdminReviewDetailSwaggerSchema,
+  rejectAdminReviewSwaggerSchema,
+  disqualifyAdminReviewSwaggerSchema,
+  getAdminTesterDetailSwaggerSchema,
+} from '../schemas/toke-admin.schema.js';
+import {
+  listCategoriesSwaggerSchema,
+  getCategoryByIdSwaggerSchema,
+  proposeCategorySwaggerSchema,
+  listMyProposalsSwaggerSchema,
+  listAdminCategoriesSwaggerSchema,
+  createAdminCategorySwaggerSchema,
+  updateAdminCategorySwaggerSchema,
+  deactivateAdminCategorySwaggerSchema,
+  listAdminProposalsSwaggerSchema,
+  approveProposalSwaggerSchema,
+  rejectProposalSwaggerSchema,
+  mergeCategoriesSwaggerSchema,
+} from '../schemas/review-category.schema.js';
+import {
+  getProductTypesSwaggerSchema,
+  listProductsSwaggerSchema,
+  getProductByIdSwaggerSchema,
+  submitProductSwaggerSchema,
+  presignProductImageSwaggerSchema,
+  listAdminProductsSwaggerSchema,
+  createAdminProductSwaggerSchema,
+  updateAdminProductSwaggerSchema,
+  approveAdminProductSwaggerSchema,
+  rejectAdminProductSwaggerSchema,
+  deactivateAdminProductSwaggerSchema,
+} from '../schemas/product-catalog.schema.js';
+import {
+  approveApplicationSwaggerSchema,
+  getApplicationDetailsSwaggerSchema,
+  getMyApplicationSwaggerSchema,
+  listApplicationsSwaggerSchema,
+  listTestersSwaggerSchema,
+  reinstateTesterSwaggerSchema,
+  rejectApplicationSwaggerSchema,
+  requestInfoSwaggerSchema,
+  respondInfoSwaggerSchema,
+  reviewApplicationSwaggerSchema,
+  revokeTesterSwaggerSchema,
+  submitTesterApplicationSwaggerSchema,
+  suspendTesterSwaggerSchema,
+  updateMyApplicationSwaggerSchema,
+  getPublicTesterProfileSwaggerSchema,
+} from '../schemas/tester-application.schema.js';
 import {
   chatStreamSwaggerSchema,
   listChatConversationsSwaggerSchema,
@@ -128,6 +185,7 @@ import {
   approveAndPublishReviewSwaggerSchema,
   approveReviewSwaggerSchema,
   createReviewSwaggerSchema,
+  getMineReviewByIdSwaggerSchema,
   getPublicReviewSwaggerSchema,
   listMineReviewsSwaggerSchema,
   listPublicReviewsSwaggerSchema,
@@ -929,6 +987,11 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     { schema: listMineReviewsSwaggerSchema, onRequest: testerGuards },
     ProductReviewController.mine,
   );
+  fastify.get(
+    '/toke/reviews/mine/:id',
+    { schema: getMineReviewByIdSwaggerSchema, onRequest: testerGuards },
+    ProductReviewController.mineById,
+  );
 
   fastify.get(
     '/admin/toke/reviews/queue',
@@ -970,5 +1033,262 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     '/toke/leaderboard',
     { schema: reviewLeaderboardSwaggerSchema },
     ProductReviewAdminController.leaderboard,
+  );
+  fastify.get(
+    '/toke/testers/:id',
+    { schema: getPublicTesterProfileSwaggerSchema },
+    TesterApplicationController.publicTesterProfile,
+  );
+
+  // -------------------------------------------------------------
+  // 11. One Toke Verified Tester Onboarding & Governance (Phase 2)
+  // -------------------------------------------------------------
+
+  const adminOnlyGuards = [fastify.authenticate, authorizeRoles(Role.ADMIN)];
+
+  // Applicant routes
+  fastify.post(
+    '/tester/apply',
+    { schema: submitTesterApplicationSwaggerSchema, onRequest: [fastify.authenticate] },
+    TesterApplicationController.submit,
+  );
+  fastify.get(
+    '/tester/application/mine',
+    { schema: getMyApplicationSwaggerSchema, onRequest: [fastify.authenticate] },
+    TesterApplicationController.mine,
+  );
+  fastify.patch(
+    '/tester/application/mine',
+    { schema: updateMyApplicationSwaggerSchema, onRequest: [fastify.authenticate] },
+    TesterApplicationController.update,
+  );
+  fastify.post(
+    '/tester/application/mine/respond',
+    { schema: respondInfoSwaggerSchema, onRequest: [fastify.authenticate] },
+    TesterApplicationController.respond,
+  );
+
+  // Admin application management routes
+  fastify.get(
+    '/admin/toke/applications',
+    { schema: listApplicationsSwaggerSchema, onRequest: approverGuards },
+    TesterApplicationController.listApplications,
+  );
+  fastify.get(
+    '/admin/toke/applications/:id',
+    { schema: getApplicationDetailsSwaggerSchema, onRequest: approverGuards },
+    TesterApplicationController.getApplication,
+  );
+  fastify.post(
+    '/admin/toke/applications/:id/review',
+    { schema: reviewApplicationSwaggerSchema, onRequest: approverGuards },
+    TesterApplicationController.markUnderReview,
+  );
+  fastify.post(
+    '/admin/toke/applications/:id/request-info',
+    { schema: requestInfoSwaggerSchema, onRequest: approverGuards },
+    TesterApplicationController.requestInfo,
+  );
+  fastify.post(
+    '/admin/toke/applications/:id/approve',
+    { schema: approveApplicationSwaggerSchema, onRequest: approverGuards },
+    TesterApplicationController.approve,
+  );
+  fastify.post(
+    '/admin/toke/applications/:id/reject',
+    { schema: rejectApplicationSwaggerSchema, onRequest: approverGuards },
+    TesterApplicationController.reject,
+  );
+
+  // Admin verified tester access governance (Admin only)
+  fastify.get(
+    '/admin/toke/testers',
+    { schema: listTestersSwaggerSchema, onRequest: approverGuards },
+    TesterApplicationController.listTesters,
+  );
+  fastify.post(
+    '/admin/toke/testers/:id/suspend',
+    { schema: suspendTesterSwaggerSchema, onRequest: adminOnlyGuards },
+    TesterApplicationController.suspendTester,
+  );
+  fastify.post(
+    '/admin/toke/testers/:id/revoke',
+    { schema: revokeTesterSwaggerSchema, onRequest: adminOnlyGuards },
+    TesterApplicationController.revokeTester,
+  );
+  fastify.post(
+    '/admin/toke/testers/:id/reinstate',
+    { schema: reinstateTesterSwaggerSchema, onRequest: adminOnlyGuards },
+    TesterApplicationController.reinstateTester,
+  );
+
+  // -------------------------------------------------------------
+  // 12. One Toke Product Catalog Management (Phase 3)
+  // -------------------------------------------------------------
+
+  // Public / Verified Tester Catalog
+  fastify.get(
+    '/toke/product-types',
+    { schema: getProductTypesSwaggerSchema },
+    ProductCatalogController.getProductTypes,
+  );
+  fastify.get(
+    '/toke/products',
+    { schema: listProductsSwaggerSchema },
+    ProductCatalogController.listProducts,
+  );
+  fastify.get(
+    '/toke/products/:id',
+    { schema: getProductByIdSwaggerSchema },
+    ProductCatalogController.getProductById,
+  );
+  fastify.post(
+    '/toke/products',
+    { schema: submitProductSwaggerSchema, onRequest: testerGuards },
+    ProductCatalogController.submitProduct,
+  );
+  fastify.post(
+    '/toke/products/image-presign',
+    { schema: presignProductImageSwaggerSchema, onRequest: testerGuards },
+    ProductCatalogController.presignProductImage,
+  );
+
+  // Admin Catalog Management
+  fastify.get(
+    '/admin/toke/products',
+    { schema: listAdminProductsSwaggerSchema, onRequest: approverGuards },
+    ProductCatalogController.listAdminProducts,
+  );
+  fastify.post(
+    '/admin/toke/products',
+    { schema: createAdminProductSwaggerSchema, onRequest: adminOnlyGuards },
+    ProductCatalogController.createAdminProduct,
+  );
+  fastify.patch(
+    '/admin/toke/products/:id',
+    { schema: updateAdminProductSwaggerSchema, onRequest: adminOnlyGuards },
+    ProductCatalogController.updateAdminProduct,
+  );
+  fastify.post(
+    '/admin/toke/products/:id/approve',
+    { schema: approveAdminProductSwaggerSchema, onRequest: adminOnlyGuards },
+    ProductCatalogController.approveAdminProduct,
+  );
+  fastify.post(
+    '/admin/toke/products/:id/reject',
+    { schema: rejectAdminProductSwaggerSchema, onRequest: adminOnlyGuards },
+    ProductCatalogController.rejectAdminProduct,
+  );
+  fastify.post(
+    '/admin/toke/products/:id/deactivate',
+    { schema: deactivateAdminProductSwaggerSchema, onRequest: adminOnlyGuards },
+    ProductCatalogController.deactivateAdminProduct,
+  );
+
+  // -------------------------------------------------------------
+  // 13. One Toke Dynamic Category Management (Phase 4)
+  // -------------------------------------------------------------
+
+  // Public / Verified Tester Categories
+  fastify.get(
+    '/toke/categories',
+    { schema: listCategoriesSwaggerSchema },
+    ReviewCategoryController.listPublicCategories,
+  );
+  fastify.get(
+    '/toke/categories/:id',
+    { schema: getCategoryByIdSwaggerSchema },
+    ReviewCategoryController.getCategoryById,
+  );
+  fastify.post(
+    '/toke/categories/propose',
+    { schema: proposeCategorySwaggerSchema, onRequest: testerGuards },
+    ReviewCategoryController.proposeCategory,
+  );
+  fastify.get(
+    '/toke/categories/mine',
+    { schema: listMyProposalsSwaggerSchema, onRequest: testerGuards },
+    ReviewCategoryController.listMyProposals,
+  );
+
+  // Admin Category & Proposal Management
+  fastify.get(
+    '/admin/toke/categories',
+    { schema: listAdminCategoriesSwaggerSchema, onRequest: approverGuards },
+    ReviewCategoryController.listAdminCategories,
+  );
+  fastify.post(
+    '/admin/toke/categories',
+    { schema: createAdminCategorySwaggerSchema, onRequest: adminOnlyGuards },
+    ReviewCategoryController.createAdminCategory,
+  );
+  fastify.patch(
+    '/admin/toke/categories/:id',
+    { schema: updateAdminCategorySwaggerSchema, onRequest: adminOnlyGuards },
+    ReviewCategoryController.updateAdminCategory,
+  );
+  fastify.post(
+    '/admin/toke/categories/:id/deactivate',
+    { schema: deactivateAdminCategorySwaggerSchema, onRequest: adminOnlyGuards },
+    ReviewCategoryController.deactivateAdminCategory,
+  );
+  fastify.get(
+    '/admin/toke/categories/proposals',
+    { schema: listAdminProposalsSwaggerSchema, onRequest: approverGuards },
+    ReviewCategoryController.listAdminProposals,
+  );
+  fastify.post(
+    '/admin/toke/categories/proposals/:id/approve',
+    { schema: approveProposalSwaggerSchema, onRequest: adminOnlyGuards },
+    ReviewCategoryController.approveProposal,
+  );
+  fastify.post(
+    '/admin/toke/categories/proposals/:id/reject',
+    { schema: rejectProposalSwaggerSchema, onRequest: adminOnlyGuards },
+    ReviewCategoryController.rejectProposal,
+  );
+  fastify.post(
+    '/admin/toke/categories/merge',
+    { schema: mergeCategoriesSwaggerSchema, onRequest: adminOnlyGuards },
+    ReviewCategoryController.mergeCategories,
+  );
+
+  // -------------------------------------------------------------
+  // 14. One Toke Unified Admin Dashboard & Audit (Phase 6)
+  // -------------------------------------------------------------
+  fastify.get(
+    '/admin/toke/metrics',
+    { schema: getTokeAdminMetricsSwaggerSchema, onRequest: approverGuards },
+    TokeAdminController.metrics,
+  );
+  fastify.get(
+    '/admin/toke/audit',
+    { schema: listTokeAdminAuditSwaggerSchema, onRequest: approverGuards },
+    TokeAdminController.audit,
+  );
+  fastify.get(
+    '/admin/toke/reviews',
+    { schema: listAdminAllReviewsSwaggerSchema, onRequest: approverGuards },
+    TokeAdminController.reviews,
+  );
+  fastify.get(
+    '/admin/toke/reviews/:id',
+    { schema: getAdminReviewDetailSwaggerSchema, onRequest: approverGuards },
+    TokeAdminController.reviewDetail,
+  );
+  fastify.post(
+    '/admin/toke/reviews/:id/reject',
+    { schema: rejectAdminReviewSwaggerSchema, onRequest: approverGuards },
+    TokeAdminController.rejectReview,
+  );
+  fastify.post(
+    '/admin/toke/reviews/:id/disqualify',
+    { schema: disqualifyAdminReviewSwaggerSchema, onRequest: adminOnlyGuards },
+    TokeAdminController.disqualifyReview,
+  );
+  fastify.get(
+    '/admin/toke/testers/:id',
+    { schema: getAdminTesterDetailSwaggerSchema, onRequest: approverGuards },
+    TokeAdminController.testerDetail,
   );
 };

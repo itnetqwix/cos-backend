@@ -50,6 +50,8 @@ export interface ProductSnapshot {
   productTypeId: string;
   productTypeName: string;
   productTypeSlug: string;
+  imageUrl?: string | null;
+  strain?: string | null;
 }
 
 export interface ScoreSnapshotEntry {
@@ -76,6 +78,7 @@ export interface RevisionRow {
   reviewNotes: string | null;
   changeRequestNotes: string | null;
   dispensaryName: string | null;
+  dispensaryAddress: string | null;
   city: string | null;
   state: string | null;
   country: string | null;
@@ -90,6 +93,7 @@ export interface ReviewRow {
   testerId: string;
   status: ReviewStatus;
   dispensaryName: string | null;
+  dispensaryAddress: string | null;
   city: string | null;
   state: string | null;
   country: string | null;
@@ -102,6 +106,7 @@ export interface ReviewRow {
   reviewNotes: string | null;
   changeRequestNotes: string | null;
   rejectionReason: string | null;
+  createdByAdminId: string | null;
   approvedById: string | null;
   approvedAt: Date | null;
   publishedAt: Date | null;
@@ -113,6 +118,12 @@ export interface ReviewRow {
   categoryScores: ReviewScoreRow[];
   product: ProductSnapshot;
   publishedRevision: RevisionRow | null;
+  tester?: {
+    id: string;
+    name: string;
+    testerBio?: string | null;
+    avatarObjectKey?: string | null;
+  };
 }
 
 export interface ActiveReviewCategory {
@@ -127,11 +138,13 @@ export interface ActiveReviewCategory {
 export interface CreateDraftInput {
   productId: string;
   testerId: string;
+  createdByAdminId?: string | null;
   videoUrl: string;
   videoObjectKey: string;
   thumbnailUrl?: string | null;
   durationSeconds: number;
   dispensaryName?: string | null;
+  dispensaryAddress?: string | null;
   city?: string | null;
   state?: string | null;
   country?: string | null;
@@ -141,6 +154,7 @@ export interface CreateDraftInput {
 export interface DraftPatch {
   productId?: string;
   dispensaryName?: string | null;
+  dispensaryAddress?: string | null;
   city?: string | null;
   state?: string | null;
   country?: string | null;
@@ -161,6 +175,8 @@ export interface ReviewWrite {
   productId?: string;
   status?: ReviewStatus;
   dispensaryName?: string | null;
+  dispensaryAddress?: string | null;
+  createdByAdminId?: string | null;
   city?: string | null;
   state?: string | null;
   country?: string | null;
@@ -213,9 +229,17 @@ export interface PublishedReviewRecord {
   durationSeconds: number;
   reviewNotes: string | null;
   dispensaryName: string | null;
+  dispensaryAddress: string | null;
   city: string | null;
   state: string | null;
   country: string | null;
+  tester?: {
+    id: string;
+    name: string;
+    testerBio?: string | null;
+    avatarUrl?: string | null;
+    avatarObjectKey?: string | null;
+  };
 }
 
 export interface RevisionMeta {
@@ -226,7 +250,9 @@ export interface RevisionMeta {
 export interface PublicReviewQuery {
   skip: number;
   take: number;
-  sort?: 'score' | 'publishedAt';
+  sort?: 'score' | 'publishedAt' | 'newest' | 'highest_rated' | 'lowest_rated';
+  search?: string;
+  brandName?: string;
   productId?: string;
   productTypeId?: string;
   categoryId?: string;
@@ -250,6 +276,26 @@ export interface QueuedReview extends ReviewRow {
   tester: { id: string; name: string };
 }
 
+export interface AdminReviewQuery {
+  skip: number;
+  take: number;
+  status?: ReviewStatus;
+  productId?: string;
+  productTypeId?: string;
+  testerId?: string;
+  search?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  dispensaryName?: string;
+  fromDate?: Date;
+  toDate?: Date;
+}
+
+export interface AdminReviewRecord extends ReviewRow {
+  tester: { id: string; name: string; email?: string };
+}
+
 export interface ReviewDb {
   createReview(data: CreateDraftInput & { country: string }): Promise<ReviewRow>;
   findReview(id: string): Promise<ReviewRow | null>;
@@ -258,9 +304,11 @@ export interface ReviewDb {
     testerId: string,
     skip: number,
     take: number,
+    status?: ReviewStatus,
   ): Promise<ReviewPage<ReviewRow>>;
   listPublicPage(query: PublicReviewQuery): Promise<ReviewPage<PublishedReviewRecord>>;
   listQueuePage(query: PublicReviewQuery): Promise<ReviewPage<QueuedReview>>;
+  listAdminReviewsPage(query: AdminReviewQuery): Promise<ReviewPage<AdminReviewRecord>>;
   listReviews(): Promise<ReviewRow[]>;
   updateReview(id: string, data: ReviewWrite): Promise<ReviewRow>;
   updateIfCurrent(
@@ -285,6 +333,14 @@ export interface ReviewDb {
 const reviewInclude = {
   product: { include: { productType: true } },
   categoryScores: { include: { category: true } },
+  tester: {
+    select: {
+      id: true,
+      name: true,
+      testerBio: true,
+      avatarObjectKey: true,
+    },
+  },
 } satisfies Prisma.ProductReviewInclude;
 
 type ReviewPayload = Prisma.ProductReviewGetPayload<{ include: typeof reviewInclude }>;
@@ -311,6 +367,8 @@ function productSnapshotOf(product: ReviewPayload['product']): ProductSnapshot {
     productTypeId: product.productTypeId,
     productTypeName: product.productType.name,
     productTypeSlug: product.productType.slug,
+    imageUrl: product.imageUrl ?? null,
+    strain: product.strain ?? null,
   };
 }
 
@@ -330,6 +388,7 @@ function toRevision(row: {
   reviewNotes: string | null;
   changeRequestNotes: string | null;
   dispensaryName: string | null;
+  dispensaryAddress: string | null;
   city: string | null;
   state: string | null;
   country: string | null;
@@ -355,6 +414,7 @@ function toReviewRow(
     testerId: row.testerId,
     status: row.status,
     dispensaryName: row.dispensaryName,
+    dispensaryAddress: row.dispensaryAddress ?? null,
     city: row.city,
     state: row.state,
     country: row.country,
@@ -367,6 +427,7 @@ function toReviewRow(
     reviewNotes: row.reviewNotes,
     changeRequestNotes: row.changeRequestNotes,
     rejectionReason: row.rejectionReason,
+    createdByAdminId: row.createdByAdminId ?? null,
     approvedById: row.approvedById,
     approvedAt: row.approvedAt,
     publishedAt: row.publishedAt,
@@ -385,6 +446,14 @@ function toReviewRow(
     })),
     product: productSnapshotOf(row.product),
     publishedRevision,
+    tester: row.tester
+      ? {
+          id: row.tester.id,
+          name: row.tester.name,
+          testerBio: row.tester.testerBio ?? null,
+          avatarObjectKey: row.tester.avatarObjectKey ?? null,
+        }
+      : undefined,
   };
 }
 
@@ -395,17 +464,25 @@ function jsonValue(value: unknown): Prisma.InputJsonValue {
 function publicWhere(query: PublicReviewQuery): Prisma.ProductReviewWhereInput {
   const where: Prisma.ProductReviewWhereInput = {
     deletedAt: null,
-    status: ReviewStatus.PUBLISHED,
+    status: { in: PUBLIC_DISCOVERY_STATUSES as ReviewStatus[] },
     publishedRevisionId: { not: null },
   };
   if (query.productId) where.productId = query.productId;
   if (query.productTypeId) where.product = { productTypeId: query.productTypeId };
+  if (query.brandName) {
+    where.product = {
+      ...(where.product as object),
+      brandName: { contains: query.brandName, mode: 'insensitive' },
+    };
+  }
   if (query.categoryId) where.categoryScores = { some: { categoryId: query.categoryId } };
   if (query.testerId) where.testerId = query.testerId;
-  if (query.city) where.city = query.city;
-  if (query.state) where.state = query.state;
+  if (query.city) where.city = { contains: query.city, mode: 'insensitive' };
+  if (query.state) where.state = { contains: query.state, mode: 'insensitive' };
   if (query.country) where.country = query.country;
-  if (query.dispensaryName) where.dispensaryName = query.dispensaryName;
+  if (query.dispensaryName) {
+    where.dispensaryName = { contains: query.dispensaryName, mode: 'insensitive' };
+  }
   if (query.minOverallScore !== undefined || query.maxOverallScore !== undefined) {
     where.overallScore = {
       ...(query.minOverallScore !== undefined ? { gte: query.minOverallScore } : {}),
@@ -418,13 +495,28 @@ function publicWhere(query: PublicReviewQuery): Prisma.ProductReviewWhereInput {
       ...(query.publishedTo ? { lte: query.publishedTo } : {}),
     };
   }
+  if (query.search && query.search.trim()) {
+    const s = query.search.trim();
+    where.OR = [
+      { product: { name: { contains: s, mode: 'insensitive' } } },
+      { product: { brandName: { contains: s, mode: 'insensitive' } } },
+      { dispensaryName: { contains: s, mode: 'insensitive' } },
+      { city: { contains: s, mode: 'insensitive' } },
+      { reviewNotes: { contains: s, mode: 'insensitive' } },
+    ];
+  }
   return where;
 }
 
 function publicOrder(
   sort: PublicReviewQuery['sort'],
 ): Prisma.ProductReviewOrderByWithRelationInput[] {
-  if (sort === 'publishedAt') return [{ publishedAt: 'desc' }, { id: 'asc' }];
+  if (sort === 'publishedAt' || sort === 'newest') {
+    return [{ publishedAt: 'desc' }, { id: 'asc' }];
+  }
+  if (sort === 'lowest_rated') {
+    return [{ overallScore: 'asc' }, { publishedAt: 'desc' }, { id: 'asc' }];
+  }
   return [{ overallScore: 'desc' }, { publishedAt: 'desc' }, { id: 'asc' }];
 }
 
@@ -432,8 +524,8 @@ function publicOrder(
 export function matchesPublicQuery(review: ReviewRow, query: PublicReviewQuery): boolean {
   if (
     review.deletedAt ||
-    review.status !== ReviewStatus.PUBLISHED ||
-    !review.publishedRevisionId
+    !review.publishedRevisionId ||
+    !PUBLIC_DISCOVERY_STATUSES.includes(review.status)
   ) {
     return false;
   }
@@ -441,16 +533,27 @@ export function matchesPublicQuery(review: ReviewRow, query: PublicReviewQuery):
   if (query.productTypeId && review.product.productTypeId !== query.productTypeId)
     return false;
   if (
+    query.brandName &&
+    !review.product.brandName.toLowerCase().includes(query.brandName.toLowerCase())
+  ) {
+    return false;
+  }
+  if (
     query.categoryId &&
     !review.categoryScores.some((score) => score.categoryId === query.categoryId)
   ) {
     return false;
   }
   if (query.testerId && review.testerId !== query.testerId) return false;
-  if (query.city && review.city !== query.city) return false;
-  if (query.state && review.state !== query.state) return false;
+  if (query.city && !review.city?.toLowerCase().includes(query.city.toLowerCase()))
+    return false;
+  if (query.state && !review.state?.toLowerCase().includes(query.state.toLowerCase()))
+    return false;
   if (query.country && review.country !== query.country) return false;
-  if (query.dispensaryName && review.dispensaryName !== query.dispensaryName)
+  if (
+    query.dispensaryName &&
+    !review.dispensaryName?.toLowerCase().includes(query.dispensaryName.toLowerCase())
+  )
     return false;
   if (query.minOverallScore !== undefined && review.overallScore < query.minOverallScore)
     return false;
@@ -466,6 +569,16 @@ export function matchesPublicQuery(review: ReviewRow, query: PublicReviewQuery):
     (!review.publishedAt || review.publishedAt > query.publishedTo)
   )
     return false;
+  if (query.search && query.search.trim()) {
+    const s = query.search.trim().toLowerCase();
+    const matchesSearch =
+      review.product.name.toLowerCase().includes(s) ||
+      review.product.brandName.toLowerCase().includes(s) ||
+      (review.dispensaryName && review.dispensaryName.toLowerCase().includes(s)) ||
+      (review.city && review.city.toLowerCase().includes(s)) ||
+      (review.reviewNotes && review.reviewNotes.toLowerCase().includes(s));
+    if (!matchesSearch) return false;
+  }
   return true;
 }
 
@@ -484,9 +597,13 @@ function assertVideo(
   videoUrl: string,
   durationSeconds: number,
   thumbnailUrl: string | null | undefined,
+  allowedTesterIds?: string[],
 ): void {
   const parsed = parseReviewObjectKey(objectKey);
-  if (!parsed || parsed.testerId.toLowerCase() !== testerId.toLowerCase()) {
+  const validIds = (
+    allowedTesterIds && allowedTesterIds.length > 0 ? allowedTesterIds : [testerId]
+  ).map((id) => id.toLowerCase());
+  if (!parsed || !validIds.includes(parsed.testerId.toLowerCase())) {
     throw new ValidationError('Review video key is not valid for this tester');
   }
   if (!videoUrl.trim()) {
@@ -602,9 +719,18 @@ function toPublished(review: ReviewRow): PublishedReviewRecord | null {
     durationSeconds: revision.durationSeconds,
     reviewNotes: revision.reviewNotes,
     dispensaryName: revision.dispensaryName,
+    dispensaryAddress: revision.dispensaryAddress,
     city: revision.city,
     state: revision.state,
     country: revision.country,
+    tester: review.tester
+      ? {
+          id: review.tester.id,
+          name: review.tester.name,
+          testerBio: review.tester.testerBio ?? null,
+          avatarObjectKey: review.tester.avatarObjectKey ?? null,
+        }
+      : undefined,
   };
 }
 
@@ -635,6 +761,8 @@ function bindPrisma(client: DelegateClient, nested: boolean): ReviewDb {
           thumbnailUrl: data.thumbnailUrl ?? null,
           durationSeconds: data.durationSeconds,
           dispensaryName: data.dispensaryName ?? null,
+          dispensaryAddress: data.dispensaryAddress ?? null,
+          createdByAdminId: data.createdByAdminId ?? null,
           city: data.city ?? null,
           state: data.state ?? null,
           country: data.country,
@@ -655,8 +783,9 @@ function bindPrisma(client: DelegateClient, nested: boolean): ReviewDb {
       });
       return rows.map((row) => toReviewRow(row, null));
     },
-    async listMinePage(testerId, skip, take) {
-      const where = { testerId, deletedAt: null };
+    async listMinePage(testerId, skip, take, status) {
+      const where: Prisma.ProductReviewWhereInput = { testerId, deletedAt: null };
+      if (status) where.status = status;
       const [total, rows] = await Promise.all([
         client.productReview.count({ where }),
         client.productReview.findMany({
@@ -714,10 +843,67 @@ function bindPrisma(client: DelegateClient, nested: boolean): ReviewDb {
           where,
           skip: query.skip,
           take: query.take,
-          include: { ...reviewInclude, tester: { select: { id: true, name: true } } },
+          include: reviewInclude,
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         }),
       ]);
+      return {
+        total,
+        rows: rows.map((row) => ({
+          ...toReviewRow(row, null),
+          tester: row.tester,
+        })),
+      };
+    },
+    async listAdminReviewsPage(query) {
+      const where: Prisma.ProductReviewWhereInput = {
+        deletedAt: null,
+      };
+      if (query.status) where.status = query.status;
+      if (query.productId) where.productId = query.productId;
+      if (query.productTypeId) where.product = { productTypeId: query.productTypeId };
+      if (query.testerId) where.testerId = query.testerId;
+      if (query.city) where.city = query.city;
+      if (query.state) where.state = query.state;
+      if (query.country) where.country = query.country;
+      if (query.dispensaryName) where.dispensaryName = query.dispensaryName;
+      if (query.fromDate || query.toDate) {
+        where.createdAt = {
+          ...(query.fromDate ? { gte: query.fromDate } : {}),
+          ...(query.toDate ? { lte: query.toDate } : {}),
+        };
+      }
+      if (query.search) {
+        where.OR = [
+          { dispensaryName: { contains: query.search, mode: 'insensitive' } },
+          { product: { name: { contains: query.search, mode: 'insensitive' } } },
+          { product: { brandName: { contains: query.search, mode: 'insensitive' } } },
+          { tester: { name: { contains: query.search, mode: 'insensitive' } } },
+        ];
+      }
+
+      const [total, rows] = await Promise.all([
+        client.productReview.count({ where }),
+        client.productReview.findMany({
+          where,
+          skip: query.skip,
+          take: query.take,
+          include: {
+            ...reviewInclude,
+            tester: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                testerBio: true,
+                avatarObjectKey: true,
+              },
+            },
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        }),
+      ]);
+
       return {
         total,
         rows: rows.map((row) => ({
@@ -830,6 +1016,7 @@ function bindPrisma(client: DelegateClient, nested: boolean): ReviewDb {
           reviewNotes: data.reviewNotes,
           changeRequestNotes: data.changeRequestNotes,
           dispensaryName: data.dispensaryName,
+          dispensaryAddress: data.dispensaryAddress,
           city: data.city,
           state: data.state,
           country: data.country,
@@ -861,6 +1048,9 @@ function toPrismaWrite(data: ReviewWrite): Prisma.ProductReviewUncheckedUpdateIn
   if (data.productId !== undefined) write.productId = data.productId;
   if (data.status !== undefined) write.status = data.status;
   if (data.dispensaryName !== undefined) write.dispensaryName = data.dispensaryName;
+  if (data.dispensaryAddress !== undefined)
+    write.dispensaryAddress = data.dispensaryAddress;
+  if (data.createdByAdminId !== undefined) write.createdByAdminId = data.createdByAdminId;
   if (data.city !== undefined) write.city = data.city;
   if (data.state !== undefined) write.state = data.state;
   if (data.country !== undefined) write.country = data.country;
@@ -908,12 +1098,15 @@ export class ProductReviewRepository {
   }
 
   static async createDraft(input: CreateDraftInput, tx?: ReviewDb): Promise<ReviewRow> {
+    const allowedTesters = [input.testerId];
+    if (input.createdByAdminId) allowedTesters.push(input.createdByAdminId);
     assertVideo(
       input.testerId,
       input.videoObjectKey,
       input.videoUrl,
       input.durationSeconds,
       input.thumbnailUrl,
+      allowedTesters,
     );
     return scope(tx, async (store) => {
       const product = await store.findProduct(input.productId);
@@ -941,9 +1134,22 @@ export class ProductReviewRepository {
     testerId: string,
     skip: number,
     take: number,
+    status?: ReviewStatus,
     tx?: ReviewDb,
   ): Promise<ReviewPage<ReviewRow>> {
-    return (tx ?? db()).listMinePage(testerId, skip, take);
+    return (tx ?? db()).listMinePage(testerId, skip, take, status);
+  }
+
+  static async findMineById(
+    id: string,
+    testerId: string,
+    isAdmin = false,
+    tx?: ReviewDb,
+  ): Promise<ReviewRow | null> {
+    const review = await (tx ?? db()).findReview(id);
+    if (!review || review.deletedAt) return null;
+    if (!isAdmin && review.testerId !== testerId) return null;
+    return review;
   }
 
   static async listPublicPage(
@@ -958,6 +1164,13 @@ export class ProductReviewRepository {
     tx?: ReviewDb,
   ): Promise<ReviewPage<QueuedReview>> {
     return (tx ?? db()).listQueuePage(query);
+  }
+
+  static async listAdminReviewsPage(
+    query: AdminReviewQuery,
+    tx?: ReviewDb,
+  ): Promise<ReviewPage<AdminReviewRecord>> {
+    return (tx ?? db()).listAdminReviewsPage(query);
   }
 
   static async findProduct(id: string, tx?: ReviewDb): Promise<ProductSnapshot | null> {
@@ -990,9 +1203,18 @@ export class ProductReviewRepository {
       durationSeconds: revision.durationSeconds,
       reviewNotes: revision.reviewNotes,
       dispensaryName: revision.dispensaryName,
+      dispensaryAddress: revision.dispensaryAddress,
       city: revision.city,
       state: revision.state,
       country: revision.country,
+      tester: review.tester
+        ? {
+            id: review.tester.id,
+            name: review.tester.name,
+            testerBio: review.tester.testerBio ?? null,
+            avatarObjectKey: review.tester.avatarObjectKey ?? null,
+          }
+        : undefined,
     };
   }
 
@@ -1000,12 +1222,13 @@ export class ProductReviewRepository {
     reviewId: string,
     testerId: string,
     patch: DraftPatch,
+    isAdmin = false,
     tx?: ReviewDb,
   ): Promise<ReviewRow> {
     return scope(tx, async (store) => {
       const review = await store.findReview(reviewId);
       if (!review || review.deletedAt) throw new NotFoundError('Review not found');
-      if (review.testerId !== testerId) {
+      if (!isAdmin && review.testerId !== testerId) {
         throw new ForbiddenError('Forbidden: review is owned by another tester');
       }
       if (!DRAFT_STATUSES.includes(review.status)) {
@@ -1019,12 +1242,16 @@ export class ProductReviewRepository {
       const durationSeconds = patch.durationSeconds ?? review.durationSeconds;
       const thumbnailUrl =
         patch.thumbnailUrl === undefined ? review.thumbnailUrl : patch.thumbnailUrl;
+      const allowedTesters = [review.testerId];
+      if (review.createdByAdminId) allowedTesters.push(review.createdByAdminId);
+      if (isAdmin) allowedTesters.push(testerId);
       assertVideo(
         review.testerId,
         videoObjectKey,
         videoUrl,
         durationSeconds,
         thumbnailUrl,
+        allowedTesters,
       );
       if (patch.productId) {
         const product = await store.findProduct(patch.productId);
@@ -1134,6 +1361,7 @@ export class ProductReviewRepository {
         reviewNotes: review.reviewNotes,
         changeRequestNotes: review.changeRequestNotes,
         dispensaryName: review.dispensaryName,
+        dispensaryAddress: review.dispensaryAddress,
         city: review.city,
         state: review.state,
         country: review.country,

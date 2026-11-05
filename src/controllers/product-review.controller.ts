@@ -1,12 +1,16 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
+import { Role, TesterStatus } from '@prisma/client';
 import { HTTP_STATUS } from '../config/constants.js';
+
 import {
   ProductReviewRepository,
   type PublishedReviewRecord,
   type ReviewRow,
 } from '../repositories/product-review.repository.js';
+import { UserRepository } from '../repositories/user.repository.js';
 import {
   createReviewDraftSchema,
+  listMineQuerySchema,
   presignReviewSchema,
   reviewIdParamSchema,
   reviewListQuerySchema,
@@ -21,6 +25,7 @@ import {
   parseReviewObjectKey,
   playbackUrlForSubmission,
   resolveThumbnailUrl,
+  signedAvatarUrl,
   THUMBNAIL_CONTENT_TYPE,
   thumbnailKeyForReview,
 } from '../services/storage.service.js';
@@ -30,6 +35,16 @@ import { sendPaginated, sendSuccess } from '../utils/response.js';
 
 function testerId(request: FastifyRequest): string {
   return request.user.id;
+}
+
+async function assertVerifiedTester(userId: string): Promise<void> {
+  const target = await UserRepository.findReviewCapability(userId);
+  if (!target || target.accountStatus !== 'ACTIVE') {
+    throw new NotFoundError('Target user not found or inactive');
+  }
+  if (target.testerStatus !== TesterStatus.VERIFIED) {
+    throw new ValidationError('Target user is not a verified tester');
+  }
 }
 
 async function weightsFor(scores: CategoryScoreInput[]) {
@@ -53,8 +68,10 @@ async function viewReview(review: ReviewRow, audience: 'public' | 'restricted') 
     productId: review.productId,
     product: review.product,
     testerId: review.testerId,
+    createdByAdminId: review.createdByAdminId,
     status: review.status,
     dispensaryName: review.dispensaryName,
+    dispensaryAddress: review.dispensaryAddress,
     city: review.city,
     state: review.state,
     country: review.country,
@@ -67,6 +84,7 @@ async function viewReview(review: ReviewRow, audience: 'public' | 'restricted') 
     overallScore: review.overallScore,
     reviewNotes: review.reviewNotes,
     changeRequestNotes: review.changeRequestNotes,
+    rejectionReason: review.rejectionReason,
     categoryScores: review.categoryScores.map((score) => ({
       categoryId: score.categoryId,
       categoryName: score.categoryName,
@@ -80,6 +98,15 @@ async function viewReview(review: ReviewRow, audience: 'public' | 'restricted') 
 }
 
 export async function viewPublished(review: PublishedReviewRecord) {
+  let avatarUrl: string | null = review.tester?.avatarUrl ?? null;
+  if (!avatarUrl && review.tester?.avatarObjectKey) {
+    try {
+      avatarUrl = await signedAvatarUrl(review.tester.avatarObjectKey);
+    } catch {
+      avatarUrl = null;
+    }
+  }
+
   return {
     id: review.reviewId,
     publishedRevisionId: review.publishedRevisionId,
@@ -87,8 +114,22 @@ export async function viewPublished(review: PublishedReviewRecord) {
     productId: review.productId,
     product: review.productSnapshot,
     testerId: review.testerId,
+    tester: review.tester
+      ? {
+          id: review.tester.id,
+          name: review.tester.name,
+          testerBio: review.tester.testerBio ?? null,
+          avatarUrl,
+        }
+      : {
+          id: review.testerId,
+          name: 'Verified Tester',
+          testerBio: null,
+          avatarUrl: null,
+        },
     status: 'PUBLISHED',
     dispensaryName: review.dispensaryName,
+    dispensaryAddress: review.dispensaryAddress,
     city: review.city,
     state: review.state,
     country: review.country,
@@ -107,8 +148,15 @@ export async function viewPublished(review: PublishedReviewRecord) {
 export class ProductReviewController {
   static async presign(request: FastifyRequest, reply: FastifyReply) {
     const body = presignReviewSchema.parse(request.body);
+    const actor = testerId(request);
+    const isAdmin = request.user.role === Role.ADMIN;
+    let targetTesterId = actor;
+    if (body.testerId && isAdmin) {
+      await assertVerifiedTester(body.testerId);
+      targetTesterId = body.testerId;
+    }
     const objectKey = buildReviewObjectKey({
-      testerId: testerId(request),
+      testerId: targetTesterId,
       contentType: body.contentType,
     });
     const storage = getStorageService();
@@ -135,10 +183,23 @@ export class ProductReviewController {
   static async create(request: FastifyRequest, reply: FastifyReply) {
     const body = createReviewDraftSchema.parse(request.body);
     const actor = testerId(request);
+    const isAdmin = request.user.role === Role.ADMIN;
+    let effectiveTesterId = actor;
+    let createdByAdminId: string | null = null;
+
+    if (body.testerId && isAdmin) {
+      await assertVerifiedTester(body.testerId);
+      effectiveTesterId = body.testerId;
+      createdByAdminId = actor;
+    }
+
     const parsed = parseReviewObjectKey(body.videoObjectKey);
-    if (!parsed || parsed.testerId.toLowerCase() !== actor.toLowerCase()) {
+    const allowedAuthors = [effectiveTesterId.toLowerCase()];
+    if (createdByAdminId) allowedAuthors.push(createdByAdminId.toLowerCase());
+
+    if (!parsed || !allowedAuthors.includes(parsed.testerId.toLowerCase())) {
       throw new ForbiddenError(
-        'Forbidden: objectKey does not belong to the authenticated tester',
+        'Forbidden: objectKey does not belong to the tester or creating admin',
       );
     }
     const product = await ProductReviewRepository.findProduct(body.productId);
@@ -149,7 +210,8 @@ export class ProductReviewController {
     const storage = getStorageService();
     const review = await ProductReviewRepository.createDraft({
       productId: body.productId,
-      testerId: actor,
+      testerId: effectiveTesterId,
+      createdByAdminId,
       videoUrl: storage.getPublicUrl
         ? storage.getPublicUrl(body.videoObjectKey)
         : body.videoObjectKey,
@@ -157,6 +219,7 @@ export class ProductReviewController {
       thumbnailUrl: body.thumbnailUrl ?? thumbnailKeyForReview(body.videoObjectKey),
       durationSeconds: body.durationSeconds,
       dispensaryName: body.dispensaryName,
+      dispensaryAddress: body.dispensaryAddress,
       city: body.city,
       state: body.state,
       country: body.country,
@@ -182,16 +245,21 @@ export class ProductReviewController {
     const { id } = reviewIdParamSchema.parse(request.params);
     const body = updateReviewDraftSchema.parse(request.body);
     const actor = testerId(request);
+    const isAdmin = request.user.role === Role.ADMIN;
     const existing = await ProductReviewRepository.findById(id);
     if (!existing || existing.deletedAt) throw new NotFoundError('Review not found');
-    if (existing.testerId !== actor) {
+    if (!isAdmin && existing.testerId !== actor) {
       throw new ForbiddenError('Forbidden: review is owned by another tester');
     }
     if (body.videoObjectKey) {
       const parsed = parseReviewObjectKey(body.videoObjectKey);
-      if (!parsed || parsed.testerId.toLowerCase() !== actor.toLowerCase()) {
+      const allowedAuthors = [existing.testerId.toLowerCase()];
+      if (existing.createdByAdminId)
+        allowedAuthors.push(existing.createdByAdminId.toLowerCase());
+      if (isAdmin) allowedAuthors.push(actor.toLowerCase());
+      if (!parsed || !allowedAuthors.includes(parsed.testerId.toLowerCase())) {
         throw new ForbiddenError(
-          'Forbidden: objectKey does not belong to the authenticated tester',
+          'Forbidden: objectKey does not belong to the authorized tester or admin',
         );
       }
     }
@@ -207,24 +275,30 @@ export class ProductReviewController {
     const editable =
       existing.status === 'DRAFT' || existing.status === 'CHANGES_REQUESTED';
     if (editable) {
-      const updated = await ProductReviewRepository.updateDraft(id, actor, {
-        productId: body.productId,
-        videoObjectKey: body.videoObjectKey,
-        videoUrl: body.videoObjectKey
-          ? (getStorageService().getPublicUrl?.(body.videoObjectKey) ??
-            body.videoObjectKey)
-          : undefined,
-        thumbnailUrl: body.thumbnailUrl,
-        durationSeconds: body.durationSeconds,
-        dispensaryName: body.dispensaryName,
-        city: body.city,
-        state: body.state,
-        country: body.country,
-        reviewNotes: body.reviewNotes,
-        categoryScores: body.categoryScores
-          ? await weightsFor(body.categoryScores)
-          : undefined,
-      });
+      const updated = await ProductReviewRepository.updateDraft(
+        id,
+        existing.testerId,
+        {
+          productId: body.productId,
+          videoObjectKey: body.videoObjectKey,
+          videoUrl: body.videoObjectKey
+            ? (getStorageService().getPublicUrl?.(body.videoObjectKey) ??
+              body.videoObjectKey)
+            : undefined,
+          thumbnailUrl: body.thumbnailUrl,
+          durationSeconds: body.durationSeconds,
+          dispensaryName: body.dispensaryName,
+          dispensaryAddress: body.dispensaryAddress,
+          city: body.city,
+          state: body.state,
+          country: body.country,
+          reviewNotes: body.reviewNotes,
+          categoryScores: body.categoryScores
+            ? await weightsFor(body.categoryScores)
+            : undefined,
+        },
+        isAdmin,
+      );
       return sendSuccess(
         reply,
         await viewReview(updated, 'restricted'),
@@ -256,30 +330,30 @@ export class ProductReviewController {
     const { id } = reviewIdParamSchema.parse(request.params);
     const body = submitReviewSchema.parse(request.body ?? {});
     const actor = testerId(request);
+    const isAdmin = request.user.role === Role.ADMIN;
+    const existing = await ProductReviewRepository.findById(id);
+    if (!existing || existing.deletedAt) throw new NotFoundError('Review not found');
+    if (!isAdmin && existing.testerId !== actor) {
+      throw new ForbiddenError('Forbidden: review is owned by another tester');
+    }
     if (body.categoryScores) {
-      const existing = await ProductReviewRepository.findById(id);
-      if (!existing || existing.deletedAt) throw new NotFoundError('Review not found');
-      if (existing.testerId !== actor) {
-        throw new ForbiddenError('Forbidden: review is owned by another tester');
-      }
       await ProductReviewRepository.replaceCategoryScores(
         id,
         await weightsFor(body.categoryScores),
       );
     }
-    const review = await ProductReviewLifecycleService.submitDraft(id, actor);
+    const review = await ProductReviewLifecycleService.submitDraft(id, existing.testerId);
     return sendSuccess(reply, await viewReview(review, 'restricted'), 'Review submitted');
   }
 
   static async mine(request: FastifyRequest, reply: FastifyReply) {
-    const query = reviewListQuerySchema
-      .pick({ page: true, limit: true })
-      .parse(request.query ?? {});
+    const query = listMineQuerySchema.parse(request.query ?? {});
     const skip = (query.page - 1) * query.limit;
     const page = await ProductReviewRepository.listMinePage(
       testerId(request),
       skip,
       query.limit,
+      query.status,
     );
     const items = await Promise.all(
       page.rows.map((review) => viewReview(review, 'restricted')),
@@ -293,6 +367,15 @@ export class ProductReviewController {
       'Reviews retrieved',
     );
   }
+
+  static async mineById(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = reviewIdParamSchema.parse(request.params);
+    const actor = testerId(request);
+    const isAdmin = request.user.role === Role.ADMIN;
+    const review = await ProductReviewRepository.findMineById(id, actor, isAdmin);
+    if (!review) throw new NotFoundError('Review not found');
+    return sendSuccess(reply, await viewReview(review, 'restricted'), 'Review retrieved');
+  }
 }
 
 export async function publicReviewPage(
@@ -301,6 +384,8 @@ export async function publicReviewPage(
   const page = await ProductReviewRepository.listPublicPage({
     skip: (query.page - 1) * query.limit,
     take: query.limit,
+    search: query.search,
+    brandName: query.brandName,
     sort: query.sort,
     productId: query.productId,
     productTypeId: query.productTypeId,

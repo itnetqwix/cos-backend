@@ -1,5 +1,5 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { AccountStatus, Role } from '@prisma/client';
+import { AccountStatus, Role, TesterStatus } from '@prisma/client';
 import { UserRepository } from '../repositories/user.repository.js';
 import {
   assertCreatorAccountActive,
@@ -130,8 +130,9 @@ async function reviewActor(request: FastifyRequest, reply: FastifyReply) {
 }
 
 /**
- * Tester routes. ADMIN bypasses `testerEnabled`. Other roles need the flag.
- * The flag is read from the user row, not from the JWT or the request body.
+ * Tester routes. ADMIN bypasses tester capability checks.
+ * Verified testers with `testerStatus === VERIFIED` are allowed.
+ * Suspended or revoked testers are explicitly forbidden.
  */
 export async function requireTester(
   request: FastifyRequest,
@@ -139,8 +140,24 @@ export async function requireTester(
 ): Promise<void> {
   const user = await reviewActor(request, reply);
   if (!user || reply.sent) return;
-  if (user.role === Role.ADMIN || user.testerEnabled === true) return;
-  sendError(reply, 'Forbidden: Tester capability is not enabled', HTTP_STATUS.FORBIDDEN);
+  if (user.role === Role.ADMIN) return;
+
+  if (user.testerStatus === TesterStatus.VERIFIED) return;
+
+  if (user.testerStatus === TesterStatus.SUSPENDED) {
+    sendError(
+      reply,
+      'Forbidden: Tester access is currently suspended',
+      HTTP_STATUS.FORBIDDEN,
+    );
+    return;
+  }
+  if (user.testerStatus === TesterStatus.REVOKED) {
+    sendError(reply, 'Forbidden: Tester access has been revoked', HTTP_STATUS.FORBIDDEN);
+    return;
+  }
+
+  sendError(reply, 'Forbidden: Verified tester access required', HTTP_STATUS.FORBIDDEN);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { AccountStatus, Role } from '@prisma/client';
+import { AccountStatus, Role, TesterStatus } from '@prisma/client';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import { setProductReviewDb } from '../../src/repositories/product-review.repository.js';
@@ -51,7 +51,7 @@ describe('M06 One Toke review journey', { concurrency: 1 }, () => {
           id,
           role: Role.CREATOR,
           accountStatus: AccountStatus.ACTIVE,
-          testerEnabled: true,
+          testerStatus: TesterStatus.VERIFIED,
           reviewApprovalEnabled: false,
         };
       }
@@ -60,7 +60,7 @@ describe('M06 One Toke review journey', { concurrency: 1 }, () => {
           id,
           role: Role.CREATOR,
           accountStatus: AccountStatus.ACTIVE,
-          testerEnabled: false,
+          testerStatus: TesterStatus.NOT_VERIFIED,
           reviewApprovalEnabled: true,
         };
       }
@@ -68,7 +68,7 @@ describe('M06 One Toke review journey', { concurrency: 1 }, () => {
         id,
         role: Role.CREATOR,
         accountStatus: AccountStatus.ACTIVE,
-        testerEnabled: false,
+        testerStatus: TesterStatus.NOT_VERIFIED,
         reviewApprovalEnabled: false,
       };
     };

@@ -1,4 +1,4 @@
-import { AccountStatus, ReviewStatus, Role } from '@prisma/client';
+import { AccountStatus, ReviewStatus, Role, TesterStatus } from '@prisma/client';
 import {
   ProductReviewRepository,
   type ReviewDb,
@@ -95,8 +95,16 @@ async function loadActor(userId: string) {
 
 async function assertTesterOwner(testerId: string, review: ReviewRow): Promise<void> {
   const user = await loadActor(testerId);
-  if (user.role !== Role.ADMIN && !user.testerEnabled) {
-    throw new ForbiddenError('Forbidden: Tester capability is not enabled');
+  if (user.role !== Role.ADMIN) {
+    if (user.testerStatus === TesterStatus.SUSPENDED) {
+      throw new ForbiddenError('Forbidden: Tester access is currently suspended');
+    }
+    if (user.testerStatus === TesterStatus.REVOKED) {
+      throw new ForbiddenError('Forbidden: Tester access has been revoked');
+    }
+    if (user.testerStatus !== TesterStatus.VERIFIED) {
+      throw new ForbiddenError('Forbidden: Verified tester access required');
+    }
   }
   if (review.testerId !== testerId) {
     throw new ForbiddenError('Forbidden: review is owned by another tester');
@@ -113,7 +121,8 @@ async function assertApprover(approverId: string): Promise<void> {
 async function assertEditor(editorId: string, review: ReviewRow): Promise<void> {
   const user = await loadActor(editorId);
   const owner =
-    review.testerId === editorId && (user.role === Role.ADMIN || user.testerEnabled);
+    review.testerId === editorId &&
+    (user.role === Role.ADMIN || user.testerStatus === TesterStatus.VERIFIED);
   const approver = user.role === Role.ADMIN || user.reviewApprovalEnabled;
   if (!owner && !approver) {
     throw new ForbiddenError('Forbidden: You cannot edit this review');
