@@ -167,3 +167,49 @@ export const listPledgeVideoAuditLogsSwaggerSchema: FastifySchema = {
     },
   },
 };
+
+export const listPublicPledgeVideosQuerySchema = z.object({
+  cycleMonth: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/)
+    .optional(),
+  contestId: z.string().uuid().optional(),
+  categoryId: z.string().optional(),
+  search: z.string().optional(),
+  sortBy: z.enum(['newest', 'score', 'votes']).optional().default('newest'),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(20),
+});
+
+export type ListPublicPledgeVideosQuery = z.infer<
+  typeof listPublicPledgeVideosQuerySchema
+>;
+
+export const listPublicPledgeVideosSwaggerSchema: FastifySchema = {
+  description: 'Public list of approved Pledge videos',
+  tags: ['Pledge Videos Public'],
+  querystring: {
+    type: 'object',
+    properties: {
+      cycleMonth: { type: 'string', pattern: '^\\d{4}-\\d{2}$' },
+      contestId: { type: 'string', format: 'uuid' },
+      categoryId: { type: 'string' },
+      search: { type: 'string' },
+      sortBy: { type: 'string', enum: ['newest', 'score', 'votes'] },
+      page: { type: 'integer', minimum: 1 },
+      limit: { type: 'integer', minimum: 1, maximum: 50 },
+    },
+  },
+};
+
+export const getPublicPledgeVideoSwaggerSchema: FastifySchema = {
+  description: 'Public detail and playback for an approved Pledge video',
+  tags: ['Pledge Videos Public'],
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+    },
+  },
+};

@@ -3,7 +3,10 @@ import { prisma } from '../config/database.js';
 import { ForbiddenError, NotFoundError } from '../utils/response.js';
 import { resolveSubmissionMedia } from './storage.service.js';
 import { ModerationActor, ModerationService } from './moderation.service.js';
-import { ListPledgeVideosQuery } from '../schemas/pledge-video.schema.js';
+import {
+  ListPledgeVideosQuery,
+  ListPublicPledgeVideosQuery,
+} from '../schemas/pledge-video.schema.js';
 
 const submissionInclude = {
   contest: {
@@ -374,5 +377,166 @@ export class PledgeVideoService {
       contestId,
       domain: VideoDomain.PLEDGE,
     });
+  }
+
+  /**
+   * Public list of approved Pledge videos for guests and creators.
+   */
+  static async listPublicVideos(query: ListPublicPledgeVideosQuery) {
+    const where: Prisma.SubmissionWhereInput = {
+      domain: VideoDomain.PLEDGE,
+      status: SubmissionStatus.APPROVED,
+      deletedAt: null,
+    };
+
+    if (query.contestId) {
+      where.contestId = query.contestId;
+    }
+
+    if (query.cycleMonth) {
+      where.contest = { cycleMonth: query.cycleMonth };
+    }
+
+    if (query.categoryId && query.categoryId !== 'ALL') {
+      where.categoryId = query.categoryId;
+    }
+
+    if (query.search && query.search.trim()) {
+      const term = query.search.trim();
+      where.OR = [
+        { title: { contains: term, mode: 'insensitive' } },
+        { creator: { name: { contains: term, mode: 'insensitive' } } },
+      ];
+    }
+
+    let orderBy: Prisma.SubmissionOrderByWithRelationInput = { createdAt: 'desc' };
+    if (query.sortBy === 'score') {
+      orderBy = { communityScore: 'desc' };
+    } else if (query.sortBy === 'votes') {
+      orderBy = { totalVotes: 'desc' };
+    }
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const skip = (page - 1) * limit;
+
+    const [rows, totalFiltered] = await Promise.all([
+      prisma.submission.findMany({
+        where,
+        include: submissionInclude,
+        orderBy,
+        skip,
+        take: limit,
+      }),
+      prisma.submission.count({ where }),
+    ]);
+
+    const items = await Promise.all(
+      rows.map(async (row) => {
+        const media = await resolveSubmissionMedia(
+          row.objectKey,
+          row.videoUrl,
+          row.thumbnailUrl,
+          { audience: 'public', expiresInSeconds: 7200 },
+        );
+        return {
+          id: row.id,
+          domain: row.domain,
+          contestId: row.contestId,
+          creatorId: row.creatorId,
+          title: row.title,
+          description: row.description,
+          videoUrl: media.videoUrl,
+          thumbnailUrl: media.thumbnailUrl,
+          durationSeconds: row.durationSeconds,
+          status: row.status,
+          tags: row.tags,
+          communityScore: row.communityScore,
+          totalVotes: row.totalVotes,
+          createdAt:
+            row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
+          contest: row.contest
+            ? {
+                id: row.contest.id,
+                title: row.contest.title,
+                seriesSlug: row.contest.seriesSlug,
+                cycleMonth: row.contest.cycleMonth,
+                category: row.contest.category,
+              }
+            : null,
+          creator: row.creator
+            ? {
+                id: row.creator.id,
+                name: row.creator.name,
+              }
+            : null,
+          videoCategory: row.videoCategory,
+        };
+      }),
+    );
+
+    return {
+      items,
+      pagination: {
+        page,
+        limit,
+        total: totalFiltered,
+        totalPages: Math.ceil(totalFiltered / limit) || 1,
+      },
+    };
+  }
+
+  /**
+   * Public detail and playback for a single approved Pledge video.
+   */
+  static async getPublicVideoById(id: string) {
+    const submission = await prisma.submission.findFirst({
+      where: {
+        id,
+        domain: VideoDomain.PLEDGE,
+        status: SubmissionStatus.APPROVED,
+        deletedAt: null,
+      },
+      include: submissionInclude,
+    });
+
+    if (!submission) {
+      throw new NotFoundError('Pledge video not found or not approved');
+    }
+
+    const media = await resolveSubmissionMedia(
+      submission.objectKey,
+      submission.videoUrl,
+      submission.thumbnailUrl,
+      { audience: 'public', expiresInSeconds: 7200 },
+    );
+
+    return {
+      id: submission.id,
+      domain: submission.domain,
+      contestId: submission.contestId,
+      creatorId: submission.creatorId,
+      title: submission.title,
+      description: submission.description,
+      videoUrl: media.videoUrl,
+      thumbnailUrl: media.thumbnailUrl,
+      durationSeconds: submission.durationSeconds,
+      status: submission.status,
+      tags: submission.tags,
+      communityScore: submission.communityScore,
+      totalVotes: submission.totalVotes,
+      createdAt:
+        submission.createdAt instanceof Date
+          ? submission.createdAt.toISOString()
+          : submission.createdAt,
+      contest: submission.contest,
+      creator: submission.creator
+        ? {
+            id: submission.creator.id,
+            name: submission.creator.name,
+          }
+        : null,
+      videoCategory: submission.videoCategory,
+    };
   }
 }

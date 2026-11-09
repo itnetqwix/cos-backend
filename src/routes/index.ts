@@ -16,6 +16,8 @@ import {
   rejectPledgeVideoSwaggerSchema,
   pledgeVideoPlaybackUrlSwaggerSchema,
   listPledgeVideoAuditLogsSwaggerSchema,
+  listPublicPledgeVideosSwaggerSchema,
+  getPublicPledgeVideoSwaggerSchema,
 } from '../schemas/pledge-video.schema.js';
 import { SubmissionController } from '../controllers/submission.controller.js';
 import { NotificationController } from '../controllers/notification.controller.js';
@@ -505,6 +507,16 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     LeaderboardController.myPledgeEntries,
   );
   fastify.get('/contests/pledge/archive', LeaderboardController.archive);
+  fastify.get(
+    '/contests/pledge/videos',
+    { schema: listPublicPledgeVideosSwaggerSchema },
+    PledgeVideoController.listPublic,
+  );
+  fastify.get(
+    '/contests/pledge/videos/:id',
+    { schema: getPublicPledgeVideoSwaggerSchema },
+    PledgeVideoController.getPublicById,
+  );
 
   fastify.post(
     '/contests',
