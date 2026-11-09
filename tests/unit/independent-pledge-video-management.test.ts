@@ -20,12 +20,23 @@ import {
   ModerationQueueRecord,
   SubmissionRecord,
 } from '../../src/repositories/submission.repository.js';
-import { AuditLogRepository, AuditLogRecord } from '../../src/repositories/audit-log.repository.js';
-import { ContestRepository, ContestRecord } from '../../src/repositories/contest.repository.js';
+import {
+  AuditLogRepository,
+  AuditLogRecord,
+} from '../../src/repositories/audit-log.repository.js';
+import {
+  ContestRepository,
+  ContestRecord,
+} from '../../src/repositories/contest.repository.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
 import { CreatorActivityService } from '../../src/services/creator-activity.service.js';
 import { NotificationService } from '../../src/services/notification.service.js';
-import { ConflictError, NotFoundError, ForbiddenError } from '../../src/utils/response.js';
+import {
+  ConflictError,
+  NotFoundError,
+  ForbiddenError,
+} from '../../src/utils/response.js';
+import { prisma } from '../../src/config/database.js';
 
 describe('Architectural Separation: Independent Pledge Video Management', () => {
   const REGULAR_CONTEST_ID = '00000000-0000-4000-8000-000000000001';
@@ -84,8 +95,10 @@ describe('Architectural Separation: Independent Pledge Video Management', () => 
     overrides: Partial<SubmissionRecord & { domain: VideoDomain }>,
   ): SubmissionRecord & { domain: VideoDomain } {
     const contestId = overrides.contestId ?? REGULAR_CONTEST_ID;
-    const isPledge = overrides.domain === VideoDomain.PLEDGE || contestId === PLEDGE_CONTEST_ID;
-    const domain = overrides.domain ?? (isPledge ? VideoDomain.PLEDGE : VideoDomain.REGULAR);
+    const isPledge =
+      overrides.domain === VideoDomain.PLEDGE || contestId === PLEDGE_CONTEST_ID;
+    const domain =
+      overrides.domain ?? (isPledge ? VideoDomain.PLEDGE : VideoDomain.REGULAR);
 
     return {
       id: overrides.id ?? 'sub-1',
@@ -152,7 +165,7 @@ describe('Architectural Separation: Independent Pledge Video Management', () => 
       } as any;
     };
 
-    CreatorActivityService.record = async () => ({} as any);
+    CreatorActivityService.record = async () => ({}) as any;
     NotificationService.notifySubmissionApproved = async () => {};
 
     // Mock SubmissionRepository
@@ -171,7 +184,8 @@ describe('Architectural Separation: Independent Pledge Video Management', () => 
         if (s.deletedAt !== null) return false;
         if (filter?.domain && s.domain !== filter.domain) return false;
         if (filter?.contestId && s.contestId !== filter.contestId) return false;
-        if (filter?.seriesSlug && s.contest.seriesSlug !== filter.seriesSlug) return false;
+        if (filter?.seriesSlug && s.contest.seriesSlug !== filter.seriesSlug)
+          return false;
         return true;
       }) as any;
     };
@@ -201,8 +215,10 @@ describe('Architectural Separation: Independent Pledge Video Management', () => 
     // Mock ContestRepository.list
     ContestRepository.list = async (filters) => {
       return contestsStore.filter((c) => {
-        if (filters.excludeSeriesSlug && c.seriesSlug === filters.excludeSeriesSlug) return false;
-        if (filters.seriesSlug !== undefined && c.seriesSlug !== filters.seriesSlug) return false;
+        if (filters.excludeSeriesSlug && c.seriesSlug === filters.excludeSeriesSlug)
+          return false;
+        if (filters.seriesSlug !== undefined && c.seriesSlug !== filters.seriesSlug)
+          return false;
         if (filters.status && c.status !== filters.status) return false;
         if (filters.statuses && !filters.statuses.includes(c.status)) return false;
         return true;
@@ -219,10 +235,44 @@ describe('Architectural Separation: Independent Pledge Video Management', () => 
       domain?: VideoDomain;
     }) => {
       return auditLogsStore.filter((log) => {
-        if (filter?.contestId && log.submission?.contestId !== filter.contestId) return false;
-        if (filter?.seriesSlug && log.submission?.contest?.seriesSlug !== filter.seriesSlug) return false;
+        if (filter?.contestId && log.submission?.contestId !== filter.contestId)
+          return false;
+        if (
+          filter?.seriesSlug &&
+          log.submission?.contest?.seriesSlug !== filter.seriesSlug
+        )
+          return false;
         return true;
       });
+    };
+
+    (prisma.submission as any).findMany = async (args: any) => {
+      return submissionsStore.filter((s) => {
+        if (args.where?.domain && s.domain !== args.where.domain) return false;
+        if (args.where?.status && s.status !== args.where.status) return false;
+        if (args.where?.deletedAt === null && s.deletedAt !== null) return false;
+        if (args.where?.contestId && s.contestId !== args.where.contestId) return false;
+        return true;
+      });
+    };
+    (prisma.submission as any).count = async (args: any) => {
+      return submissionsStore.filter((s) => {
+        if (args.where?.domain && s.domain !== args.where.domain) return false;
+        if (args.where?.status && s.status !== args.where.status) return false;
+        if (args.where?.deletedAt === null && s.deletedAt !== null) return false;
+        return true;
+      }).length;
+    };
+    (prisma.submission as any).findFirst = async (args: any) => {
+      return (
+        submissionsStore.find((s) => {
+          if (args.where?.id && s.id !== args.where.id) return false;
+          if (args.where?.domain && s.domain !== args.where.domain) return false;
+          if (args.where?.status && s.status !== args.where.status) return false;
+          if (args.where?.deletedAt === null && s.deletedAt !== null) return false;
+          return true;
+        }) ?? null
+      );
     };
 
     AuditLogRepository.create = async (data) => {
@@ -273,11 +323,21 @@ describe('Architectural Separation: Independent Pledge Video Management', () => 
   // 2. Pledge videos appear only in Pledge Videos
   it('2. Pledge videos appear only when querying Pledge domain', async () => {
     submissionsStore.push(
-      makeSubmission({ id: 'p1', domain: VideoDomain.PLEDGE, contestId: PLEDGE_CONTEST_ID }),
-      makeSubmission({ id: 'r1', domain: VideoDomain.REGULAR, contestId: REGULAR_CONTEST_ID }),
+      makeSubmission({
+        id: 'p1',
+        domain: VideoDomain.PLEDGE,
+        contestId: PLEDGE_CONTEST_ID,
+      }),
+      makeSubmission({
+        id: 'r1',
+        domain: VideoDomain.REGULAR,
+        contestId: REGULAR_CONTEST_ID,
+      }),
     );
 
-    const pledgeQueue = await SubmissionRepository.listPendingReview({ domain: VideoDomain.PLEDGE });
+    const pledgeQueue = await SubmissionRepository.listPendingReview({
+      domain: VideoDomain.PLEDGE,
+    });
     assert.equal(pledgeQueue.length, 1);
     assert.equal(pledgeQueue[0].id, 'p1');
     assert.equal(pledgeQueue[0].domain, VideoDomain.PLEDGE);
@@ -286,11 +346,21 @@ describe('Architectural Separation: Independent Pledge Video Management', () => 
   // 3. Regular videos appear only in regular Ripskis Videos
   it('3. Regular videos appear only when querying regular Ripskis domain', async () => {
     submissionsStore.push(
-      makeSubmission({ id: 'p1', domain: VideoDomain.PLEDGE, contestId: PLEDGE_CONTEST_ID }),
-      makeSubmission({ id: 'r1', domain: VideoDomain.REGULAR, contestId: REGULAR_CONTEST_ID }),
+      makeSubmission({
+        id: 'p1',
+        domain: VideoDomain.PLEDGE,
+        contestId: PLEDGE_CONTEST_ID,
+      }),
+      makeSubmission({
+        id: 'r1',
+        domain: VideoDomain.REGULAR,
+        contestId: REGULAR_CONTEST_ID,
+      }),
     );
 
-    const regularQueue = await SubmissionRepository.listPendingReview({ domain: VideoDomain.REGULAR });
+    const regularQueue = await SubmissionRepository.listPendingReview({
+      domain: VideoDomain.REGULAR,
+    });
     assert.equal(regularQueue.length, 1);
     assert.equal(regularQueue[0].id, 'r1');
     assert.equal(regularQueue[0].domain, VideoDomain.REGULAR);
@@ -340,49 +410,74 @@ describe('Architectural Separation: Independent Pledge Video Management', () => 
 
   // 7. Cross-domain moderation action enforcement
   it('7. Regular moderation cannot approve or reject a Pledge video', async () => {
-    submissionsStore.push(
-      makeSubmission({ id: 'p1', domain: VideoDomain.PLEDGE }),
-    );
+    submissionsStore.push(makeSubmission({ id: 'p1', domain: VideoDomain.PLEDGE }));
 
     // Regular approve should reject Pledge video
     await assert.rejects(
-      async () => await ModerationService.approve(ADMIN_ACTOR, 'p1', 'Approve test', VideoDomain.REGULAR),
+      async () =>
+        await ModerationService.approve(
+          ADMIN_ACTOR,
+          'p1',
+          'Approve test',
+          VideoDomain.REGULAR,
+        ),
       /Domain mismatch/,
     );
 
     // Regular reject should reject Pledge video
     await assert.rejects(
-      async () => await ModerationService.reject(ADMIN_ACTOR, 'p1', 'Reason test', undefined, VideoDomain.REGULAR),
+      async () =>
+        await ModerationService.reject(
+          ADMIN_ACTOR,
+          'p1',
+          'Reason test',
+          undefined,
+          VideoDomain.REGULAR,
+        ),
       /Domain mismatch/,
     );
   });
 
   // 8. Pledge moderation cannot approve or reject a regular Ripskis video
   it('8. Pledge moderation cannot approve or reject a regular Ripskis video', async () => {
-    submissionsStore.push(
-      makeSubmission({ id: 'r1', domain: VideoDomain.REGULAR }),
-    );
+    submissionsStore.push(makeSubmission({ id: 'r1', domain: VideoDomain.REGULAR }));
 
     // Pledge approve should reject regular video
     await assert.rejects(
-      async () => await ModerationService.approve(ADMIN_ACTOR, 'r1', 'Approve test', VideoDomain.PLEDGE),
+      async () =>
+        await ModerationService.approve(
+          ADMIN_ACTOR,
+          'r1',
+          'Approve test',
+          VideoDomain.PLEDGE,
+        ),
       /Domain mismatch/,
     );
 
     // Pledge reject should reject regular video
     await assert.rejects(
-      async () => await ModerationService.reject(ADMIN_ACTOR, 'r1', 'Reason test', undefined, VideoDomain.PLEDGE),
+      async () =>
+        await ModerationService.reject(
+          ADMIN_ACTOR,
+          'r1',
+          'Reason test',
+          undefined,
+          VideoDomain.PLEDGE,
+        ),
       /Domain mismatch/,
     );
   });
 
   // 9. Regular moderation operates smoothly on regular videos
   it('9. Regular moderation approves regular videos and updates audit logs', async () => {
-    submissionsStore.push(
-      makeSubmission({ id: 'r1', domain: VideoDomain.REGULAR }),
-    );
+    submissionsStore.push(makeSubmission({ id: 'r1', domain: VideoDomain.REGULAR }));
 
-    const result = await ModerationService.approve(ADMIN_ACTOR, 'r1', 'Good work', VideoDomain.REGULAR);
+    const result = await ModerationService.approve(
+      ADMIN_ACTOR,
+      'r1',
+      'Good work',
+      VideoDomain.REGULAR,
+    );
     assert.equal(result.submission.status, SubmissionStatus.APPROVED);
     assert.equal(result.audit.action, AuditAction.APPROVE);
     assert.equal(auditLogsStore.length, 1);
@@ -391,10 +486,19 @@ describe('Architectural Separation: Independent Pledge Video Management', () => 
   // 10. Pledge moderation operates smoothly on Pledge videos
   it('10. Pledge moderation approves Pledge videos and preserves Pledge domain', async () => {
     submissionsStore.push(
-      makeSubmission({ id: 'p1', domain: VideoDomain.PLEDGE, contestId: PLEDGE_CONTEST_ID }),
+      makeSubmission({
+        id: 'p1',
+        domain: VideoDomain.PLEDGE,
+        contestId: PLEDGE_CONTEST_ID,
+      }),
     );
 
-    const result = await ModerationService.approve(ADMIN_ACTOR, 'p1', 'Verified pledge', VideoDomain.PLEDGE);
+    const result = await ModerationService.approve(
+      ADMIN_ACTOR,
+      'p1',
+      'Verified pledge',
+      VideoDomain.PLEDGE,
+    );
     assert.equal(result.submission.status, SubmissionStatus.APPROVED);
     assert.equal(result.audit.action, AuditAction.APPROVE);
   });
@@ -407,11 +511,23 @@ describe('Architectural Separation: Independent Pledge Video Management', () => 
     );
 
     await assert.rejects(
-      async () => await ModerationService.approve(CREATOR_ACTOR, 'r1', undefined, VideoDomain.REGULAR),
+      async () =>
+        await ModerationService.approve(
+          CREATOR_ACTOR,
+          'r1',
+          undefined,
+          VideoDomain.REGULAR,
+        ),
       ForbiddenError,
     );
     await assert.rejects(
-      async () => await ModerationService.approve(CREATOR_ACTOR, 'p1', undefined, VideoDomain.PLEDGE),
+      async () =>
+        await ModerationService.approve(
+          CREATOR_ACTOR,
+          'p1',
+          undefined,
+          VideoDomain.PLEDGE,
+        ),
       ForbiddenError,
     );
   });
@@ -424,12 +540,86 @@ describe('Architectural Separation: Independent Pledge Video Management', () => 
       makeSubmission({ id: 'r1', domain: VideoDomain.REGULAR }),
     );
 
-    const pledgeList = await SubmissionRepository.listPendingReview({ domain: VideoDomain.PLEDGE });
-    const regularList = await SubmissionRepository.listPendingReview({ domain: VideoDomain.REGULAR });
+    const pledgeList = await SubmissionRepository.listPendingReview({
+      domain: VideoDomain.PLEDGE,
+    });
+    const regularList = await SubmissionRepository.listPendingReview({
+      domain: VideoDomain.REGULAR,
+    });
 
     assert.equal(pledgeList.length, 2);
     assert.equal(regularList.length, 1);
     assert.ok(pledgeList.every((v) => v.domain === VideoDomain.PLEDGE));
     assert.ok(regularList.every((v) => v.domain === VideoDomain.REGULAR));
+  });
+  // 13. Public Pledge video listing strictly returns approved Pledge videos
+  it('13. Public Pledge video listing returns only approved Pledge videos and excludes regular/unapproved videos', async () => {
+    submissionsStore.push(
+      makeSubmission({
+        id: 'p-approved',
+        domain: VideoDomain.PLEDGE,
+        status: SubmissionStatus.APPROVED,
+      }),
+      makeSubmission({
+        id: 'p-pending',
+        domain: VideoDomain.PLEDGE,
+        status: SubmissionStatus.PENDING_REVIEW,
+      }),
+      makeSubmission({
+        id: 'p-rejected',
+        domain: VideoDomain.PLEDGE,
+        status: SubmissionStatus.REJECTED,
+      }),
+      makeSubmission({
+        id: 'r-approved',
+        domain: VideoDomain.REGULAR,
+        status: SubmissionStatus.APPROVED,
+      }),
+    );
+
+    const result = await PledgeVideoService.listPublicVideos({ page: 1, limit: 10 });
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].id, 'p-approved');
+    assert.equal(result.items[0].domain, VideoDomain.PLEDGE);
+    assert.equal(result.items[0].status, SubmissionStatus.APPROVED);
+    assert.equal(result.pagination.total, 1);
+  });
+
+  // 14. Public Pledge video detail returns playback only for approved Pledge videos
+  it('14. Public Pledge video detail resolves playback only for approved Pledge videos', async () => {
+    submissionsStore.push(
+      makeSubmission({
+        id: 'p-approved',
+        domain: VideoDomain.PLEDGE,
+        status: SubmissionStatus.APPROVED,
+      }),
+      makeSubmission({
+        id: 'p-pending',
+        domain: VideoDomain.PLEDGE,
+        status: SubmissionStatus.PENDING_REVIEW,
+      }),
+      makeSubmission({
+        id: 'r-approved',
+        domain: VideoDomain.REGULAR,
+        status: SubmissionStatus.APPROVED,
+      }),
+    );
+
+    const approvedVideo = await PledgeVideoService.getPublicVideoById('p-approved');
+    assert.equal(approvedVideo.id, 'p-approved');
+    assert.equal(approvedVideo.domain, VideoDomain.PLEDGE);
+    assert.ok(approvedVideo.videoUrl);
+
+    // Pending pledge video should throw NotFound
+    await assert.rejects(
+      async () => await PledgeVideoService.getPublicVideoById('p-pending'),
+      NotFoundError,
+    );
+
+    // Regular approved video should throw NotFound from pledge public endpoint
+    await assert.rejects(
+      async () => await PledgeVideoService.getPublicVideoById('r-approved'),
+      NotFoundError,
+    );
   });
 });

@@ -4,6 +4,7 @@ import {
   approvePledgeVideoSchema,
   listPledgeAuditLogsQuerySchema,
   listPledgeVideosQuerySchema,
+  listPublicPledgeVideosQuerySchema,
   pledgeVideoIdParamSchema,
   rejectPledgeVideoSchema,
 } from '../schemas/pledge-video.schema.js';
@@ -125,6 +126,36 @@ export class PledgeVideoController {
       reply,
       logs.map(toAuditLogView),
       'Pledge video audit logs retrieved successfully',
+      HTTP_STATUS.OK,
+    );
+  }
+
+  /**
+   * GET /api/v1/contests/pledge/videos
+   * Public. Returns approved Pledge videos with filters and pagination.
+   */
+  static async listPublic(request: FastifyRequest, reply: FastifyReply) {
+    const query = listPublicPledgeVideosQuerySchema.parse(request.query ?? {});
+    const result = await PledgeVideoService.listPublicVideos(query);
+    return sendSuccess(
+      reply,
+      result,
+      'Public Pledge videos retrieved successfully',
+      HTTP_STATUS.OK,
+    );
+  }
+
+  /**
+   * GET /api/v1/contests/pledge/videos/:id
+   * Public. Returns single approved Pledge video details with playback URL.
+   */
+  static async getPublicById(request: FastifyRequest, reply: FastifyReply) {
+    const { id } = pledgeVideoIdParamSchema.parse(request.params);
+    const video = await PledgeVideoService.getPublicVideoById(id);
+    return sendSuccess(
+      reply,
+      video,
+      'Pledge video details retrieved successfully',
       HTTP_STATUS.OK,
     );
   }
