@@ -1,4 +1,10 @@
-import { CreatorActivityAction, Prisma, Role, SubmissionStatus } from '@prisma/client';
+import {
+  CreatorActivityAction,
+  Prisma,
+  Role,
+  SubmissionStatus,
+  VideoDomain,
+} from '@prisma/client';
 import { VIDEO_CONSTRAINTS, VIDEO_CONTENT_TYPE_MESSAGE } from '../config/constants.js';
 import { ContestRepository } from '../repositories/contest.repository.js';
 import {
@@ -346,10 +352,15 @@ export class SubmissionService {
     }
 
     const category = await resolveSubmissionCategory(input);
+    const domain =
+      contest.seriesSlug === PLEDGE_SERIES_SLUG
+        ? VideoDomain.PLEDGE
+        : VideoDomain.REGULAR;
 
     const data: CreateSubmissionData = {
       contestId: contest.id,
       creatorId: actor.id,
+      domain,
       title: input.title,
       description: input.description ?? null,
       videoUrl: resolveVideoUrl(input.objectKey),
@@ -406,13 +417,20 @@ export class SubmissionService {
 
   static async listMine(actor: SubmissionActor): Promise<SubmissionRecord[]> {
     await assertCreator(actor);
-    return SubmissionRepository.listByCreatorId(actor.id);
+    return SubmissionRepository.listByCreatorId(actor.id, {
+      domain: VideoDomain.REGULAR,
+    });
   }
 
   static async getById(actor: SubmissionActor, id: string): Promise<SubmissionRecord> {
     await assertCreator(actor);
     const submission = await SubmissionRepository.findById(id);
-    if (!submission || submission.creatorId !== actor.id || submission.deletedAt) {
+    if (
+      !submission ||
+      submission.creatorId !== actor.id ||
+      submission.deletedAt ||
+      submission.domain !== VideoDomain.REGULAR
+    ) {
       throw new NotFoundError('Submission not found');
     }
     return submission;
@@ -426,7 +444,11 @@ export class SubmissionService {
   static async remove(actor: SubmissionActor, id: string) {
     await assertCreator(actor);
     const existing = await SubmissionRepository.findById(id);
-    if (!existing || existing.creatorId !== actor.id) {
+    if (
+      !existing ||
+      existing.creatorId !== actor.id ||
+      existing.domain !== VideoDomain.REGULAR
+    ) {
       throw new NotFoundError('Submission not found');
     }
     if (existing.deletedAt) {

@@ -1,4 +1,4 @@
-import { ContestStatus, Prisma, SubmissionStatus } from '@prisma/client';
+import { ContestStatus, Prisma, SubmissionStatus, VideoDomain } from '@prisma/client';
 import { prisma } from '../config/database.js';
 import { ConflictError, NotFoundError } from '../utils/response.js';
 
@@ -123,6 +123,7 @@ export interface CreateSubmissionData {
   tags: string[];
   categoryId?: string | null;
   otherCategoryLabel?: string | null;
+  domain?: VideoDomain;
 }
 
 /**
@@ -135,6 +136,9 @@ export class SubmissionRepository {
     data: CreateSubmissionData,
     options?: { onePledgeEntry?: boolean; replacesSubmissionId?: string },
   ): Promise<SubmissionRecord> {
+    const submissionDomain =
+      data.domain ?? (options?.onePledgeEntry ? VideoDomain.PLEDGE : VideoDomain.REGULAR);
+
     if (options?.replacesSubmissionId) {
       return prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${data.contestId}:${data.creatorId}`}))`;
@@ -153,6 +157,7 @@ export class SubmissionRepository {
           data: {
             contestId: data.contestId,
             creatorId: data.creatorId,
+            domain: data.domain ?? oldSubmission.domain,
             title: data.title,
             description: data.description,
             videoUrl: data.videoUrl,
@@ -203,6 +208,7 @@ export class SubmissionRepository {
           data: {
             contestId: data.contestId,
             creatorId: data.creatorId,
+            domain: VideoDomain.PLEDGE,
             title: data.title,
             description: data.description,
             videoUrl: data.videoUrl,
@@ -224,6 +230,7 @@ export class SubmissionRepository {
       data: {
         contestId: data.contestId,
         creatorId: data.creatorId,
+        domain: submissionDomain,
         title: data.title,
         description: data.description,
         videoUrl: data.videoUrl,
@@ -304,11 +311,12 @@ export class SubmissionRepository {
 
   static async listByCreatorId(
     creatorId: string,
-    options?: { includeDeleted?: boolean },
+    options?: { includeDeleted?: boolean; domain?: VideoDomain },
   ): Promise<SubmissionRecord[]> {
     return prisma.submission.findMany({
       where: {
         creatorId,
+        ...(options?.domain ? { domain: options.domain } : {}),
         ...(options?.includeDeleted ? {} : notDeleted),
       },
       include: submissionInclude,
@@ -316,11 +324,15 @@ export class SubmissionRepository {
     });
   }
 
-  static async listApprovedByCreatorId(creatorId: string): Promise<SubmissionRecord[]> {
+  static async listApprovedByCreatorId(
+    creatorId: string,
+    options?: { domain?: VideoDomain },
+  ): Promise<SubmissionRecord[]> {
     return prisma.submission.findMany({
       where: {
         creatorId,
         status: SubmissionStatus.APPROVED,
+        ...(options?.domain ? { domain: options.domain } : {}),
         ...notDeleted,
       },
       include: submissionInclude,
@@ -381,6 +393,7 @@ export class SubmissionRepository {
   static async listPendingReview(filter?: {
     contestId?: string;
     seriesSlug?: string;
+    domain?: VideoDomain;
   }): Promise<ModerationQueueRecord[]> {
     return prisma.submission.findMany({
       where: {
@@ -388,6 +401,7 @@ export class SubmissionRepository {
         ...notDeleted,
         ...(filter?.contestId ? { contestId: filter.contestId } : {}),
         ...(filter?.seriesSlug ? { contest: { seriesSlug: filter.seriesSlug } } : {}),
+        ...(filter?.domain ? { domain: filter.domain } : {}),
       },
       include: queueInclude,
       orderBy: { createdAt: 'asc' },

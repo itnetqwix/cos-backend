@@ -7,6 +7,16 @@ import { CommentController } from '../controllers/comment.controller.js';
 import { ContestController } from '../controllers/contest.controller.js';
 import { RecurringContestController } from '../controllers/recurring-contest.controller.js';
 import { ModerationController } from '../controllers/moderation.controller.js';
+import { PledgeVideoController } from '../controllers/pledge-video.controller.js';
+import {
+  listPledgeVideosSwaggerSchema,
+  getPledgeVideoMetricsSwaggerSchema,
+  getPledgeVideoByIdSwaggerSchema,
+  approvePledgeVideoSwaggerSchema,
+  rejectPledgeVideoSwaggerSchema,
+  pledgeVideoPlaybackUrlSwaggerSchema,
+  listPledgeVideoAuditLogsSwaggerSchema,
+} from '../schemas/pledge-video.schema.js';
 import { SubmissionController } from '../controllers/submission.controller.js';
 import { NotificationController } from '../controllers/notification.controller.js';
 import { VideoCategoryController } from '../controllers/video-category.controller.js';
@@ -838,6 +848,72 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       onRequest: moderatorGuards,
     },
     ModerationController.playbackUrl,
+  );
+
+  // -------------------------------------------------------------
+  // Independent Pledge Video Management Endpoints
+  // -------------------------------------------------------------
+  fastify.get(
+    '/admin/pledge/videos',
+    {
+      schema: listPledgeVideosSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    PledgeVideoController.list,
+  );
+
+  fastify.get(
+    '/admin/pledge/videos/metrics',
+    {
+      schema: getPledgeVideoMetricsSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    PledgeVideoController.metrics,
+  );
+
+  fastify.get(
+    '/admin/pledge/videos/audit-logs',
+    {
+      schema: listPledgeVideoAuditLogsSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    PledgeVideoController.auditLogs,
+  );
+
+  fastify.get(
+    '/admin/pledge/videos/:id',
+    {
+      schema: getPledgeVideoByIdSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    PledgeVideoController.getById,
+  );
+
+  fastify.get(
+    '/admin/pledge/videos/:id/playback-url',
+    {
+      schema: pledgeVideoPlaybackUrlSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    PledgeVideoController.playbackUrl,
+  );
+
+  fastify.post(
+    '/admin/pledge/videos/:id/approve',
+    {
+      schema: approvePledgeVideoSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    PledgeVideoController.approve,
+  );
+
+  fastify.post(
+    '/admin/pledge/videos/:id/reject',
+    {
+      schema: rejectPledgeVideoSwaggerSchema,
+      onRequest: moderatorGuards,
+    },
+    PledgeVideoController.reject,
   );
 
   fastify.get(
