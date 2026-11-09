@@ -5,6 +5,7 @@ import {
   Prisma,
   Role,
   SubmissionStatus,
+  VideoDomain,
 } from '@prisma/client';
 import { prisma } from '../config/database.js';
 import {
@@ -90,7 +91,10 @@ function assertModeratorOnly(actor: ModerationActor): void {
   assertModerator(actor);
 }
 
-function assertModeratable(submission: SubmissionRecord): void {
+function assertModeratable(
+  submission: SubmissionRecord,
+  expectedDomain?: VideoDomain,
+): void {
   if (submission.deletedAt) {
     throw new ConflictError('Deleted submissions cannot be moderated');
   }
@@ -102,6 +106,11 @@ function assertModeratable(submission: SubmissionRecord): void {
       `Invalid submission status transition from ${submission.status}`,
     );
   }
+  if (expectedDomain && submission.domain !== expectedDomain) {
+    throw new ConflictError(
+      `Domain mismatch: Cannot moderate ${submission.domain} video via ${expectedDomain} endpoint`,
+    );
+  }
 }
 
 async function decide(
@@ -111,13 +120,14 @@ async function decide(
   nextStatus: SubmissionStatus,
   reason: string | null,
   reasonCode?: string,
+  expectedDomain?: VideoDomain,
 ): Promise<ModerationDecision> {
   const existing = await SubmissionRepository.findById(submissionId);
   if (!existing) {
     throw new NotFoundError('Submission not found');
   }
   assertModeratorOnly(actor);
-  assertModeratable(existing);
+  assertModeratable(existing, expectedDomain);
 
   const moderatedAt = new Date();
   const metadata: Record<string, string> = {
@@ -187,7 +197,7 @@ async function decide(
 export class ModerationService {
   static async listQueue(
     actor: ModerationActor,
-    filter?: { contestId?: string; seriesSlug?: string },
+    filter?: { contestId?: string; seriesSlug?: string; domain?: VideoDomain },
   ): Promise<ModerationQueueRecord[]> {
     assertModeratorOnly(actor);
     return SubmissionRepository.listPendingReview(filter);
@@ -195,19 +205,26 @@ export class ModerationService {
 
   static async listAuditLogs(
     actor: ModerationActor,
-    filter?: { contestId?: string; seriesSlug?: string },
+    filter?: { contestId?: string; seriesSlug?: string; domain?: VideoDomain },
   ): Promise<AuditLogRecord[]> {
     assertModeratorOnly(actor);
     return AuditLogRepository.list(filter);
   }
 
-  static async approve(actor: ModerationActor, submissionId: string, note?: string) {
+  static async approve(
+    actor: ModerationActor,
+    submissionId: string,
+    note?: string,
+    expectedDomain?: VideoDomain,
+  ) {
     return decide(
       actor,
       submissionId,
       AuditAction.APPROVE,
       SubmissionStatus.APPROVED,
       note ?? null,
+      undefined,
+      expectedDomain,
     );
   }
 
@@ -216,6 +233,7 @@ export class ModerationService {
     submissionId: string,
     reason: string,
     reasonCode?: string,
+    expectedDomain?: VideoDomain,
   ) {
     const trimmed = reason.trim();
     if (!trimmed) {
@@ -228,6 +246,7 @@ export class ModerationService {
       SubmissionStatus.REJECTED,
       trimmed,
       reasonCode?.trim() || undefined,
+      expectedDomain,
     );
   }
 

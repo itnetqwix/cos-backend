@@ -214,6 +214,11 @@ enum SubmissionStatus {
   FLAGGED
 }
 
+enum VideoDomain {
+  REGULAR
+  PLEDGE
+}
+
 // M06-P01-T02 / T03 plus M07 moderation decision columns.
 // objectKey is unique so complete can retry the same reserved key.
 // thumbnailUrl is optional: thumbnail generation is NOT SPECIFIED.
@@ -221,6 +226,7 @@ enum SubmissionStatus {
 // Community score and totalVotes are updated by JudgingService (M08).
 model Submission {
   id                 String           @id @default(uuid())
+  domain             VideoDomain      @default(REGULAR)
   contestId          String
   contest            Contest          @relation(fields: [contestId], references: [id], onDelete: Cascade)
   creatorId          String
@@ -256,6 +262,8 @@ model Submission {
   @@index([contestId, status])
   @@index([categoryId])
   @@index([creatorId])
+  @@index([domain, status])
+  @@index([domain, createdAt])
   @@map("submissions")
 }
 

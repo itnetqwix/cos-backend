@@ -312,7 +312,7 @@ export class ContestService {
 
   /** Public read of every ACTIVE contest. No client tenant parameter. */
   static async listActive() {
-    return ContestRepository.list({ status: 'ACTIVE' });
+    return ContestRepository.list({ status: 'ACTIVE', excludeSeriesSlug: 'pledge' });
   }
 
   /**
@@ -325,7 +325,7 @@ export class ContestService {
         `Forbidden: User role '${actor.role}' does not have permission to access this resource`,
       );
     }
-    return ContestRepository.list({});
+    return ContestRepository.list({ excludeSeriesSlug: 'pledge' });
   }
 
   static async getForCreator(actor: ContestActor, id: string) {
@@ -343,7 +343,10 @@ export class ContestService {
 
   /** Public contests a guest can watch. Rating stays closed after COMPLETED. */
   static async listViewable() {
-    return ContestRepository.list({ statuses: VIEWABLE_CONTEST_STATUSES });
+    return ContestRepository.list({
+      statuses: VIEWABLE_CONTEST_STATUSES,
+      excludeSeriesSlug: 'pledge',
+    });
   }
 
   static async remove(actor: ContestActor, id: string) {

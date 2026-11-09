@@ -1,4 +1,4 @@
-import { AuditAction, Prisma } from '@prisma/client';
+import { AuditAction, Prisma, VideoDomain } from '@prisma/client';
 import { prisma } from '../config/database.js';
 
 const auditInclude = {
@@ -69,10 +69,12 @@ export class AuditLogRepository {
   static async list(filter?: {
     contestId?: string;
     seriesSlug?: string;
+    domain?: VideoDomain;
   }): Promise<AuditLogRecord[]> {
     return prisma.auditLog.findMany({
       where: {
         ...(filter?.contestId ? { submission: { contestId: filter.contestId } } : {}),
+        ...(filter?.domain ? { submission: { domain: filter.domain } } : {}),
         ...(filter?.seriesSlug
           ? {
               OR: [

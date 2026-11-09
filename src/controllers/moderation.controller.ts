@@ -14,6 +14,7 @@ import { ModerationService } from '../services/moderation.service.js';
 import { resolveSubmissionMedia } from '../services/storage.service.js';
 import { NotFoundError, sendSuccess } from '../utils/response.js';
 import { SubmissionRepository } from '../repositories/submission.repository.js';
+import { VideoDomain } from '@prisma/client';
 
 function actorFromRequest(request: FastifyRequest) {
   return {
@@ -90,11 +91,19 @@ export class ModerationController {
    * GET /api/v1/admin/moderation/queue
    */
   static async queue(request: FastifyRequest, reply: FastifyReply) {
-    const query = (request.query || {}) as { contestId?: string; seriesSlug?: string };
-    const submissions = await ModerationService.listQueue(
-      actorFromRequest(request),
-      query,
-    );
+    const query = (request.query || {}) as {
+      contestId?: string;
+      seriesSlug?: string;
+      domain?: VideoDomain;
+    };
+    const domain =
+      query.seriesSlug === 'pledge'
+        ? VideoDomain.PLEDGE
+        : (query.domain ?? (query.seriesSlug ? undefined : VideoDomain.REGULAR));
+    const submissions = await ModerationService.listQueue(actorFromRequest(request), {
+      ...query,
+      domain,
+    });
     return sendSuccess(
       reply,
       await Promise.all(
@@ -115,6 +124,7 @@ export class ModerationController {
       actorFromRequest(request),
       id,
       body.note,
+      VideoDomain.REGULAR,
     );
     return sendSuccess(
       reply,
@@ -135,6 +145,7 @@ export class ModerationController {
       id,
       body.reason,
       body.reasonCode,
+      VideoDomain.REGULAR,
     );
     return sendSuccess(
       reply,
@@ -148,8 +159,19 @@ export class ModerationController {
    * GET /api/v1/admin/moderation/audit-logs
    */
   static async auditLogs(request: FastifyRequest, reply: FastifyReply) {
-    const query = (request.query || {}) as { contestId?: string; seriesSlug?: string };
-    const logs = await ModerationService.listAuditLogs(actorFromRequest(request), query);
+    const query = (request.query || {}) as {
+      contestId?: string;
+      seriesSlug?: string;
+      domain?: VideoDomain;
+    };
+    const domain =
+      query.seriesSlug === 'pledge'
+        ? VideoDomain.PLEDGE
+        : (query.domain ?? (query.seriesSlug ? undefined : VideoDomain.REGULAR));
+    const logs = await ModerationService.listAuditLogs(actorFromRequest(request), {
+      ...query,
+      domain,
+    });
     return sendSuccess(
       reply,
       logs.map(toAuditLogView),
@@ -164,7 +186,7 @@ export class ModerationController {
   static async playbackUrl(request: FastifyRequest, reply: FastifyReply) {
     const { id } = submissionIdParamSchema.parse(request.params);
     const submission = await SubmissionRepository.findById(id);
-    if (!submission) {
+    if (!submission || submission.domain !== VideoDomain.REGULAR) {
       throw new NotFoundError('Submission not found');
     }
     const media = await resolveSubmissionMedia(

@@ -20,6 +20,8 @@ export interface ContestListFilters {
   status?: ContestStatus;
   statuses?: ContestStatus[];
   categorySlug?: string;
+  excludeSeriesSlug?: string;
+  seriesSlug?: string | null;
 }
 
 export interface CreateContestData {
@@ -94,12 +96,23 @@ export class ContestRepository {
   }
 
   static async list(filters: ContestListFilters): Promise<ContestRecord[]> {
+    const andConditions: Prisma.ContestWhereInput[] = [
+      { OR: [{ seriesSlug: null }, { cycleMonth: { not: null } }] },
+    ];
+    if (filters.excludeSeriesSlug) {
+      andConditions.push({
+        OR: [{ seriesSlug: null }, { seriesSlug: { not: filters.excludeSeriesSlug } }],
+      });
+    }
+    if (filters.seriesSlug !== undefined) {
+      andConditions.push({ seriesSlug: filters.seriesSlug });
+    }
+
     return prisma.contest.findMany({
       where: {
         status: filters.statuses ? { in: filters.statuses } : filters.status,
         category: filters.categorySlug ? { slug: filters.categorySlug } : undefined,
-        // Template rows are series configuration, not contests creators enter.
-        OR: [{ seriesSlug: null }, { cycleMonth: { not: null } }],
+        AND: andConditions,
       },
       include: contestInclude,
       orderBy: { createdAt: 'desc' },
