@@ -81,6 +81,9 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default(''),
   API_PUBLIC_ORIGIN: z.string().default(''),
   GUEST_COOKIE_SAMESITE: z.enum(['lax', 'none']).optional(),
+  EMAIL_FROM: z.string().default('Ripskis <noreply@ripskis.com>'),
+  RESEND_API_KEY: z.string().default(''),
+  FRONTEND_URL: z.string().default(''),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

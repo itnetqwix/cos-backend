@@ -57,6 +57,9 @@ import {
   getMeSwaggerSchema,
   updateMeSwaggerSchema,
   presignAvatarSwaggerSchema,
+  forgotPasswordSwaggerSchema,
+  resetPasswordSwaggerSchema,
+  verifyResetTokenSwaggerSchema,
 } from '../schemas/auth.schema.js';
 import {
   createContestSwaggerSchema,
@@ -217,6 +220,7 @@ import {
   authCredentialRateLimit,
   rateLimitPlugin,
   ratingRateLimit,
+  passwordResetRateLimit,
 } from '../plugins/rate-limit.js';
 
 export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
@@ -284,6 +288,33 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       config: { rateLimit: authCredentialRateLimit },
     },
     AuthController.login,
+  );
+
+  fastify.post(
+    '/auth/forgot-password',
+    {
+      schema: forgotPasswordSwaggerSchema,
+      config: { rateLimit: passwordResetRateLimit },
+    },
+    AuthController.forgotPassword,
+  );
+
+  fastify.post(
+    '/auth/reset-password',
+    {
+      schema: resetPasswordSwaggerSchema,
+      config: { rateLimit: passwordResetRateLimit },
+    },
+    AuthController.resetPassword,
+  );
+
+  fastify.get(
+    '/auth/verify-reset-token',
+    {
+      schema: verifyResetTokenSwaggerSchema,
+      config: { rateLimit: passwordResetRateLimit },
+    },
+    AuthController.verifyResetToken,
   );
 
   // GET /auth/me is private: `onRequest: [fastify.authenticate]` (M02-P01-T04).

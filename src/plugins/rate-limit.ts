@@ -38,3 +38,9 @@ export const ratingRateLimit = {
   max: RATE_LIMIT_DEFAULTS.RATING_MAX,
   timeWindow: RATE_LIMIT_DEFAULTS.RATING_TIME_WINDOW_MS,
 } as const;
+
+/** Per-route ceiling for password reset requests and validations. */
+export const passwordResetRateLimit = {
+  max: 5,
+  timeWindow: 15 * 60 * 1000,
+} as const;

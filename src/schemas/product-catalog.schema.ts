@@ -73,7 +73,7 @@ export type RejectProductInput = z.infer<typeof rejectProductSchema>;
 export type PresignProductImageInput = z.infer<typeof presignProductImageSchema>;
 
 // Swagger Schemas
-const secured = [{ BearerAuth: [] }];
+const secured = [{ bearerAuth: [] }];
 const error400 = swaggerErrorEnvelope('Validation error');
 const error401 = swaggerErrorEnvelope('Authentication required');
 const error403 = swaggerErrorEnvelope('Forbidden access');

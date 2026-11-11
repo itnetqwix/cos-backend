@@ -324,3 +324,5 @@ export const presignAvatarSwaggerSchema: FastifySchema = {
     403: swaggerErrorEnvelope('Forbidden'),
   },
 };
+
+export * from './password-reset.schema.js';
