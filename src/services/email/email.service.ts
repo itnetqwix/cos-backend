@@ -5,7 +5,7 @@ import {
   SendEmailOptions,
   SendEmailResult,
 } from './email-provider.interface.js';
-import { renderPasswordResetEmail } from './email-template.js';
+import { renderPasswordResetEmail, renderVerificationEmail } from './email-template.js';
 
 export class NullEmailProvider implements EmailProvider {
   name = 'null';
@@ -113,7 +113,7 @@ export class EmailService {
     this.providerInstance = provider;
   }
 
-  static getResetPasswordUrl(rawToken: string): string {
+  static frontendBase(): string {
     let baseUrl = env.FRONTEND_URL;
     if (!baseUrl) {
       baseUrl =
@@ -121,16 +121,18 @@ export class EmailService {
           ? 'https://www.ripskis.com'
           : 'http://localhost:3000';
     }
-
-    // Force https in production
     if (env.NODE_ENV === 'production' && baseUrl.startsWith('http://')) {
       baseUrl = baseUrl.replace(/^http:\/\//, 'https://');
     }
+    return baseUrl.replace(/\/+$/, '');
+  }
 
-    // Trim trailing slash
-    baseUrl = baseUrl.replace(/\/+$/, '');
+  static getResetPasswordUrl(rawToken: string): string {
+    return `${this.frontendBase()}/reset-password?token=${encodeURIComponent(rawToken)}`;
+  }
 
-    return `${baseUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
+  static getVerifyEmailUrl(rawToken: string): string {
+    return `${this.frontendBase()}/verify-email?token=${encodeURIComponent(rawToken)}`;
   }
 
   static async sendPasswordResetEmail(
@@ -146,6 +148,24 @@ export class EmailService {
 
     const provider = this.getProvider();
     return provider.sendEmail({
+      to: user.email,
+      subject,
+      html,
+      text,
+    });
+  }
+
+  static async sendVerificationEmail(
+    user: { email: string; name?: string },
+    rawToken: string,
+  ): Promise<SendEmailResult> {
+    const verifyUrl = this.getVerifyEmailUrl(rawToken);
+    const { subject, html, text } = renderVerificationEmail({
+      name: user.name,
+      verifyUrl,
+      expiresInMinutes: 60,
+    });
+    return this.getProvider().sendEmail({
       to: user.email,
       subject,
       html,

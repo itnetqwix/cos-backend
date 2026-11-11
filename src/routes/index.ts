@@ -59,6 +59,7 @@ import {
   presignAvatarSwaggerSchema,
   forgotPasswordSwaggerSchema,
   resetPasswordSwaggerSchema,
+  verifyEmailSwaggerSchema,
   verifyResetTokenSwaggerSchema,
 } from '../schemas/auth.schema.js';
 import {
@@ -279,6 +280,15 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
       config: { rateLimit: authCredentialRateLimit },
     },
     AuthController.registerCreator,
+  );
+
+  fastify.post(
+    '/auth/verify-email',
+    {
+      schema: verifyEmailSwaggerSchema,
+      config: { rateLimit: passwordResetRateLimit },
+    },
+    AuthController.verifyEmail,
   );
 
   fastify.post(

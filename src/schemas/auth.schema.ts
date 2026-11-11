@@ -153,7 +153,7 @@ export const registerCreatorSwaggerSchema: FastifySchema = {
   tags: ['Authentication'],
   summary: 'Register a new Creator account',
   description:
-    'Creates a creator user with role CREATOR, hashes password with bcrypt (10 rounds), and issues a JWT token. Request body is email, password, and name only. handle and avatarUrl are not accepted.',
+    'Creates an unverified creator, hashes the password, and emails a verification link. No JWT is issued until the email is verified. Request body is email, password, and name only.',
   body: {
     type: 'object',
     required: ['email', 'password', 'name'],
@@ -165,16 +165,10 @@ export const registerCreatorSwaggerSchema: FastifySchema = {
   },
   response: {
     201: {
-      description: 'Creator successfully registered',
+      description: 'Verification email accepted for delivery',
       ...swaggerSuccessEnvelope(
-        {
-          type: 'object',
-          properties: {
-            user: SwaggerUserSchema,
-            token: SwaggerTokenProperty,
-          },
-        },
-        'Creator account created successfully',
+        { type: 'null' },
+        'Check your email to verify your account before signing in.',
       ),
     },
     400: {

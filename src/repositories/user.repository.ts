@@ -16,6 +16,17 @@ const publicUserSelect = {
 } satisfies Prisma.UserSelect;
 
 export class UserRepository {
+  static async markEmailVerified(userId: string) {
+    return prisma.user.update({
+      where: { id: userId },
+      data: { emailVerifiedAt: new Date() },
+    });
+  }
+
+  static async deleteById(userId: string) {
+    return prisma.user.delete({ where: { id: userId } });
+  }
+
   static async findByEmail(email: string) {
     return prisma.user.findUnique({
       where: { email },
@@ -40,6 +51,7 @@ export class UserRepository {
         passwordHash: data.passwordHash,
         name: data.name,
         role: Role.CREATOR,
+        emailVerifiedAt: null,
       },
       select: publicUserSelect,
     });

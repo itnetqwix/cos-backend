@@ -30,6 +30,39 @@ export const resetPasswordSchema = z
 
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
+export const verifyEmailSchema = z.object({
+  token: z.string().trim().min(1, 'Verification token is required'),
+});
+
+export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
+
+export const verifyEmailSwaggerSchema: FastifySchema = {
+  description:
+    'Confirm a signup email verification link. Login stays blocked until this succeeds.',
+  tags: ['Authentication'],
+  body: {
+    type: 'object',
+    required: ['token'],
+    properties: {
+      token: { type: 'string', description: 'Token from the verification email' },
+    },
+  },
+  response: {
+    200: {
+      description: 'Email verified',
+      ...swaggerSuccessEnvelope(
+        {
+          type: 'object',
+          properties: { verified: { type: 'boolean', example: true } },
+        },
+        'Email verified. You can sign in.',
+      ),
+    },
+    400: swaggerErrorEnvelope('Invalid or expired verification link'),
+    429: swaggerErrorEnvelope('Too many requests'),
+  },
+};
+
 export const verifyResetTokenSchema = z.object({
   token: z.string().trim().min(1, 'Password reset token is required'),
 });

@@ -1,5 +1,6 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../services/auth.service.js';
+import { EmailVerificationService } from '../services/email-verification.service.js';
 import { PasswordResetService } from '../services/password-reset.service.js';
 import {
   forgotPasswordSchema,
@@ -8,6 +9,7 @@ import {
   registerCreatorSchema,
   resetPasswordSchema,
   updateCreatorProfileSchema,
+  verifyEmailSchema,
   verifyResetTokenSchema,
 } from '../schemas/auth.schema.js';
 import { sendSuccess } from '../utils/response.js';
@@ -20,14 +22,24 @@ export class AuthController {
    */
   static async registerCreator(request: FastifyRequest, reply: FastifyReply) {
     const validatedData = registerCreatorSchema.parse(request.body);
-    const result = await AuthService.registerCreator(validatedData, request.server);
+    await AuthService.registerCreator(validatedData, request.server);
 
     return sendSuccess(
       reply,
-      result,
-      'Creator account created successfully',
+      null,
+      'Check your email to verify your account before signing in.',
       HTTP_STATUS.CREATED,
     );
+  }
+
+  /**
+   * Confirm a signup verification link.
+   * POST /api/v1/auth/verify-email
+   */
+  static async verifyEmail(request: FastifyRequest, reply: FastifyReply) {
+    const body = verifyEmailSchema.parse(request.body);
+    const result = await EmailVerificationService.verifyEmail(body.token);
+    return sendSuccess(reply, result, 'Email verified. You can sign in.', HTTP_STATUS.OK);
   }
 
   /**
