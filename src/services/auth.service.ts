@@ -17,6 +17,7 @@ import {
   UpdateCreatorProfileInput,
 } from '../schemas/auth.schema.js';
 import { CreatorActivityService } from './creator-activity.service.js';
+import { EmailVerificationService } from './email-verification.service.js';
 import {
   buildAvatarObjectKey,
   getStorageService,
@@ -56,10 +57,11 @@ async function toPublicUser(user: ProfileRecord) {
 export class AuthService {
   /**
    * Register a creator. Body is email, password, and name.
-   * Password is bcrypt-hashed before persist. JWT claims are `{ id, email, role }`.
+   * Password is bcrypt-hashed before persist. No JWT until the email is verified.
    * There is no public admin registration.
    */
-  static async registerCreator(input: RegisterCreatorInput, fastify: FastifyInstance) {
+  static async registerCreator(input: RegisterCreatorInput, _fastify: FastifyInstance) {
+    void _fastify;
     const { email, password, name } = input;
 
     const existingUser = await UserRepository.findByEmail(email);
@@ -74,6 +76,8 @@ export class AuthService {
       name,
     });
 
+    await EmailVerificationService.sendForUser(user);
+
     await CreatorActivityService.record({
       creatorId: user.id,
       action: CreatorActivityAction.REGISTERED,
@@ -81,16 +85,7 @@ export class AuthService {
       performedByUserId: user.id,
     });
 
-    const token = fastify.jwt.sign({
-      id: user.id,
-      email: user.email,
-      role: user.role,
-    });
-
-    return {
-      user: await toPublicUser(user),
-      token,
-    };
+    return null;
   }
 
   static async login(input: LoginInput, fastify: FastifyInstance) {
@@ -104,6 +99,10 @@ export class AuthService {
     const isPasswordValid = await comparePassword(password, user.passwordHash);
     if (!isPasswordValid) {
       throw new UnauthorizedError('Invalid email or password');
+    }
+
+    if (user.role === Role.CREATOR && user.emailVerifiedAt === null) {
+      throw new ForbiddenError('Verify your email before signing in.');
     }
 
     if (user.role === Role.CREATOR) {

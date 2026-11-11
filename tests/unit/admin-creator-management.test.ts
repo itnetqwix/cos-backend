@@ -16,6 +16,7 @@ import { SubmissionRepository } from '../../src/repositories/submission.reposito
 import { UserRepository } from '../../src/repositories/user.repository.js';
 import { AdminCreatorService } from '../../src/services/admin-creator.service.js';
 import { AuthService } from '../../src/services/auth.service.js';
+import { EmailVerificationService } from '../../src/services/email-verification.service.js';
 import { CreatorActivityService } from '../../src/services/creator-activity.service.js';
 import { setModerationTransactionRunner } from '../../src/services/moderation.service.js';
 import { ModerationService } from '../../src/services/moderation.service.js';
@@ -445,10 +446,13 @@ describe('admin creator management', { concurrency: false }, () => {
 
     UserRepository.findByEmail = async () => null;
     UserRepository.createCreator = async () => creatorRow;
+    const originalSend = EmailVerificationService.sendForUser;
+    EmailVerificationService.sendForUser = async () => {};
     await AuthService.registerCreator(
       { email: 'ada@example.com', password: 'password123', name: 'Ada' },
       app,
     );
+    EmailVerificationService.sendForUser = originalSend;
     assert.equal(saved?.action, 'REGISTERED');
     assert.equal(JSON.stringify(saved).includes('password123'), false);
   });

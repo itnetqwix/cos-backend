@@ -91,6 +91,8 @@ model User {
   reviewsCreatedForTesters ProductReview[]     @relation("ReviewAdminCreator")
   tokeAuditLogs           TokeAuditLog[]       @relation("TokeAuditActor")
   passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  emailVerifiedAt         DateTime?
 
   // Private storage key for the creator profile image.
   // The API returns a short-lived presigned avatarUrl. That URL is not stored.
@@ -833,4 +835,20 @@ model PasswordResetToken {
   @@index([tokenHash])
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+// Signup verification. Existing users are backfilled as already verified.
+// Link lifetime matches password reset (60 minutes). A longer window is NOT SPECIFIED.
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@map("email_verification_tokens")
 }

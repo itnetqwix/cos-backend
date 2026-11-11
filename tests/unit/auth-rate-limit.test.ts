@@ -4,6 +4,7 @@ import { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import { RATE_LIMIT_DEFAULTS, HTTP_STATUS } from '../../src/config/constants.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
+import { EmailVerificationService } from '../../src/services/email-verification.service.js';
 
 const ENVELOPE_KEYS = ['data', 'errors', 'message', 'success'];
 const LOGIN_BODY = {
@@ -27,6 +28,7 @@ describe('M12-P01-T01 auth credential rate limit', () => {
   let creatorWrites = 0;
   const originalFindByEmail = UserRepository.findByEmail;
   const originalCreateCreator = UserRepository.createCreator;
+  const originalSend = EmailVerificationService.sendForUser;
 
   before(async () => {
     process.env.NODE_ENV = 'test';
@@ -34,6 +36,7 @@ describe('M12-P01-T01 auth credential rate limit', () => {
       lookups += 1;
       return null;
     }) as unknown as typeof UserRepository.findByEmail;
+    EmailVerificationService.sendForUser = async () => {};
     UserRepository.createCreator = (async () => {
       creatorWrites += 1;
       return {
@@ -52,6 +55,7 @@ describe('M12-P01-T01 auth credential rate limit', () => {
   after(async () => {
     UserRepository.findByEmail = originalFindByEmail;
     UserRepository.createCreator = originalCreateCreator;
+    EmailVerificationService.sendForUser = originalSend;
     await app.close();
   });
 

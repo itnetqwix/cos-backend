@@ -6,6 +6,7 @@ import { Role } from '@prisma/client';
 import { buildApp } from '../../src/app.js';
 import { prisma } from '../../src/config/database.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
+import { EmailVerificationService } from '../../src/services/email-verification.service.js';
 import { AuthService } from '../../src/services/auth.service.js';
 import { registerCreatorSchema, loginSchema } from '../../src/schemas/auth.schema.js';
 import { JWTPayload } from '../../src/types/auth.js';
@@ -161,7 +162,7 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
   });
 
   describe('5. Auth Business Logic & Controller Handlers', () => {
-    it('AuthService.registerCreator creates creator user and returns sanitized payload and JWT', async () => {
+    it('AuthService.registerCreator creates creator user and does not return a JWT', async () => {
       const mockUser = {
         id: 'c-uuid-1',
         email: 'mockcreator@contestos.com',
@@ -173,9 +174,11 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
 
       const originalFindByEmail = UserRepository.findByEmail;
       const originalCreateCreator = UserRepository.createCreator;
+      const originalSend = EmailVerificationService.sendForUser;
 
       UserRepository.findByEmail = (async () => null) as unknown as typeof UserRepository.findByEmail;
       UserRepository.createCreator = (async () => mockUser) as unknown as typeof UserRepository.createCreator;
+      EmailVerificationService.sendForUser = async () => {};
 
       try {
         const result = await AuthService.registerCreator(
@@ -187,18 +190,11 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
           app,
         );
 
-        assert.equal(result.user.email, 'mockcreator@contestos.com');
-        assert.equal(result.user.role, Role.CREATOR);
-        assert.ok(result.token);
-        assert.equal((result.user as Record<string, unknown>).passwordHash, undefined);
-
-        const decoded = app.jwt.verify<{ id: string; email: string; role: string }>(result.token);
-        assert.equal(decoded.id, mockUser.id);
-        assert.equal(decoded.email, mockUser.email);
-        assert.equal(decoded.role, Role.CREATOR);
+        assert.equal(result, null);
       } finally {
         UserRepository.findByEmail = originalFindByEmail;
         UserRepository.createCreator = originalCreateCreator;
+        EmailVerificationService.sendForUser = originalSend;
       }
     });
 
@@ -248,9 +244,11 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
 
       const originalFindByEmail = UserRepository.findByEmail;
       const originalCreateCreator = UserRepository.createCreator;
+      const originalSend = EmailVerificationService.sendForUser;
 
       UserRepository.findByEmail = (async () => null) as unknown as typeof UserRepository.findByEmail;
       UserRepository.createCreator = (async () => mockUser) as unknown as typeof UserRepository.createCreator;
+      EmailVerificationService.sendForUser = async () => {};
 
       try {
         const res = await app.inject({
@@ -266,12 +264,12 @@ describe('Contest Operating System (COS) - Auth & Multi-Role Registration Module
         assert.equal(res.statusCode, 201);
         const body = JSON.parse(res.payload);
         assert.equal(body.success, true);
-        assert.equal(body.message, 'Creator account created successfully');
-        assert.equal(body.data.user.email, 'e2ecreator@test.com');
-        assert.ok(body.data.token);
+        assert.equal(body.message, 'Check your email to verify your account before signing in.');
+        assert.equal(body.data, null);
       } finally {
         UserRepository.findByEmail = originalFindByEmail;
         UserRepository.createCreator = originalCreateCreator;
+        EmailVerificationService.sendForUser = originalSend;
       }
     });
 

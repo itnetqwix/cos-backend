@@ -71,3 +71,38 @@ If you did not request this password reset, please ignore this email. Your passw
 
   return { subject, html, text };
 }
+
+export function renderVerificationEmail({
+  name,
+  verifyUrl,
+  expiresInMinutes = 60,
+  appName = 'Ripskis Contest OS',
+}: {
+  name?: string;
+  verifyUrl: string;
+  expiresInMinutes?: number;
+  appName?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `Verify your email - ${appName}`;
+  const greeting = name ? `Hello ${name},` : 'Hello,';
+  const html = `<!DOCTYPE html>
+<html lang="en"><body style="font-family:sans-serif;background:#0b0f12;color:#e2e8f0;padding:24px">
+<div style="max-width:540px;margin:0 auto;background:#12181f;border:1px solid #1e293b;border-radius:16px;padding:32px">
+<p style="color:#22c55e;font-weight:900">${appName}</p>
+<h1 style="color:#f8fafc">Verify your email</h1>
+<p>${greeting}</p>
+<p>Confirm this address to finish creating your Ripskis account.</p>
+<p style="text-align:center;margin:28px 0"><a href="${verifyUrl}" style="background:#16a34a;color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:9999px">Verify email</a></p>
+<p>This link is valid for ${expiresInMinutes} minutes and can only be used once.</p>
+<p style="font-size:12px;color:#64748b">If you did not sign up, you can ignore this email.</p>
+<p style="word-break:break-all;font-size:11px;color:#22c55e">${verifyUrl}</p>
+</div></body></html>`;
+  const text = `${greeting}
+
+Confirm your email to finish creating your Ripskis account:
+${verifyUrl}
+
+This link is valid for ${expiresInMinutes} minutes and can only be used once.
+`;
+  return { subject, html, text };
+}

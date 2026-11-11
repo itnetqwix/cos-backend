@@ -4,6 +4,8 @@ import { FastifyInstance } from 'fastify';
 import { Role } from '@prisma/client';
 import { buildApp } from '../../src/app.js';
 import { prisma } from '../../src/config/database.js';
+import { EmailService } from '../../src/services/email/email.service.js';
+import { SendEmailOptions, SendEmailResult } from '../../src/services/email/email-provider.interface.js';
 import { JWTPayload } from '../../src/types/auth.js';
 
 const ENVELOPE_KEYS = ['success', 'message', 'data', 'errors'];
@@ -35,6 +37,7 @@ describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)'
   });
 
   after(async () => {
+    EmailService.setProvider(null);
     if (createdUserIds.length > 0) {
       await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
     }
@@ -48,6 +51,16 @@ describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)'
       const password = 'password123';
       const name = 'M02 P03 T01 Creator';
 
+      const sent: SendEmailOptions[] = [];
+      EmailService.setProvider({
+        name: 'test',
+        isConfigured: () => true,
+        async sendEmail(options) {
+          sent.push(options);
+          return { delivered: true, provider: 'test' } satisfies SendEmailResult;
+        },
+      });
+
       const registerRes = await app.inject({
         method: 'POST',
         url: '/api/v1/auth/register/creator',
@@ -58,21 +71,11 @@ describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)'
       const registerBody = JSON.parse(registerRes.payload);
       assertFrozenEnvelope(registerBody);
       assert.equal(registerBody.success, true);
-      assert.equal(registerBody.message, 'Creator account created successfully');
+      assert.equal(registerBody.message, 'Check your email to verify your account before signing in.');
       assert.equal(registerBody.errors, null);
-      assert.equal(registerBody.data.user.email, email);
-      assert.equal(registerBody.data.user.name, name);
-      assert.equal(registerBody.data.user.role, Role.CREATOR);
-      assert.equal(typeof registerBody.data.token, 'string');
-      assert.ok(registerBody.data.token.length > 0);
+      assert.equal(registerBody.data, null);
       assertNoPasswordHash(registerBody);
-      createdUserIds.push(registerBody.data.user.id);
-
-      const registerClaims = app.jwt.verify<JWTPayload>(registerBody.data.token);
-      assert.equal(registerClaims.id, registerBody.data.user.id);
-      assert.equal(registerClaims.email, email);
-      assert.equal(registerClaims.role, Role.CREATOR);
-      assert.equal('organizationId' in registerClaims, false);
+      assert.equal(sent.length, 1);
 
       const persisted = await prisma.user.findUnique({
         where: { email },
@@ -100,6 +103,25 @@ describe('M02-P03 auth flow integration (persisted Prisma, no repository mocks)'
       assert.equal(wrongPasswordBody.success, false);
       assert.equal(wrongPasswordBody.message, 'Invalid email or password');
       assert.equal(wrongPasswordBody.data, null);
+      createdUserIds.push(persisted.id);
+
+      const unverifiedLogin = await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/login',
+        payload: { email, password },
+      });
+      assert.equal(unverifiedLogin.statusCode, 403);
+      assert.equal(JSON.parse(unverifiedLogin.payload).message, 'Verify your email before signing in.');
+
+      const token = sent[0].text.match(/token=([a-f0-9]+)/)?.[1];
+      assert.ok(token);
+      const verifyRes = await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/verify-email',
+        payload: { token },
+      });
+      assert.equal(verifyRes.statusCode, 200);
+      assert.equal(JSON.parse(verifyRes.payload).data.verified, true);
 
       const loginRes = await app.inject({
         method: 'POST',

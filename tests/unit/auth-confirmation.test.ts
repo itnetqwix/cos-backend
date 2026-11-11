@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -9,6 +9,7 @@ import { Role } from '@prisma/client';
 import { buildApp } from '../../src/app.js';
 import { UserRepository } from '../../src/repositories/user.repository.js';
 import { AuthService } from '../../src/services/auth.service.js';
+import { EmailVerificationService } from '../../src/services/email-verification.service.js';
 import { ConflictError, UnauthorizedError, NotFoundError } from '../../src/utils/response.js';
 import { SYSTEM_CONSTANTS } from '../../src/config/constants.js';
 import { JWTPayload } from '../../src/types/auth.js';
@@ -42,6 +43,14 @@ describe('M02-P01 auth confirmation', () => {
   });
 
   describe('M02-P01-T01 registerCreator: bcrypt hash, User create, JWT claims', () => {
+    const originalSend = EmailVerificationService.sendForUser;
+    beforeEach(() => {
+      EmailVerificationService.sendForUser = async () => {};
+    });
+    afterEach(() => {
+      EmailVerificationService.sendForUser = originalSend;
+    });
+
     it('uses bcrypt cost 10 via SYSTEM_CONSTANTS.BCRYPT_SALT_ROUNDS', () => {
       assert.equal(SYSTEM_CONSTANTS.BCRYPT_SALT_ROUNDS, 10);
     });
@@ -88,16 +97,14 @@ describe('M02-P01 auth confirmation', () => {
         assert.equal(await bcrypt.compare('password123', persisted.passwordHash), true);
         assert.equal(await bcrypt.compare('wrong-password', persisted.passwordHash), false);
 
-        assert.equal(result.user.id, mockUser.id);
-        assert.equal(result.user.role, Role.CREATOR);
-        assert.equal((result.user as Record<string, unknown>).passwordHash, undefined);
+        assert.equal(result, null);
       } finally {
         UserRepository.findByEmail = originalFindByEmail;
         UserRepository.createCreator = originalCreateCreator;
       }
     });
 
-    it('signs JWT with claims id, email, and role', async () => {
+    it('does not issue a JWT before the email is verified', async () => {
       const mockUser = {
         id: 'creator-jwt-t01',
         email: 't01-jwt@contestos.com',
@@ -125,12 +132,7 @@ describe('M02-P01 auth confirmation', () => {
           app,
         );
 
-        const decoded = app.jwt.verify<JWTPayload>(result.token);
-        assertJwtClaims(decoded, {
-          id: mockUser.id,
-          email: mockUser.email,
-          role: Role.CREATOR,
-        });
+        assert.equal(result, null);
       } finally {
         UserRepository.findByEmail = originalFindByEmail;
         UserRepository.createCreator = originalCreateCreator;
@@ -176,7 +178,7 @@ describe('M02-P01 auth confirmation', () => {
       }
     });
 
-    it('POST /api/v1/auth/register/creator returns 201 envelope, token claims, and no passwordHash', async () => {
+    it('POST /api/v1/auth/register/creator returns 201 and does not issue a token', async () => {
       const mockUser = {
         id: 'creator-http-t01',
         email: 't01-http@contestos.com',
@@ -212,21 +214,12 @@ describe('M02-P01 auth confirmation', () => {
         const body = JSON.parse(res.payload);
         assert.deepEqual(Object.keys(body).sort(), ENVELOPE_KEYS);
         assert.equal(body.success, true);
-        assert.equal(body.message, 'Creator account created successfully');
+        assert.equal(body.message, 'Check your email to verify your account before signing in.');
         assert.equal(body.errors, null);
-        assert.equal(body.data.user.email, 't01-http@contestos.com');
-        assert.equal(body.data.user.role, Role.CREATOR);
-        assert.equal(body.data.user.passwordHash, undefined);
-        assert.ok(body.data.token);
+        assert.equal(body.data, null);
         assert.ok(persistedHash);
         assert.match(persistedHash, BCRYPT_COST_10);
-
-        const decoded = app.jwt.verify<JWTPayload>(body.data.token);
-        assertJwtClaims(decoded, {
-          id: mockUser.id,
-          email: mockUser.email,
-          role: Role.CREATOR,
-        });
+        assert.equal(res.payload.includes('passwordHash'), false);
       } finally {
         UserRepository.findByEmail = originalFindByEmail;
         UserRepository.createCreator = originalCreateCreator;
@@ -650,12 +643,14 @@ describe('M02-P01 auth confirmation', () => {
 
       const originalFindByEmail = UserRepository.findByEmail;
       const originalCreateCreator = UserRepository.createCreator;
+      const originalSend = EmailVerificationService.sendForUser;
       UserRepository.findByEmail = (async () =>
         null) as unknown as typeof UserRepository.findByEmail;
       UserRepository.createCreator = (async (data) => {
         persisted = data;
         return mockUser;
       }) as unknown as typeof UserRepository.createCreator;
+      EmailVerificationService.sendForUser = async () => {};
 
       try {
         const res = await app.inject({
@@ -672,15 +667,15 @@ describe('M02-P01 auth confirmation', () => {
 
         assert.equal(res.statusCode, 201);
         const body = JSON.parse(res.payload);
-        assert.equal(body.data.user.email, 't06-creator@contestos.com');
-        assert.equal(body.data.user.handle, undefined);
-        assert.equal(body.data.user.avatarUrl, undefined);
+        assert.equal(body.data, null);
+        assert.equal(res.payload.includes('t06handle'), false);
         assert.ok(persisted);
         assert.deepEqual(Object.keys(persisted).sort(), ['email', 'name', 'passwordHash']);
         assert.equal('handle' in persisted, false);
       } finally {
         UserRepository.findByEmail = originalFindByEmail;
         UserRepository.createCreator = originalCreateCreator;
+        EmailVerificationService.sendForUser = originalSend;
       }
     });
   });
