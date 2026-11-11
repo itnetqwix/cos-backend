@@ -1,10 +1,14 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../services/auth.service.js';
+import { PasswordResetService } from '../services/password-reset.service.js';
 import {
+  forgotPasswordSchema,
   loginSchema,
   presignAvatarSchema,
   registerCreatorSchema,
+  resetPasswordSchema,
   updateCreatorProfileSchema,
+  verifyResetTokenSchema,
 } from '../schemas/auth.schema.js';
 import { sendSuccess } from '../utils/response.js';
 import { HTTP_STATUS } from '../config/constants.js';
@@ -76,5 +80,35 @@ export class AuthController {
       'Presigned profile image upload URL created',
       HTTP_STATUS.OK,
     );
+  }
+
+  /**
+   * Request password reset link.
+   * POST /api/v1/auth/forgot-password
+   */
+  static async forgotPassword(request: FastifyRequest, reply: FastifyReply) {
+    const body = forgotPasswordSchema.parse(request.body);
+    const result = await PasswordResetService.requestPasswordReset(body.email);
+    return sendSuccess(reply, result.data, result.message, HTTP_STATUS.OK);
+  }
+
+  /**
+   * Reset password with valid token.
+   * POST /api/v1/auth/reset-password
+   */
+  static async resetPassword(request: FastifyRequest, reply: FastifyReply) {
+    const body = resetPasswordSchema.parse(request.body);
+    const result = await PasswordResetService.resetPassword(body.token, body.password);
+    return sendSuccess(reply, result.data, result.message, HTTP_STATUS.OK);
+  }
+
+  /**
+   * Verify token validity.
+   * GET /api/v1/auth/verify-reset-token
+   */
+  static async verifyResetToken(request: FastifyRequest, reply: FastifyReply) {
+    const query = verifyResetTokenSchema.parse(request.query);
+    const result = await PasswordResetService.verifyResetToken(query.token);
+    return sendSuccess(reply, result, 'Token is valid', HTTP_STATUS.OK);
   }
 }

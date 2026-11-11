@@ -190,6 +190,14 @@ export class UserRepository {
   /**
    * Safe preference update for user intro and onboarding tracking.
    */
+  static async updatePassword(userId: string, passwordHash: string) {
+    return prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+      select: publicUserSelect,
+    });
+  }
+
   static async updateUserPreferences(
     id: string,
     data: { pledgeIntroSeenAt?: Date | null; pledgeIntroVersion?: string | null },
