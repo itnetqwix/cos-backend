@@ -77,6 +77,14 @@ export const SwaggerUserSchema = {
       description:
         'Short-lived presigned profile image URL. Omitted when the creator has no image. The storage key is not returned.',
     },
+    testerStatus: {
+      type: 'string',
+      enum: ['NOT_VERIFIED', 'VERIFIED', 'SUSPENDED', 'REVOKED'],
+    },
+    testerBio: { type: 'string', nullable: true },
+    reviewApprovalEnabled: { type: 'boolean' },
+    pledgeIntroSeenAt: { type: 'string', format: 'date-time', nullable: true },
+    pledgeIntroVersion: { type: 'string', nullable: true },
   },
 };
 
