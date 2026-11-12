@@ -83,6 +83,25 @@ const metricsData = {
       type: 'array',
       items: { type: 'object', additionalProperties: true },
     },
+    counts: {
+      type: 'object',
+      properties: {
+        verifiedTesters: { type: 'integer' },
+        pendingApplications: { type: 'integer' },
+        activeProducts: { type: 'integer' },
+        pendingProducts: { type: 'integer' },
+        activeCategories: { type: 'integer' },
+        pendingCategoryProposals: { type: 'integer' },
+        reviewsAwaitingApproval: { type: 'integer' },
+        publishedReviews: { type: 'integer' },
+        rejectedOrDisqualifiedReviews: { type: 'integer' },
+        totalReviews: { type: 'integer' },
+      },
+    },
+    recentAudit: {
+      type: 'array',
+      items: { type: 'object', additionalProperties: true },
+    },
   },
 };
 

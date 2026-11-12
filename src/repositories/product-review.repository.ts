@@ -843,7 +843,18 @@ function bindPrisma(client: DelegateClient, nested: boolean): ReviewDb {
           where,
           skip: query.skip,
           take: query.take,
-          include: reviewInclude,
+          include: {
+            ...reviewInclude,
+            tester: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                testerBio: true,
+                avatarObjectKey: true,
+              },
+            },
+          },
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         }),
       ]);
