@@ -108,7 +108,7 @@ const admin = 'ADMIN only. Planet Zooteer room management (PZ-M02).';
 export const createZooteerRoomSwaggerSchema: FastifySchema = {
   tags: ['Planet Zooteer'],
   summary: 'Create a Planet Zooteer room',
-  description: `${admin} Status is OPEN. Capacity defaults to 20 and cannot exceed 20. The caller becomes host and creator.`,
+  description: `${admin} Status is OPEN. Capacity defaults to 20 and cannot exceed 20. The caller becomes host, creator, and the single ACTIVE host participant. No invitation is created for the host.`,
   body: {
     type: 'object',
     required: ['name'],

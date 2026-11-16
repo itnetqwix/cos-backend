@@ -58,7 +58,7 @@ export class ZooteerRoomService {
       idleTimeoutSeconds: input.idleTimeoutSeconds,
       actorId: actor.id,
     });
-    return toView(room, occupiedSeatCount(room.hostId, []));
+    return toView(room, occupiedSeatCount(room.hostId, [room.hostId]));
   }
 
   static async list(actor: ZooteerActor, query: ListZooteerRoomsQuery) {

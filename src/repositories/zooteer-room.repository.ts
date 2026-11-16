@@ -1,4 +1,9 @@
-import { ZooteerRoomEventType, ZooteerRoomStatus } from '@prisma/client';
+import {
+  ZooteerParticipantRole,
+  ZooteerParticipantStatus,
+  ZooteerRoomEventType,
+  ZooteerRoomStatus,
+} from '@prisma/client';
 import { ConflictError, NotFoundError } from '../utils/response.js';
 import { assertIdleTimeout, assertRoomCapacity } from '../services/zooteer-room-rules.js';
 import { ZooteerAuditRepository } from './zooteer-audit.repository.js';
@@ -40,6 +45,19 @@ export class ZooteerRoomRepository {
           deletedAt: null,
           deletedById: null,
           livekitRoomName: null,
+        },
+      });
+      const joinedAt = new Date();
+      await tx.zooteerParticipant.create({
+        data: {
+          roomId: room.id,
+          userId: input.actorId,
+          status: ZooteerParticipantStatus.ACTIVE,
+          participantRole: ZooteerParticipantRole.HOST,
+          firstJoinedAt: joinedAt,
+          lastJoinedAt: joinedAt,
+          leftAt: null,
+          disconnectedAt: null,
         },
       });
       await tx.zooteerRoomEvent.create({

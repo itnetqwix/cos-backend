@@ -180,7 +180,9 @@ describe('PZ-M04 LiveKit', { concurrency: false }, () => {
     assert.equal(second.token.endsWith(MEMBER), true);
     assert.equal(livekit.tokens.every((row) => row.room === livekit.names[0]), true);
 
-    await assert.rejects(() => issueMediaToken(ADMIN, room.id), ForbiddenError);
+    const hostToken = await issueMediaToken(ADMIN, room.id);
+    assert.equal(hostToken.url, 'wss://livekit.test');
+    assert.equal(hostToken.token.endsWith(ADMIN), true);
     users.set(OTHER, user(OTHER, false));
     await assert.rejects(() => issueMediaToken(OTHER, room.id), (error: unknown) =>
       error instanceof ForbiddenError && /Email verification/.test(error.message),
@@ -189,6 +191,7 @@ describe('PZ-M04 LiveKit', { concurrency: false }, () => {
     await assert.rejects(() => issueMediaToken(OTHER, room.id), ForbiddenError);
 
     await ZooteerRoomService.close({ id: ADMIN, role: Role.ADMIN }, room.id);
+    await assert.rejects(() => issueMediaToken(ADMIN, room.id), ConflictError);
     await assert.rejects(() => issueMediaToken(MEMBER, room.id), ConflictError);
     assert.equal(livekit.deleted.includes(livekit.names[0]!), true);
   });
@@ -335,7 +338,18 @@ describe('PZ-M04 LiveKit', { concurrency: false }, () => {
       () => relayZooteerEvent({ userId: OTHER, roomId: room.id, body: { v: 1, type: 'chat.message', id, text: 'nope' } }),
       ForbiddenError,
     );
+    const hostEventId = '66666666-6666-4666-8666-666666666666';
+    const hostEvent = await relayZooteerEvent({
+      userId: ADMIN,
+      roomId: room.id,
+      body: { v: 1, type: 'chat.message', id: hostEventId, text: 'host' },
+    });
+    assert.equal(hostEvent.type, 'chat.message');
     await ZooteerRoomService.close({ id: ADMIN, role: Role.ADMIN }, room.id);
+    await assert.rejects(
+      () => relayZooteerEvent({ userId: ADMIN, roomId: room.id, body: { v: 1, type: 'chat.message', id, text: 'late-host' } }),
+      ConflictError,
+    );
     await assert.rejects(
       () => relayZooteerEvent({ userId: MEMBER, roomId: room.id, body: { v: 1, type: 'chat.message', id, text: 'late' } }),
       ConflictError,

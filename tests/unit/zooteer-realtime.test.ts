@@ -212,6 +212,22 @@ describe('PZ-M05 realtime', { concurrency: false }, () => {
       headers: { authorization: `Bearer ${creator}` },
     });
     assert.equal(listed.statusCode, 403);
+    const adminToken = app.jwt.sign({ id: ADMIN, email: 'admin@ripskis.test', role: Role.ADMIN });
+    const adminList = await app.inject({
+      method: 'GET',
+      url: '/api/v1/zooteer/reports?page=1&limit=20',
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(adminList.statusCode, 200);
+    const body = adminList.json() as {
+      success: boolean;
+      data: { items: unknown; pagination: { totalCount: number } };
+      errors: null;
+    };
+    assert.equal(body.success, true);
+    assert.equal(body.errors, null);
+    assert.ok(Array.isArray(body.data.items));
+    assert.equal(typeof body.data.pagination.totalCount, 'number');
     const anon = await app.inject({
       method: 'GET',
       url: `/api/v1/zooteer/rooms/${ADMIN}/realtime`,
