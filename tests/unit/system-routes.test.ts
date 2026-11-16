@@ -17,6 +17,23 @@ function assertSuccessEnvelope(body: Record<string, unknown>, message: string) {
 }
 
 describe('System routes (M01-P01-T04): GET /api/v1/health and GET /api/v1/', () => {
+  const databaseHost = (() => {
+    try {
+      return new URL(process.env.DATABASE_URL ?? '').hostname;
+    } catch {
+      return '';
+    }
+  })();
+  const localDatabase = databaseHost === 'localhost' || databaseHost === '127.0.0.1';
+  const allowRemote = process.env.ZOOTEER_ALLOW_REMOTE_HEALTH === '1';
+
+  if (!localDatabase && !allowRemote) {
+    it('health integration is blocked on a remote database without ZOOTEER_ALLOW_REMOTE_HEALTH', () => {
+      assert.fail('blocked');
+    });
+    return;
+  }
+
   let app: FastifyInstance;
 
   before(async () => {
@@ -38,9 +55,10 @@ describe('System routes (M01-P01-T04): GET /api/v1/health and GET /api/v1/', () 
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
     assertSuccessEnvelope(body, 'Contest Operating System API is healthy');
-    assert.deepEqual(Object.keys(body.data).sort(), ['database', 'status', 'timestamp']);
+    assert.deepEqual(Object.keys(body.data).sort(), ['database', 'livekit', 'status', 'timestamp']);
     assert.equal(body.data.status, 'healthy');
     assert.equal(body.data.database, 'up');
+    assert.ok(body.data.livekit === 'configured' || body.data.livekit === 'missing');
     assert.match(body.data.timestamp, ISO_TIMESTAMP);
     assert.equal(new Date(body.data.timestamp).toISOString(), body.data.timestamp);
   });

@@ -128,6 +128,11 @@ import { TesterApplicationController } from '../controllers/tester-application.c
 import { ProductCatalogController } from '../controllers/product-catalog.controller.js';
 import { ReviewCategoryController } from '../controllers/review-category.controller.js';
 import { TokeAdminController } from '../controllers/toke-admin.controller.js';
+import { ZooteerRoomController } from '../controllers/zooteer-room.controller.js';
+import { ZooteerReportController } from '../controllers/zooteer-report.controller.js';
+import { ZooteerMediaController } from '../controllers/zooteer-media.controller.js';
+import { ZooteerInvitationController } from '../controllers/zooteer-invitation.controller.js';
+import { mediaAccessConfigured } from '../services/zooteer-livekit.js';
 import {
   getTokeAdminMetricsSwaggerSchema,
   listTokeAdminAuditSwaggerSchema,
@@ -137,6 +142,32 @@ import {
   disqualifyAdminReviewSwaggerSchema,
   getAdminTesterDetailSwaggerSchema,
 } from '../schemas/toke-admin.schema.js';
+import {
+  closeZooteerRoomSwaggerSchema,
+  createZooteerRoomSwaggerSchema,
+  getZooteerRoomSwaggerSchema,
+  listZooteerParticipantsSwaggerSchema,
+  listZooteerRoomsSwaggerSchema,
+  providerCleanupSwaggerSchema,
+} from '../schemas/zooteer-room.schema.js';
+import {
+  acceptZooteerInvitationSwaggerSchema,
+  createZooteerInvitationSwaggerSchema,
+  listZooteerInvitationsSwaggerSchema,
+  revokeZooteerInvitationSwaggerSchema,
+} from '../schemas/zooteer-invitation.schema.js';
+import {
+  livekitWebhookSwaggerSchema,
+  mediaTokenSwaggerSchema,
+} from '../schemas/zooteer-room.schema.js';
+import {
+  createZooteerReportSwaggerSchema,
+  listZooteerReportsSwaggerSchema,
+  realtimeContractSwaggerSchema,
+  relayZooteerEventSwaggerSchema,
+  resolveZooteerReportSwaggerSchema,
+  reviewZooteerReportSwaggerSchema,
+} from '../schemas/zooteer-report.schema.js';
 import {
   listCategoriesSwaggerSchema,
   getCategoryByIdSwaggerSchema,
@@ -222,6 +253,8 @@ import {
   rateLimitPlugin,
   ratingRateLimit,
   passwordResetRateLimit,
+  zooteerReportRateLimit,
+  zooteerRelayRateLimit,
 } from '../plugins/rate-limit.js';
 
 export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
@@ -250,6 +283,7 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
         status: 'healthy',
         database: 'up',
         timestamp: new Date().toISOString(),
+        livekit: mediaAccessConfigured() ? 'configured' : 'missing',
       },
       'Contest Operating System API is healthy',
       HTTP_STATUS.OK,
@@ -1419,5 +1453,114 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     '/admin/toke/testers/:id',
     { schema: getAdminTesterDetailSwaggerSchema, onRequest: approverGuards },
     TokeAdminController.testerDetail,
+  );
+
+  // -------------------------------------------------------------
+  // 15. Planet Zooteer rooms (PZ-M02). Admin only. No join or media.
+  // -------------------------------------------------------------
+  fastify.post(
+    '/zooteer/rooms',
+    { schema: createZooteerRoomSwaggerSchema, onRequest: adminOnlyGuards },
+    ZooteerRoomController.create,
+  );
+  fastify.get(
+    '/zooteer/rooms',
+    { schema: listZooteerRoomsSwaggerSchema, onRequest: adminOnlyGuards },
+    ZooteerRoomController.list,
+  );
+  fastify.get(
+    '/zooteer/rooms/:roomId',
+    { schema: getZooteerRoomSwaggerSchema, onRequest: adminOnlyGuards },
+    ZooteerRoomController.get,
+  );
+  fastify.post(
+    '/zooteer/rooms/:roomId/close',
+    { schema: closeZooteerRoomSwaggerSchema, onRequest: adminOnlyGuards },
+    ZooteerRoomController.close,
+  );
+  fastify.post(
+    '/zooteer/rooms/:roomId/provider-cleanup',
+    { schema: providerCleanupSwaggerSchema, onRequest: adminOnlyGuards },
+    ZooteerRoomController.retryCleanup,
+  );
+  fastify.get(
+    '/zooteer/rooms/:roomId/participants',
+    { schema: listZooteerParticipantsSwaggerSchema, onRequest: adminOnlyGuards },
+    ZooteerRoomController.participants,
+  );
+  fastify.post(
+    '/zooteer/rooms/:roomId/invitations',
+    { schema: createZooteerInvitationSwaggerSchema, onRequest: adminOnlyGuards },
+    ZooteerInvitationController.create,
+  );
+  fastify.get(
+    '/zooteer/rooms/:roomId/invitations',
+    { schema: listZooteerInvitationsSwaggerSchema, onRequest: adminOnlyGuards },
+    ZooteerInvitationController.list,
+  );
+  fastify.post(
+    '/zooteer/rooms/:roomId/invitations/:invitationId/revoke',
+    { schema: revokeZooteerInvitationSwaggerSchema, onRequest: adminOnlyGuards },
+    ZooteerInvitationController.revoke,
+  );
+  fastify.post(
+    '/zooteer/invitations/accept',
+    { schema: acceptZooteerInvitationSwaggerSchema, onRequest: [fastify.authenticate] },
+    ZooteerInvitationController.accept,
+  );
+  fastify.addContentTypeParser(
+    'application/webhook+json',
+    { parseAs: 'string' },
+    (_request, body, done) => {
+      done(null, body);
+    },
+  );
+  fastify.post(
+    '/zooteer/rooms/:roomId/media-token',
+    { schema: mediaTokenSwaggerSchema, onRequest: [fastify.authenticate] },
+    ZooteerMediaController.token,
+  );
+  fastify.post(
+    '/zooteer/livekit/webhook',
+    { schema: livekitWebhookSwaggerSchema },
+    ZooteerMediaController.webhook,
+  );
+  fastify.get(
+    '/zooteer/rooms/:roomId/realtime',
+    { schema: realtimeContractSwaggerSchema, onRequest: [fastify.authenticate] },
+    ZooteerReportController.contract,
+  );
+  fastify.post(
+    '/zooteer/rooms/:roomId/events',
+    {
+      schema: relayZooteerEventSwaggerSchema,
+      onRequest: [fastify.authenticate],
+      config: { rateLimit: zooteerRelayRateLimit },
+    },
+    ZooteerReportController.relay,
+  );
+  fastify.post(
+    '/zooteer/rooms/:roomId/reports',
+    {
+      schema: createZooteerReportSwaggerSchema,
+      onRequest: [fastify.authenticate],
+      config: { rateLimit: zooteerReportRateLimit },
+    },
+    ZooteerReportController.create,
+  );
+  fastify.get(
+    '/zooteer/reports',
+    { schema: listZooteerReportsSwaggerSchema, onRequest: adminOnlyGuards },
+    ZooteerReportController.list,
+  );
+  fastify.post(
+    '/zooteer/reports/:reportId/review',
+    { schema: reviewZooteerReportSwaggerSchema, onRequest: adminOnlyGuards },
+    ZooteerReportController.review,
+  );
+  fastify.post(
+    '/zooteer/reports/:reportId/resolve',
+    { schema: resolveZooteerReportSwaggerSchema, onRequest: adminOnlyGuards },
+    ZooteerReportController.resolve,
   );
 };
