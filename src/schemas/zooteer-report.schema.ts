@@ -123,10 +123,38 @@ export const createZooteerReportSwaggerSchema: FastifySchema = {
   },
 };
 
+const reportPageSchema = {
+  type: 'object',
+  required: ['items', 'pagination'],
+  properties: {
+    items: { type: 'array', items: reportView },
+    pagination: {
+      type: 'object',
+      required: [
+        'totalCount',
+        'totalPages',
+        'currentPage',
+        'limit',
+        'hasNextPage',
+        'hasPrevPage',
+      ],
+      properties: {
+        totalCount: { type: 'integer' },
+        totalPages: { type: 'integer' },
+        currentPage: { type: 'integer' },
+        limit: { type: 'integer' },
+        hasNextPage: { type: 'boolean' },
+        hasPrevPage: { type: 'boolean' },
+      },
+    },
+  },
+};
+
 export const listZooteerReportsSwaggerSchema: FastifySchema = {
   tags: ['Planet Zooteer'],
   summary: 'List abuse reports',
-  description: 'ADMIN only. Does not include chat history.',
+  description:
+    'ADMIN only. data is { items, pagination } inside the standard success envelope. Does not include chat history.',
   querystring: {
     type: 'object',
     properties: {
@@ -136,7 +164,7 @@ export const listZooteerReportsSwaggerSchema: FastifySchema = {
     },
   },
   response: {
-    200: swaggerSuccessEnvelope({ type: 'object' }, 'Reports retrieved'),
+    200: swaggerSuccessEnvelope(reportPageSchema, 'Reports retrieved'),
     401: swaggerErrorEnvelope('Unauthorized'),
     403: swaggerErrorEnvelope('Forbidden'),
   },

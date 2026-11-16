@@ -94,6 +94,12 @@ describe('PZ-M02 room repository and service', () => {
     assert.equal(room.createdById, ADMIN_A);
     assert.equal(room.description, null);
     assert.equal(room.activeParticipantCount, 1);
+    const host = memory.participants.filter((row) => row.roomId === room.id);
+    assert.equal(host.length, 1);
+    assert.equal(host[0]?.userId, ADMIN_A);
+    assert.equal(host[0]?.status, 'ACTIVE');
+    assert.equal(host[0]?.participantRole, 'HOST');
+    assert.equal(memory.invitations.length, 0);
     assert.equal(memory.events.filter((event) => event.type === 'ROOM_CREATED').length, 1);
     assert.equal(memory.audits.filter((row) => row.action === 'ROOM_CREATE').length, 1);
 
@@ -109,6 +115,7 @@ describe('PZ-M02 room repository and service', () => {
       /audit write failed/,
     );
     assert.equal(memory.rooms.some((row) => row.name === 'Nope'), false);
+    assert.equal(memory.participants.length, memory.rooms.length);
     assert.equal(memory.events.length, memory.rooms.length);
     assert.equal(memory.audits.length, memory.rooms.length);
   });
@@ -133,7 +140,7 @@ describe('PZ-M02 room repository and service', () => {
     const closed = await ZooteerRoomService.close(admin(ADMIN_B), created.id, 'done');
     assert.equal(closed.status, 'CLOSED');
     assert.equal(closed.closedById, ADMIN_B);
-    assert.equal(memory.participants.filter((row) => row.roomId === created.id).length, 1);
+    assert.equal(memory.participants.filter((row) => row.roomId === created.id).length, 2);
     await assert.rejects(() => ZooteerRoomService.close(admin(), created.id), ConflictError);
     await assert.rejects(
       () => ZooteerParticipantRepository.markLeft(created.id, MEMBER),
@@ -163,14 +170,14 @@ describe('PZ-M02 room repository and service', () => {
     const left = await ZooteerParticipantRepository.markLeft(room.id, MEMBER);
     assert.equal(left.id, membership.id);
     assert.equal(left.status, 'LEFT');
-    assert.equal(await ZooteerParticipantRepository.countActive(room.id), 0);
+    assert.equal(await ZooteerParticipantRepository.countActive(room.id), 1);
     const again = await ZooteerParticipantRepository.update(room.id, MEMBER, {
       status: 'ACTIVE',
       lastJoinedAt: new Date(),
       leftAt: null,
     });
     assert.equal(again.id, membership.id);
-    assert.equal(await ZooteerParticipantRepository.countActive(room.id), 1);
+    assert.equal(await ZooteerParticipantRepository.countActive(room.id), 2);
 
     await ZooteerRoomService.create(admin(), roomInput('Second'));
     await ZooteerRoomService.create(admin(), roomInput('Third'));
@@ -183,11 +190,17 @@ describe('PZ-M02 room repository and service', () => {
   it('counts the host once when the host also has an active row', async () => {
     const room = await ZooteerRoomService.create(admin(), roomInput('Seats'));
     assert.equal(room.activeParticipantCount, 1);
-    await ZooteerParticipantRepository.create({
-      roomId: room.id,
-      userId: ADMIN_A,
-      participantRole: ZooteerParticipantRole.HOST,
-    });
+    const hostRow = memory.participants.find((row) => row.roomId === room.id && row.userId === ADMIN_A);
+    assert.equal(hostRow?.participantRole, 'HOST');
+    await assert.rejects(
+      () =>
+        ZooteerParticipantRepository.create({
+          roomId: room.id,
+          userId: ADMIN_A,
+          participantRole: ZooteerParticipantRole.HOST,
+        }),
+      ConflictError,
+    );
     const withHostRow = await ZooteerRoomService.get(admin(), room.id);
     assert.equal(withHostRow.activeParticipantCount, 1);
     await ZooteerParticipantRepository.create({
@@ -281,7 +294,15 @@ describe('PZ-M02 admin routes', { concurrency: false }, () => {
       headers: { authorization: `Bearer ${token(Role.ADMIN)}` },
     });
     assert.equal(people.statusCode, 200);
-    assert.deepEqual(JSON.parse(people.payload).data, []);
+    const memberships = JSON.parse(people.payload).data as Array<{
+      userId: string;
+      status: string;
+      participantRole: string;
+    }>;
+    assert.equal(memberships.length, 1);
+    assert.equal(memberships[0]?.userId, ADMIN_A);
+    assert.equal(memberships[0]?.status, 'ACTIVE');
+    assert.equal(memberships[0]?.participantRole, 'HOST');
 
     const tooBig = await app.inject({
       method: 'POST',
