@@ -93,6 +93,18 @@ model User {
   passwordResetTokens     PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
   emailVerifiedAt         DateTime?
+  zooteerRoomsHosted      ZooteerRoom[]        @relation("ZooteerRoomHost")
+  zooteerRoomsCreated     ZooteerRoom[]        @relation("ZooteerRoomCreator")
+  zooteerRoomsClosed      ZooteerRoom[]        @relation("ZooteerRoomCloser")
+  zooteerRoomsArchived    ZooteerRoom[]        @relation("ZooteerRoomArchiver")
+  zooteerParticipants     ZooteerParticipant[] @relation("ZooteerParticipantUser")
+  zooteerRoomEvents       ZooteerRoomEvent[]   @relation("ZooteerRoomEventActor")
+  zooteerAuditLogs        ZooteerAuditLog[]    @relation("ZooteerAuditActor")
+  zooteerInvitationsReceived ZooteerInvitation[] @relation("ZooteerInvitationInvitee")
+  zooteerInvitationsCreated  ZooteerInvitation[] @relation("ZooteerInvitationCreator")
+  zooteerReportsFiled        ZooteerAbuseReport[] @relation("ZooteerReportReporter")
+  zooteerReportsReceived     ZooteerAbuseReport[] @relation("ZooteerReportSubject")
+  zooteerReportsReviewed     ZooteerAbuseReport[] @relation("ZooteerReportReviewer")
 
   // Private storage key for the creator profile image.
   // The API returns a short-lived presigned avatarUrl. That URL is not stored.
@@ -851,4 +863,203 @@ model EmailVerificationToken {
   @@index([tokenHash])
   @@index([userId])
   @@map("email_verification_tokens")
+}
+
+// Planet Zooteer rooms (PZ-M02). OPEN and CLOSED only. FULL is not stored.
+// Capacity 2–20 is also a CHECK in the PZ-M02 migration.
+// deletedAt hides a room from ordinary reads. Rows are not physically deleted.
+// idleTimeoutSeconds default 3600 is an engineering default; the product
+// decision is "configurable" and did not name a duration.
+enum ZooteerRoomStatus {
+  OPEN
+  CLOSED
+}
+
+enum ZooteerParticipantStatus {
+  ACTIVE
+  LEFT
+}
+
+enum ZooteerParticipantRole {
+  HOST
+  PARTICIPANT
+}
+
+enum ZooteerRoomEventType {
+  ROOM_CREATED
+  ROOM_CLOSED
+  ROOM_ARCHIVED
+  INVITATION_CREATED
+  INVITATION_REVOKED
+  INVITATION_ACCEPTED
+  MEDIA_PROVISIONED
+  PARTICIPANT_DISCONNECTED
+  PARTICIPANT_RECONNECTED
+  PARTICIPANT_GRACE_EXPIRED
+}
+
+enum ZooteerAuditAction {
+  ROOM_CREATE
+  ROOM_CLOSE
+  ROOM_ARCHIVE
+  INVITE_CREATE
+  INVITE_REVOKE
+  INVITE_ACCEPT
+  INVITE_EMAIL
+  MEDIA_TOKEN
+  MEDIA_CLEANUP
+  REPORT_CREATE
+  REPORT_REVIEW
+  REPORT_RESOLVE
+}
+
+model ZooteerRoom {
+  id                 String            @id @default(uuid())
+  name               String
+  description        String?           @db.Text
+  status             ZooteerRoomStatus @default(OPEN)
+  hostId             String
+  host               User              @relation("ZooteerRoomHost", fields: [hostId], references: [id], onDelete: Restrict)
+  createdById        String
+  createdBy          User              @relation("ZooteerRoomCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  maxParticipants    Int               @default(20)
+  idleTimeoutSeconds Int               @default(3600)
+  closedAt           DateTime?
+  closedById         String?
+  closedBy           User?             @relation("ZooteerRoomCloser", fields: [closedById], references: [id], onDelete: Restrict)
+  deletedAt          DateTime?
+  deletedById        String?
+  deletedBy          User?             @relation("ZooteerRoomArchiver", fields: [deletedById], references: [id], onDelete: Restrict)
+  // Unguessable LiveKit room name. Null until the first eligible media token.
+  livekitRoomName    String?           @unique
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  participants       ZooteerParticipant[]
+  events             ZooteerRoomEvent[]
+  auditLogs          ZooteerAuditLog[]
+  invitations        ZooteerInvitation[]
+  abuseReports       ZooteerAbuseReport[]
+
+  // (deletedAt, status, createdAt) serves ordinary listings. Separate
+  // status/createdAt indexes would repeat that prefix.
+  @@index([deletedAt, status, createdAt])
+  @@index([createdById])
+  @@index([hostId])
+  @@map("zooteer_rooms")
+}
+
+// One row per user per room. Reconnection updates this row.
+model ZooteerParticipant {
+  id              String                   @id @default(uuid())
+  roomId          String
+  room            ZooteerRoom              @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  userId          String
+  user            User                     @relation("ZooteerParticipantUser", fields: [userId], references: [id], onDelete: Restrict)
+  status          ZooteerParticipantStatus @default(ACTIVE)
+  participantRole ZooteerParticipantRole
+  firstJoinedAt   DateTime
+  lastJoinedAt    DateTime
+  leftAt          DateTime?
+  disconnectedAt  DateTime?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  @@unique([roomId, userId])
+  @@index([roomId, status])
+  @@index([userId])
+  @@map("zooteer_participants")
+}
+
+// Durable lifecycle events. Chat and emoji are not stored.
+model ZooteerRoomEvent {
+  id          String               @id @default(uuid())
+  roomId      String
+  room        ZooteerRoom          @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  actorUserId String
+  actor       User                 @relation("ZooteerRoomEventActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  type        ZooteerRoomEventType
+  payload     Json?
+  createdAt   DateTime             @default(now())
+
+  @@index([roomId, createdAt])
+  @@map("zooteer_room_events")
+}
+
+// Planet Zooteer admin history. Not the contest moderation AuditLog.
+model ZooteerAuditLog {
+  id          String             @id @default(uuid())
+  roomId      String
+  room        ZooteerRoom        @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  actorUserId String
+  actor       User               @relation("ZooteerAuditActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  action      ZooteerAuditAction
+  reason      String?            @db.Text
+  metadata    Json?
+  createdAt   DateTime           @default(now())
+
+  @@index([roomId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@map("zooteer_audit_logs")
+}
+
+// One usable invitation per room and user is enforced by a partial unique
+// index in the PZ-M03 migration (acceptedAt and revokedAt both null).
+// The raw token is never stored. expiresAt is absolute; there is no EXPIRED status.
+model ZooteerInvitation {
+  id            String    @id @default(uuid())
+  roomId        String
+  room          ZooteerRoom @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  inviteeUserId String
+  invitee       User      @relation("ZooteerInvitationInvitee", fields: [inviteeUserId], references: [id], onDelete: Restrict)
+  tokenHash     String    @unique
+  expiresAt     DateTime
+  acceptedAt    DateTime?
+  revokedAt     DateTime?
+  createdById   String
+  createdBy     User      @relation("ZooteerInvitationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([roomId, createdAt])
+  @@index([inviteeUserId, expiresAt])
+  @@map("zooteer_invitations")
+}
+
+// Durable moderation report. The description is the reporter's reason.
+// Chat transcripts are not a column and must not be copied into metadata.
+enum ZooteerReportCategory {
+  HARASSMENT
+  HATE
+  SEXUAL
+  VIOLENCE
+  SPAM
+  OTHER
+}
+
+enum ZooteerReportStatus {
+  OPEN
+  REVIEWED
+  RESOLVED
+}
+
+model ZooteerAbuseReport {
+  id             String                 @id @default(uuid())
+  roomId         String
+  room           ZooteerRoom            @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  reporterId     String
+  reporter       User                   @relation("ZooteerReportReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  reportedUserId String
+  reportedUser   User                   @relation("ZooteerReportSubject", fields: [reportedUserId], references: [id], onDelete: Restrict)
+  category       ZooteerReportCategory
+  description    String?                @db.Text
+  status         ZooteerReportStatus    @default(OPEN)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  reviewedAt     DateTime?
+  reviewedById   String?
+  reviewedBy     User?                  @relation("ZooteerReportReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+
+  @@index([roomId, createdAt])
+  @@index([status, createdAt])
+  @@map("zooteer_abuse_reports")
 }

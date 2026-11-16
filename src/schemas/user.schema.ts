@@ -148,6 +148,7 @@ export const healthSwaggerSchema: FastifySchema = {
               format: 'date-time',
               example: '2026-09-17T12:00:00.000Z',
             },
+            livekit: { type: 'string', enum: ['configured', 'missing'] },
           },
         },
         'Contest Operating System API is healthy',

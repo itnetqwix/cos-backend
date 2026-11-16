@@ -84,6 +84,20 @@ const envSchema = z.object({
   EMAIL_FROM: z.string().default('Ripskis <noreply@ripskis.com>'),
   RESEND_API_KEY: z.string().default(''),
   FRONTEND_URL: z.string().default(''),
+  /**
+   * LiveKit is optional at boot. Empty values mean media tokens return 503.
+   * The API secret must never be sent to the browser.
+   */
+  LIVEKIT_URL: z
+    .string()
+    .default('')
+    .refine(
+      (value) => value === '' || /^wss:\/\//.test(value) || /^https:\/\//.test(value),
+      'LIVEKIT_URL must start with wss:// or https://',
+    ),
+  LIVEKIT_API_KEY: z.string().default(''),
+  LIVEKIT_API_SECRET: z.string().default(''),
+  LIVEKIT_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

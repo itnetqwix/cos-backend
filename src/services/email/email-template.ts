@@ -106,3 +106,32 @@ This link is valid for ${expiresInMinutes} minutes and can only be used once.
 `;
   return { subject, html, text };
 }
+
+export function renderZooteerInvitationEmail(input: {
+  name?: string;
+  roomName: string;
+  inviteUrl: string;
+  expiresAt: Date;
+}): { subject: string; html: string; text: string } {
+  const subject = `You're invited to ${input.roomName} on Ripskis`;
+  const greeting = input.name ? `Hello ${input.name},` : 'Hello,';
+  const expires = input.expiresAt.toISOString();
+  const text = `${greeting}
+
+You have been invited to ${input.roomName} on Ripskis.
+Open this link while signed in as the invited account:
+${input.inviteUrl}
+
+The invitation expires at ${expires}. It works only for the account it was sent to.
+`;
+  const html = `<p>${greeting}</p><p>You have been invited to ${escapeHtml(input.roomName)} on Ripskis.</p><p><a href="${escapeHtml(input.inviteUrl)}">Open the invitation</a></p><p>Expires at ${expires}. This link works only for the invited account.</p>`;
+  return { subject, html, text };
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}

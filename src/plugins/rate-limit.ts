@@ -39,7 +39,16 @@ export const ratingRateLimit = {
   timeWindow: RATE_LIMIT_DEFAULTS.RATING_TIME_WINDOW_MS,
 } as const;
 
-/** Per-route ceiling for password reset requests and validations. */
+/** Per-route ceiling for Planet Zooteer abuse reports. Process-local, not shared across API instances. */
+export const zooteerReportRateLimit = {
+  max: 5,
+  timeWindow: 15 * 60 * 1000,
+} as const;
+export const zooteerRelayRateLimit = {
+  max: 30,
+  timeWindow: 10_000,
+} as const;
+
 export const passwordResetRateLimit = {
   max: 5,
   timeWindow: 15 * 60 * 1000,
