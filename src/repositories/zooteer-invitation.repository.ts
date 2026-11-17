@@ -167,7 +167,7 @@ export class ZooteerInvitationRepository {
     actorId: string;
     now: Date;
     eligible: boolean;
-  }): Promise<{ roomId: string; participantId: string }> {
+  }): Promise<{ roomId: string; participantId: string; rejoined: boolean }> {
     if (!input.eligible) {
       throw new NotFoundError(NOT_USABLE);
     }
@@ -187,15 +187,17 @@ export class ZooteerInvitationRepository {
         throw new NotFoundError(NOT_USABLE);
       }
       if (current.revokedAt) throw new ConflictError('Invitation has been revoked');
-      if (current.acceptedAt)
-        throw new ConflictError('Invitation has already been accepted');
-      if (current.expiresAt.getTime() <= input.now.getTime()) {
-        throw new ConflictError('Invitation has expired');
-      }
       const room = await tx.zooteerRoom.findFirst({ where: { id: current.roomId } });
       if (!room || room.deletedAt) throw new NotFoundError('Room not found');
       if (room.status !== ZooteerRoomStatus.OPEN) {
         throw new ConflictError('Closed rooms cannot accept invitations');
+      }
+      if (current.acceptedAt) {
+        const participant = await reuseMembership(tx, room, input.actorId, input.now);
+        return { roomId: room.id, participantId: participant.id, rejoined: true };
+      }
+      if (current.expiresAt.getTime() <= input.now.getTime()) {
+        throw new ConflictError('Invitation has expired');
       }
       const active = await tx.zooteerParticipant.findMany({
         where: { roomId: room.id, status: ZooteerParticipantStatus.ACTIVE },
@@ -204,7 +206,11 @@ export class ZooteerInvitationRepository {
         where: { roomId: room.id, userId: input.actorId },
       });
       if (existing?.status === ZooteerParticipantStatus.ACTIVE) {
-        throw new ConflictError('Membership already exists for this room');
+        await tx.zooteerInvitation.update({
+          where: { id: current.id },
+          data: { acceptedAt: input.now, updatedAt: input.now },
+        });
+        return { roomId: room.id, participantId: existing.id, rejoined: true };
       }
       const activeIds = active.map((row) => row.userId);
       if (
@@ -261,9 +267,177 @@ export class ZooteerInvitationRepository {
         action: 'INVITE_ACCEPT',
         metadata: { invitationId: current.id, participantId: participant.id },
       });
-      return { roomId: room.id, participantId: participant.id };
+      return { roomId: room.id, participantId: participant.id, rejoined: false };
     });
   }
+
+  /**
+   * Room-code entry for the signed-in invitee. Does not accept another account's invitation.
+   * Reuses the membership row when the invitation was already accepted.
+   */
+  static async acceptOwned(input: {
+    roomId: string;
+    actorId: string;
+    now: Date;
+  }): Promise<{ roomId: string; participantId: string; rejoined: boolean }> {
+    return zooteerDb().$transaction(async (tx) => {
+      await tx.lockRoom(input.roomId);
+      await expireDisconnects(tx, input.roomId, input.now);
+      const rows = await tx.zooteerInvitation.findMany({
+        where: { roomId: input.roomId, inviteeUserId: input.actorId },
+        orderBy: { createdAt: 'desc' },
+      });
+      const chosen = pickOwnedInvitation(rows, input.now);
+      if (!chosen) throw new NotFoundError(NOT_USABLE);
+      const current = await tx.zooteerInvitation.findFirst({ where: { id: chosen.id } });
+      if (!current || current.inviteeUserId !== input.actorId) {
+        throw new NotFoundError(NOT_USABLE);
+      }
+      if (current.revokedAt && !current.acceptedAt) {
+        throw new ConflictError('Invitation has been revoked');
+      }
+      const room = await tx.zooteerRoom.findFirst({ where: { id: current.roomId } });
+      if (!room || room.deletedAt) throw new NotFoundError('Room not found');
+      if (room.status !== ZooteerRoomStatus.OPEN) {
+        throw new ConflictError('Closed rooms cannot accept invitations');
+      }
+      if (current.acceptedAt) {
+        const participant = await reuseMembership(tx, room, input.actorId, input.now);
+        return { roomId: room.id, participantId: participant.id, rejoined: true };
+      }
+      if (current.expiresAt.getTime() <= input.now.getTime()) {
+        throw new ConflictError('Invitation has expired');
+      }
+      const active = await tx.zooteerParticipant.findMany({
+        where: { roomId: room.id, status: ZooteerParticipantStatus.ACTIVE },
+      });
+      const existing = await tx.zooteerParticipant.findFirst({
+        where: { roomId: room.id, userId: input.actorId },
+      });
+      if (
+        admissionWouldExceedCapacity(
+          room.hostId,
+          active.map((row) => row.userId),
+          input.actorId,
+          room.maxParticipants,
+        )
+      ) {
+        throw new ConflictError('Room is full');
+      }
+      const participant = existing
+        ? await tx.zooteerParticipant.update({
+            where: { id: existing.id },
+            data: {
+              status: ZooteerParticipantStatus.ACTIVE,
+              lastJoinedAt: input.now,
+              leftAt: null,
+              disconnectedAt: null,
+              updatedAt: input.now,
+            },
+          })
+        : await tx.zooteerParticipant.create({
+            data: {
+              roomId: room.id,
+              userId: input.actorId,
+              status: ZooteerParticipantStatus.ACTIVE,
+              participantRole:
+                input.actorId === room.hostId
+                  ? ZooteerParticipantRole.HOST
+                  : ZooteerParticipantRole.PARTICIPANT,
+              firstJoinedAt: input.now,
+              lastJoinedAt: input.now,
+              leftAt: null,
+              disconnectedAt: null,
+            },
+          });
+      await tx.zooteerInvitation.update({
+        where: { id: current.id },
+        data: { acceptedAt: input.now, updatedAt: input.now },
+      });
+      await tx.zooteerRoomEvent.create({
+        data: {
+          roomId: room.id,
+          actorUserId: input.actorId,
+          type: ZooteerRoomEventType.INVITATION_ACCEPTED,
+          payload: { invitationId: current.id, participantId: participant.id },
+        },
+      });
+      await ZooteerAuditRepository.append(tx, {
+        roomId: room.id,
+        actorUserId: input.actorId,
+        action: 'INVITE_ACCEPT',
+        metadata: { invitationId: current.id, participantId: participant.id },
+      });
+      return { roomId: room.id, participantId: participant.id, rejoined: false };
+    });
+  }
+}
+
+function pickOwnedInvitation(rows: ZooteerInvitationRecord[], now: Date) {
+  const pending = rows.find(
+    (row) => !row.acceptedAt && !row.revokedAt && row.expiresAt.getTime() > now.getTime(),
+  );
+  if (pending) return pending;
+  const accepted = rows.find((row) => row.acceptedAt);
+  if (accepted) return accepted;
+  return rows[0] ?? null;
+}
+
+async function reuseMembership(
+  tx: ZooteerDb,
+  room: { id: string; hostId: string; maxParticipants: number },
+  userId: string,
+  now: Date,
+) {
+  const active = await tx.zooteerParticipant.findMany({
+    where: { roomId: room.id, status: ZooteerParticipantStatus.ACTIVE },
+  });
+  const existing = await tx.zooteerParticipant.findFirst({
+    where: { roomId: room.id, userId },
+  });
+  if (existing?.status === ZooteerParticipantStatus.ACTIVE) {
+    return tx.zooteerParticipant.update({
+      where: { id: existing.id },
+      data: { lastJoinedAt: now, disconnectedAt: null, updatedAt: now },
+    });
+  }
+  if (
+    admissionWouldExceedCapacity(
+      room.hostId,
+      active.map((row) => row.userId),
+      userId,
+      room.maxParticipants,
+    )
+  ) {
+    throw new ConflictError('Room is full');
+  }
+  if (existing) {
+    return tx.zooteerParticipant.update({
+      where: { id: existing.id },
+      data: {
+        status: ZooteerParticipantStatus.ACTIVE,
+        lastJoinedAt: now,
+        leftAt: null,
+        disconnectedAt: null,
+        updatedAt: now,
+      },
+    });
+  }
+  return tx.zooteerParticipant.create({
+    data: {
+      roomId: room.id,
+      userId,
+      status: ZooteerParticipantStatus.ACTIVE,
+      participantRole:
+        userId === room.hostId
+          ? ZooteerParticipantRole.HOST
+          : ZooteerParticipantRole.PARTICIPANT,
+      firstJoinedAt: now,
+      lastJoinedAt: now,
+      leftAt: null,
+      disconnectedAt: null,
+    },
+  });
 }
 
 async function requireOpenRoom(tx: ZooteerDb, roomId: string) {

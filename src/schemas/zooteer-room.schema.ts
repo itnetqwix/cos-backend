@@ -88,6 +88,7 @@ const roomDataSchema = {
   type: 'object',
   properties: {
     id: { type: 'string', format: 'uuid' },
+    code: { type: 'string' },
     name: { type: 'string' },
     description: { type: 'string', nullable: true },
     status: { type: 'string', enum: [...ZOOTEER_ROOM_STATUSES] },

@@ -11,6 +11,7 @@ import { prisma } from '../config/database.js';
 
 export interface ZooteerRoomRecord {
   id: string;
+  code: string;
   name: string;
   description: string | null;
   status: ZooteerRoomStatus;
@@ -75,6 +76,7 @@ export interface ZooteerInvitationRecord {
 
 type RoomWhere = {
   id?: string;
+  code?: string;
   deletedAt?: null;
   status?: ZooteerRoomStatus;
   livekitRoomName?: string;

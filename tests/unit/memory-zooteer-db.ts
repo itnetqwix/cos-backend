@@ -65,6 +65,14 @@ export class MemoryZooteerDb implements ZooteerDb {
     const self = this;
     this.zooteerRoom = {
       async create({ data }) {
+        if (
+          typeof data.code === 'string' &&
+          self.rooms.some((row) => row.code === data.code)
+        ) {
+          const error = new Error('Unique constraint failed') as Error & { code: string };
+          error.code = 'P2002';
+          throw error;
+        }
         const row = stamp<ZooteerRoomRecord>(data, true);
         self.rooms.push(row);
         return row;

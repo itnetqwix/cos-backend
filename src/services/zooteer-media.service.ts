@@ -14,6 +14,7 @@ import {
   NotFoundError,
   UnauthorizedError,
 } from '../utils/response.js';
+import { logger } from '../utils/logger.js';
 import { CREATOR_BLOCKED_MESSAGE } from './creator-account.service.js';
 import { findZooteerInvitee } from './zooteer-invitee.js';
 import { expireDisconnects } from './zooteer-grace.js';
@@ -26,6 +27,20 @@ import {
 } from './zooteer-livekit.js';
 
 const NOT_A_PARTICIPANT = 'You are not a participant in this room';
+
+/** Status only. The provider message can echo request details, so it is not logged. */
+export function liveKitErrorCategory(error: unknown): string {
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error
+      ? Number((error as { status: unknown }).status)
+      : 0;
+  if (status === 401 || status === 403) return 'unauthorized';
+  if (status === 404) return 'not_found';
+  if (status === 408 || (error instanceof Error && error.name === 'TimeoutError'))
+    return 'timeout';
+  if (status >= 500) return 'provider';
+  return 'unavailable';
+}
 
 export async function issueMediaToken(
   userId: string,
@@ -80,8 +95,10 @@ export async function issueMediaToken(
   });
 
   const gateway = activeLiveKitGateway();
+  let operation: 'createRoom' | 'issueToken' = 'createRoom';
   try {
     await gateway.createRoom(prepared.providerRoom, prepared.maxParticipants);
+    operation = 'issueToken';
     const token = await gateway.issueToken({
       identity: userId,
       name: prepared.name,
@@ -101,6 +118,9 @@ export async function issueMediaToken(
     return { url: gateway.url, token };
   } catch (error) {
     if (error instanceof AppError) throw error;
+    logger.error(
+      `LiveKit media token failed operation=${operation} category=${liveKitErrorCategory(error)}`,
+    );
     throw new AppError('LiveKit is unavailable', HTTP_STATUS.SERVICE_UNAVAILABLE);
   }
 }
