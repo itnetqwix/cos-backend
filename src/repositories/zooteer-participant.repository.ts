@@ -56,6 +56,7 @@ export class ZooteerParticipantRepository {
       participantRole?: ZooteerParticipantRole;
       lastJoinedAt?: Date;
       leftAt?: Date | null;
+      disconnectedAt?: Date | null;
     },
   ): Promise<ZooteerParticipantRecord> {
     await requireOpenRoom(roomId);

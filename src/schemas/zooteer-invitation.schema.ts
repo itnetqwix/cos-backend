@@ -160,6 +160,82 @@ export const revokeZooteerInvitationSwaggerSchema: FastifySchema = {
   },
 };
 
+export const zooteerAccessSchema = z
+  .object({
+    code: z.string().trim().min(4).max(200),
+  })
+  .strict();
+
+export type ZooteerAccessInput = z.infer<typeof zooteerAccessSchema>;
+
+const accessView = {
+  type: 'object',
+  properties: {
+    state: {
+      type: 'string',
+      enum: [
+        'valid',
+        'pending',
+        'accepted',
+        'expired',
+        'revoked',
+        'invalid',
+        'full',
+        'closed',
+        'not_invited',
+      ],
+    },
+    roomId: { type: 'string', format: 'uuid', nullable: true },
+    participantId: { type: 'string', format: 'uuid', nullable: true },
+    roomName: { type: 'string', nullable: true },
+    code: { type: 'string', nullable: true },
+  },
+};
+
+export const enterZooteerAccessSwaggerSchema: FastifySchema = {
+  tags: ['Planet Zooteer'],
+  summary: 'Enter with a room code or invitation token',
+  description:
+    'Authenticated. A room code admits only the signed-in account that was invited or already has a membership. Another account’s token is invalid. The room id does not change.',
+  body: {
+    type: 'object',
+    required: ['code'],
+    properties: { code: { type: 'string' } },
+  },
+  response: {
+    200: swaggerSuccessEnvelope(accessView, 'Access checked'),
+    401: swaggerErrorEnvelope('Unauthorized'),
+  },
+};
+
+export const zooteerInboxSwaggerSchema: FastifySchema = {
+  tags: ['Planet Zooteer'],
+  summary: 'List the signed-in user invitations',
+  description:
+    'Authenticated. Only invitations bound to the JWT user. Not a public room directory.',
+  response: {
+    200: swaggerSuccessEnvelope(
+      {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            roomId: { type: 'string', format: 'uuid' },
+            roomName: { type: 'string' },
+            code: { type: 'string' },
+            roomStatus: { type: 'string' },
+            state: { type: 'string' },
+            expiresAt: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
+      'Invitations retrieved successfully',
+    ),
+    401: swaggerErrorEnvelope('Unauthorized'),
+  },
+};
+
 export const acceptZooteerInvitationSwaggerSchema: FastifySchema = {
   tags: ['Planet Zooteer'],
   summary: 'Accept an invitation',

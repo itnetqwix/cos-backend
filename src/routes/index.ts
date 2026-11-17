@@ -153,8 +153,10 @@ import {
 import {
   acceptZooteerInvitationSwaggerSchema,
   createZooteerInvitationSwaggerSchema,
+  enterZooteerAccessSwaggerSchema,
   listZooteerInvitationsSwaggerSchema,
   revokeZooteerInvitationSwaggerSchema,
+  zooteerInboxSwaggerSchema,
 } from '../schemas/zooteer-invitation.schema.js';
 import {
   livekitWebhookSwaggerSchema,
@@ -1507,6 +1509,16 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     '/zooteer/invitations/accept',
     { schema: acceptZooteerInvitationSwaggerSchema, onRequest: [fastify.authenticate] },
     ZooteerInvitationController.accept,
+  );
+  fastify.post(
+    '/zooteer/access',
+    { schema: enterZooteerAccessSwaggerSchema, onRequest: [fastify.authenticate] },
+    ZooteerInvitationController.enter,
+  );
+  fastify.get(
+    '/zooteer/invitations/mine',
+    { schema: zooteerInboxSwaggerSchema, onRequest: [fastify.authenticate] },
+    ZooteerInvitationController.inbox,
   );
   fastify.addContentTypeParser(
     'application/webhook+json',

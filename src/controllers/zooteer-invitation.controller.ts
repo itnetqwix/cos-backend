@@ -4,9 +4,11 @@ import {
   acceptZooteerInvitationSchema,
   createZooteerInvitationSchema,
   listZooteerInvitationsQuerySchema,
+  zooteerAccessSchema,
   zooteerInvitationParamsSchema,
 } from '../schemas/zooteer-invitation.schema.js';
 import { zooteerRoomIdParamSchema } from '../schemas/zooteer-room.schema.js';
+import { ZooteerAccessService } from '../services/zooteer-access.service.js';
 import { ZooteerInvitationService } from '../services/zooteer-invitation.service.js';
 import { sendPaginated, sendSuccess } from '../utils/response.js';
 
@@ -50,5 +52,16 @@ export class ZooteerInvitationController {
     const body = acceptZooteerInvitationSchema.parse(request.body ?? {});
     const result = await ZooteerInvitationService.accept(actor(request), body);
     return sendSuccess(reply, result, 'Invitation accepted');
+  }
+
+  static async enter(request: FastifyRequest, reply: FastifyReply) {
+    const body = zooteerAccessSchema.parse(request.body ?? {});
+    const result = await ZooteerAccessService.enter(request.user.id, body.code);
+    return sendSuccess(reply, result, 'Access checked');
+  }
+
+  static async inbox(request: FastifyRequest, reply: FastifyReply) {
+    const items = await ZooteerAccessService.inbox(request.user.id);
+    return sendSuccess(reply, items, 'Invitations retrieved successfully');
   }
 }

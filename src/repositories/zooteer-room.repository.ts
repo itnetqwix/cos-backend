@@ -5,6 +5,7 @@ import {
   ZooteerRoomStatus,
 } from '@prisma/client';
 import { ConflictError, NotFoundError } from '../utils/response.js';
+import { generateRoomCode } from '../services/zooteer-room-code.js';
 import { assertIdleTimeout, assertRoomCapacity } from '../services/zooteer-room-rules.js';
 import { ZooteerAuditRepository } from './zooteer-audit.repository.js';
 import { ZooteerDb, ZooteerRoomRecord, zooteerDb } from './zooteer-db.js';
@@ -26,58 +27,92 @@ export interface UpdateZooteerRoomData {
   idleTimeoutSeconds?: number;
 }
 
+async function insertRoom(
+  input: CreateZooteerRoomData,
+  code: string,
+): Promise<ZooteerRoomRecord> {
+  return zooteerDb().$transaction(async (tx) => {
+    const room = await tx.zooteerRoom.create({
+      data: {
+        code,
+        name: input.name,
+        description: input.description,
+        status: ZooteerRoomStatus.OPEN,
+        hostId: input.actorId,
+        createdById: input.actorId,
+        maxParticipants: input.maxParticipants,
+        idleTimeoutSeconds: input.idleTimeoutSeconds,
+        closedAt: null,
+        closedById: null,
+        deletedAt: null,
+        deletedById: null,
+        livekitRoomName: null,
+      },
+    });
+    const joinedAt = new Date();
+    await tx.zooteerParticipant.create({
+      data: {
+        roomId: room.id,
+        userId: input.actorId,
+        status: ZooteerParticipantStatus.ACTIVE,
+        participantRole: ZooteerParticipantRole.HOST,
+        firstJoinedAt: joinedAt,
+        lastJoinedAt: joinedAt,
+        leftAt: null,
+        disconnectedAt: null,
+      },
+    });
+    await tx.zooteerRoomEvent.create({
+      data: {
+        roomId: room.id,
+        actorUserId: input.actorId,
+        type: ZooteerRoomEventType.ROOM_CREATED,
+        payload: { name: room.name, maxParticipants: room.maxParticipants },
+      },
+    });
+    await ZooteerAuditRepository.append(tx, {
+      roomId: room.id,
+      actorUserId: input.actorId,
+      action: 'ROOM_CREATE',
+      metadata: {
+        maxParticipants: room.maxParticipants,
+        idleTimeoutSeconds: room.idleTimeoutSeconds,
+      },
+    });
+    return room;
+  });
+}
+
+function isUniqueCode(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'P2002'
+  );
+}
+
 export class ZooteerRoomRepository {
   static async create(input: CreateZooteerRoomData): Promise<ZooteerRoomRecord> {
     assertRoomCapacity(input.maxParticipants);
     assertIdleTimeout(input.idleTimeoutSeconds);
-    return zooteerDb().$transaction(async (tx) => {
-      const room = await tx.zooteerRoom.create({
-        data: {
-          name: input.name,
-          description: input.description,
-          status: ZooteerRoomStatus.OPEN,
-          hostId: input.actorId,
-          createdById: input.actorId,
-          maxParticipants: input.maxParticipants,
-          idleTimeoutSeconds: input.idleTimeoutSeconds,
-          closedAt: null,
-          closedById: null,
-          deletedAt: null,
-          deletedById: null,
-          livekitRoomName: null,
-        },
-      });
-      const joinedAt = new Date();
-      await tx.zooteerParticipant.create({
-        data: {
-          roomId: room.id,
-          userId: input.actorId,
-          status: ZooteerParticipantStatus.ACTIVE,
-          participantRole: ZooteerParticipantRole.HOST,
-          firstJoinedAt: joinedAt,
-          lastJoinedAt: joinedAt,
-          leftAt: null,
-          disconnectedAt: null,
-        },
-      });
-      await tx.zooteerRoomEvent.create({
-        data: {
-          roomId: room.id,
-          actorUserId: input.actorId,
-          type: ZooteerRoomEventType.ROOM_CREATED,
-          payload: { name: room.name, maxParticipants: room.maxParticipants },
-        },
-      });
-      await ZooteerAuditRepository.append(tx, {
-        roomId: room.id,
-        actorUserId: input.actorId,
-        action: 'ROOM_CREATE',
-        metadata: {
-          maxParticipants: room.maxParticipants,
-          idleTimeoutSeconds: room.idleTimeoutSeconds,
-        },
-      });
-      return room;
+    let last: unknown;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        return await insertRoom(input, generateRoomCode());
+      } catch (error) {
+        last = error;
+        if (!isUniqueCode(error)) throw error;
+      }
+    }
+    throw last instanceof Error
+      ? last
+      : new ConflictError('Room code could not be allocated');
+  }
+
+  static async findByCode(code: string): Promise<ZooteerRoomRecord | null> {
+    return zooteerDb().zooteerRoom.findFirst({
+      where: { code, ...visible },
     });
   }
 

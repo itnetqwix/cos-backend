@@ -229,9 +229,15 @@ describe('PZ-M03 invitations', { concurrency: false }, () => {
       { token: raw },
     );
     assert.equal(accepted.roomId, room.id);
-    await assert.rejects(
-      () => ZooteerInvitationService.accept({ id: MEMBER, role: Role.CREATOR }, { token: raw }),
-      ConflictError,
+    const rejoined = await ZooteerInvitationService.accept(
+      { id: MEMBER, role: Role.CREATOR },
+      { token: raw },
+    );
+    assert.equal(rejoined.participantId, accepted.participantId);
+    assert.equal(rejoined.rejoined, true);
+    assert.equal(
+      memory.participants.filter((row) => row.userId === MEMBER && row.roomId === room.id).length,
+      1,
     );
   });
 
@@ -274,10 +280,11 @@ describe('PZ-M03 invitations', { concurrency: false }, () => {
       hostRoom.id,
       createZooteerInvitationSchema.parse({ userId: ADMIN_A }),
     );
-    await assert.rejects(
-      () => ZooteerInvitationService.accept(admin(), { token: tokenFrom(hostInvite.link) }),
-      ConflictError,
-    );
+    const hostAccepted = await ZooteerInvitationService.accept(admin(), {
+      token: tokenFrom(hostInvite.link),
+    });
+    assert.equal(hostAccepted.rejoined, true);
+    assert.equal(hostAccepted.participantId, memory.participants.find((row) => row.roomId === hostRoom.id)?.id);
     const guest = await ZooteerInvitationService.create(
       admin(),
       hostRoom.id,

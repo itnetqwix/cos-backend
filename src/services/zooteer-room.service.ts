@@ -19,6 +19,7 @@ export interface ZooteerActor {
 
 export interface ZooteerRoomView {
   id: string;
+  code: string;
   name: string;
   description: string | null;
   status: ZooteerRoomStatus;
@@ -141,6 +142,7 @@ async function seatCount(room: { id: string; hostId: string }): Promise<number> 
 function toView(
   room: {
     id: string;
+    code: string;
     name: string;
     description: string | null;
     status: ZooteerRoomStatus;
@@ -157,6 +159,7 @@ function toView(
 ): ZooteerRoomView {
   return {
     id: room.id,
+    code: room.code,
     name: room.name,
     description: room.description,
     status: room.status,

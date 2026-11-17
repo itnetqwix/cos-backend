@@ -17,7 +17,7 @@ import {
   setLiveKitGateway,
   VerifiedMediaWebhook,
 } from '../../src/services/zooteer-livekit.js';
-import { applyMediaWebhook, issueMediaToken, retryProviderCleanup } from '../../src/services/zooteer-media.service.js';
+import { applyMediaWebhook, issueMediaToken, liveKitErrorCategory, retryProviderCleanup } from '../../src/services/zooteer-media.service.js';
 import { relayZooteerEvent, resetRelayLimits } from '../../src/services/zooteer-relay.js';
 import { DISCONNECT_GRACE_MS } from '../../src/services/zooteer-grace.js';
 import { ZooteerRoomService } from '../../src/services/zooteer-room.service.js';
@@ -35,11 +35,20 @@ class FakeLiveKit implements LiveKitGateway {
   names: string[] = [];
   deleted: string[] = [];
   tokens: { identity: string; room: string }[] = [];
-  failCreate = false;
+  failCreate: boolean | { status: number; message: string } = false;
   failDelete = false;
 
   async createRoom(name: string): Promise<void> {
-    if (this.failCreate) throw new Error('livekit down');
+    if (this.failCreate) {
+      const failure = this.failCreate;
+      if (typeof failure === 'object') {
+        const error = new Error(failure.message) as Error & { status: number };
+        error.name = 'Unauthorized';
+        error.status = failure.status;
+        throw error;
+      }
+      throw new Error('livekit down');
+    }
     this.names.push(name);
   }
 
@@ -127,6 +136,34 @@ describe('PZ-M04 LiveKit', { concurrency: false }, () => {
     await ZooteerInvitationService.accept({ id: MEMBER, role: Role.CREATOR }, { token });
     return room;
   }
+
+  it('classifies a createRoom 401 and does not log the provider message', async () => {
+    assert.equal(liveKitErrorCategory(Object.assign(new Error('invalid API key'), { status: 401 })), 'unauthorized');
+    const room = await admittedRoom('Unauthorized');
+    livekit.failCreate = { status: 401, message: 'invalid API key secretsecretsecretsecretsecretsecret' };
+    const lines: string[] = [];
+    const original = console.error;
+    console.error = (message?: unknown) => {
+      lines.push(String(message));
+    };
+    try {
+      await assert.rejects(
+        () => issueMediaToken(ADMIN, room.id),
+        (error: unknown) =>
+          error instanceof AppError &&
+          error.statusCode === 503 &&
+          error.message === 'LiveKit is unavailable',
+      );
+    } finally {
+      console.error = original;
+      livekit.failCreate = false;
+    }
+    assert.equal(lines.length, 1);
+    assert.match(lines[0]!, /operation=createRoom/);
+    assert.match(lines[0]!, /category=unauthorized/);
+    assert.equal(lines[0]!.includes('invalid API key'), false);
+    assert.equal(lines[0]!.includes(SECRET), false);
+  });
 
   it('limits token grants to camera and microphone', () => {
     const grant = participantVideoGrant('pz_room');

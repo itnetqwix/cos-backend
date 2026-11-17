@@ -915,6 +915,8 @@ enum ZooteerAuditAction {
 
 model ZooteerRoom {
   id                 String            @id @default(uuid())
+  // Stable human-friendly join code. Invitations stay account-bound.
+  code               String            @unique
   name               String
   description        String?           @db.Text
   status             ZooteerRoomStatus @default(OPEN)
