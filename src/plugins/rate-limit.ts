@@ -53,3 +53,12 @@ export const passwordResetRateLimit = {
   max: 5,
   timeWindow: 15 * 60 * 1000,
 } as const;
+
+/** Coarse IP ceilings. Per-profile caps are also enforced in the dating services. Process-local. */
+export const datingLikeRateLimit = { max: 100, timeWindow: 24 * 60 * 60 * 1000 } as const;
+export const datingMessageRateLimit = { max: 30, timeWindow: 60 * 1000 } as const;
+export const datingPhotoPresignRateLimit = {
+  max: 10,
+  timeWindow: 60 * 60 * 1000,
+} as const;
+export const datingReportRateLimit = { max: 5, timeWindow: 24 * 60 * 60 * 1000 } as const;

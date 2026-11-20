@@ -101,6 +101,133 @@ export function parseChatAttachmentKey(objectKey: string): {
 }
 
 /**
+ * 420 Dating photos stay in the private bucket. GIF is rejected.
+ * Clients cannot choose the path.
+ * Pattern: dating-photos/{profileId}/{uuid}.{ext}
+ */
+export const DATING_IMAGE_CONTENT_TYPES = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+} as const;
+
+export type AllowedDatingImageContentType = keyof typeof DATING_IMAGE_CONTENT_TYPES;
+
+export const DATING_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const DATING_IMAGE_READ_TTL_SECONDS = 3600;
+
+const DATING_UUID = '[0-9a-f-]{36}';
+const DATING_PHOTO_KEY_PATTERN = new RegExp(
+  `^dating-photos/(${DATING_UUID})/(${DATING_UUID})\\.(jpg|png|webp)$`,
+  'i',
+);
+const DATING_CHAT_KEY_PATTERN = new RegExp(
+  `^dating-chat/(${DATING_UUID})/(${DATING_UUID})/(${DATING_UUID})\\.(jpg|png|webp)$`,
+  'i',
+);
+const DATING_VERIFICATION_KEY_PATTERN = new RegExp(
+  `^dating-verification/(${DATING_UUID})/(${DATING_UUID})\\.(jpg|png|webp)$`,
+  'i',
+);
+
+export function isAllowedDatingImageContentType(
+  contentType: string,
+): contentType is AllowedDatingImageContentType {
+  return Object.prototype.hasOwnProperty.call(DATING_IMAGE_CONTENT_TYPES, contentType);
+}
+
+function datingImageExtension(contentType: string): string {
+  if (!isAllowedDatingImageContentType(contentType)) {
+    throw new ValidationError('Dating image must be a JPEG, PNG, or WebP');
+  }
+  return DATING_IMAGE_CONTENT_TYPES[contentType];
+}
+
+export function assertDatingImageSize(fileSizeBytes: number): void {
+  if (!Number.isInteger(fileSizeBytes) || fileSizeBytes <= 0) {
+    throw new ValidationError('fileSizeBytes must be a positive integer');
+  }
+  if (fileSizeBytes > DATING_IMAGE_MAX_BYTES) {
+    throw new ValidationError('Dating images must be 10 MB or smaller');
+  }
+}
+
+export function buildDatingPhotoObjectKey(parts: {
+  profileId: string;
+  contentType: string;
+  objectId?: string;
+}): string {
+  const extension = datingImageExtension(parts.contentType);
+  const objectId = parts.objectId ?? randomUUID();
+  return `dating-photos/${parts.profileId}/${objectId}.${extension}`;
+}
+
+export function parseDatingPhotoObjectKey(objectKey: string): {
+  profileId: string;
+  objectId: string;
+  extension: string;
+} | null {
+  const match = DATING_PHOTO_KEY_PATTERN.exec(objectKey);
+  if (!match) return null;
+  return {
+    profileId: match[1],
+    objectId: match[2],
+    extension: match[3].toLowerCase(),
+  };
+}
+
+export function buildDatingChatAttachmentKey(parts: {
+  conversationId: string;
+  senderProfileId: string;
+  contentType: string;
+  objectId?: string;
+}): string {
+  const extension = datingImageExtension(parts.contentType);
+  const objectId = parts.objectId ?? randomUUID();
+  return `dating-chat/${parts.conversationId}/${parts.senderProfileId}/${objectId}.${extension}`;
+}
+
+export function parseDatingChatAttachmentKey(objectKey: string): {
+  conversationId: string;
+  senderProfileId: string;
+  objectId: string;
+  extension: string;
+} | null {
+  const match = DATING_CHAT_KEY_PATTERN.exec(objectKey);
+  if (!match) return null;
+  return {
+    conversationId: match[1],
+    senderProfileId: match[2],
+    objectId: match[3],
+    extension: match[4].toLowerCase(),
+  };
+}
+
+export function buildDatingVerificationPhotoKey(parts: {
+  profileId: string;
+  contentType: string;
+  objectId?: string;
+}): string {
+  const extension = datingImageExtension(parts.contentType);
+  const objectId = parts.objectId ?? randomUUID();
+  return `dating-verification/${parts.profileId}/${objectId}.${extension}`;
+}
+
+export function parseDatingVerificationPhotoKey(objectKey: string): {
+  profileId: string;
+  objectId: string;
+  extension: string;
+} | null {
+  const match = DATING_VERIFICATION_KEY_PATTERN.exec(objectKey);
+  if (!match) return null;
+  return {
+    profileId: match[1],
+    objectId: match[2],
+    extension: match[3].toLowerCase(),
+  };
+}
+
+/**
  * Object-storage port (M06-P02-T02).
  *
  * Contest / submission services must not import the AWS SDK.
@@ -369,7 +496,10 @@ export function isSignableObjectKey(objectKey: string): boolean {
     parseReviewThumbnailObjectKey(objectKey) ||
     parseAvatarObjectKey(objectKey) ||
     parseBannerObjectKey(objectKey) ||
-    parseChatAttachmentKey(objectKey),
+    parseChatAttachmentKey(objectKey) ||
+    parseDatingPhotoObjectKey(objectKey) ||
+    parseDatingChatAttachmentKey(objectKey) ||
+    parseDatingVerificationPhotoKey(objectKey),
   );
 }
 
@@ -521,6 +651,28 @@ export async function signedAvatarUrl(
   objectKey: string | null | undefined,
 ): Promise<string | null> {
   return signedObjectUrl(objectKey, (key) => Boolean(parseAvatarObjectKey(key)));
+}
+
+/** Short-lived GET for a dating photo or dating chat image. Raw keys are not returned. */
+export async function signedDatingPhotoUrl(
+  objectKey: string | null | undefined,
+): Promise<string | null> {
+  return signedObjectUrl(
+    objectKey,
+    (key) => Boolean(parseDatingPhotoObjectKey(key) || parseDatingChatAttachmentKey(key)),
+    DATING_IMAGE_READ_TTL_SECONDS,
+  );
+}
+
+/** Admin-only GET for a verification selfie. Never attach this to a public profile. */
+export async function signedDatingVerificationUrl(
+  objectKey: string | null | undefined,
+): Promise<string | null> {
+  return signedObjectUrl(
+    objectKey,
+    (key) => Boolean(parseDatingVerificationPhotoKey(key)),
+    DATING_IMAGE_READ_TTL_SECONDS,
+  );
 }
 
 /**
