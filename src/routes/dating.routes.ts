@@ -13,6 +13,7 @@ import {
   datingMessageRateLimit,
   datingPhotoPresignRateLimit,
   datingReportRateLimit,
+  datingStreamRateLimit,
 } from '../plugins/rate-limit.js';
 import {
   adminBanDatingProfileSwaggerSchema,
@@ -210,7 +211,11 @@ export async function registerDatingRoutes(fastify: FastifyInstance): Promise<vo
   );
   fastify.get(
     '/dating/chat/stream',
-    { schema: datingStreamSwaggerSchema, onRequest: member },
+    {
+      schema: datingStreamSwaggerSchema,
+      onRequest: member,
+      config: { rateLimit: datingStreamRateLimit },
+    },
     DatingChatController.stream,
   );
 

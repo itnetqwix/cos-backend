@@ -62,3 +62,16 @@ export const datingPhotoPresignRateLimit = {
   timeWindow: 60 * 60 * 1000,
 } as const;
 export const datingReportRateLimit = { max: 5, timeWindow: 24 * 60 * 60 * 1000 } as const;
+
+/**
+ * New SSE handshakes only. One open stream is one request.
+ * Keyed by user id after auth (`preHandler`), so it does not share the
+ * like, message, or presign buckets and does not cover `/dating/profile/me`.
+ */
+export const datingStreamRateLimit = {
+  max: 6,
+  timeWindow: 60 * 1000,
+  hook: 'preHandler' as const,
+  keyGenerator: (request: { user?: { id?: string }; ip: string }) =>
+    request.user?.id ?? request.ip,
+};
