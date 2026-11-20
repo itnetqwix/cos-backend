@@ -60,37 +60,40 @@ import {
 } from '../schemas/dating.schema.js';
 
 export async function registerDatingRoutes(fastify: FastifyInstance): Promise<void> {
-  const member = [fastify.authenticate, requireActiveCreator];
+  // New array per route. @fastify/rate-limit pushes its hook onto the
+  // onRequest array it is given. A shared array copies the photo-presign
+  // limiter (10/hour, keyed by IP) onto every dating route.
+  const member = () => [fastify.authenticate, requireActiveCreator];
   const admin = [fastify.authenticate, authorizeRoles(Role.ADMIN)];
 
   fastify.get(
     '/dating/profile/me',
-    { schema: getMyDatingProfileSwaggerSchema, onRequest: member },
+    { schema: getMyDatingProfileSwaggerSchema, onRequest: member() },
     DatingProfileController.getMine,
   );
   fastify.post(
     '/dating/profile/onboarding',
-    { schema: onboardDatingSwaggerSchema, onRequest: member },
+    { schema: onboardDatingSwaggerSchema, onRequest: member() },
     DatingProfileController.onboard,
   );
   fastify.patch(
     '/dating/profile/me',
-    { schema: patchMyDatingProfileSwaggerSchema, onRequest: member },
+    { schema: patchMyDatingProfileSwaggerSchema, onRequest: member() },
     DatingProfileController.update,
   );
   fastify.patch(
     '/dating/profile/me/status',
-    { schema: patchDatingStatusSwaggerSchema, onRequest: member },
+    { schema: patchDatingStatusSwaggerSchema, onRequest: member() },
     DatingProfileController.status,
   );
   fastify.delete(
     '/dating/profile/me',
-    { schema: deleteMyDatingProfileSwaggerSchema, onRequest: member },
+    { schema: deleteMyDatingProfileSwaggerSchema, onRequest: member() },
     DatingProfileController.remove,
   );
   fastify.get(
     '/dating/profile/:id',
-    { schema: getDatingProfileSwaggerSchema, onRequest: member },
+    { schema: getDatingProfileSwaggerSchema, onRequest: member() },
     DatingProfileController.getPublic,
   );
 
@@ -98,122 +101,122 @@ export async function registerDatingRoutes(fastify: FastifyInstance): Promise<vo
     '/dating/photos/presign',
     {
       schema: presignDatingPhotoSwaggerSchema,
-      onRequest: member,
+      onRequest: member(),
       config: { rateLimit: datingPhotoPresignRateLimit },
     },
     DatingPhotoController.presign,
   );
   fastify.post(
     '/dating/photos',
-    { schema: confirmDatingPhotoSwaggerSchema, onRequest: member },
+    { schema: confirmDatingPhotoSwaggerSchema, onRequest: member() },
     DatingPhotoController.confirm,
   );
   fastify.patch(
     '/dating/photos/reorder',
-    { schema: reorderDatingPhotosSwaggerSchema, onRequest: member },
+    { schema: reorderDatingPhotosSwaggerSchema, onRequest: member() },
     DatingPhotoController.reorder,
   );
   fastify.patch(
     '/dating/photos/:id/primary',
-    { schema: primaryDatingPhotoSwaggerSchema, onRequest: member },
+    { schema: primaryDatingPhotoSwaggerSchema, onRequest: member() },
     DatingPhotoController.primary,
   );
   fastify.delete(
     '/dating/photos/:id',
-    { schema: deleteDatingPhotoSwaggerSchema, onRequest: member },
+    { schema: deleteDatingPhotoSwaggerSchema, onRequest: member() },
     DatingPhotoController.remove,
   );
 
   fastify.get(
     '/dating/preferences',
-    { schema: getDatingPreferencesSwaggerSchema, onRequest: member },
+    { schema: getDatingPreferencesSwaggerSchema, onRequest: member() },
     DatingProfileController.getPreferences,
   );
   fastify.patch(
     '/dating/preferences',
-    { schema: patchDatingPreferencesSwaggerSchema, onRequest: member },
+    { schema: patchDatingPreferencesSwaggerSchema, onRequest: member() },
     DatingProfileController.updatePreferences,
   );
 
   fastify.get(
     '/dating/discover',
-    { schema: discoverDatingSwaggerSchema, onRequest: member },
+    { schema: discoverDatingSwaggerSchema, onRequest: member() },
     DatingMatchController.discover,
   );
   fastify.post(
     '/dating/discover/pass',
-    { schema: passDatingSwaggerSchema, onRequest: member },
+    { schema: passDatingSwaggerSchema, onRequest: member() },
     DatingMatchController.pass,
   );
   fastify.post(
     '/dating/likes',
     {
       schema: likeDatingSwaggerSchema,
-      onRequest: member,
+      onRequest: member(),
       config: { rateLimit: datingLikeRateLimit },
     },
     DatingMatchController.like,
   );
   fastify.get(
     '/dating/likes/received',
-    { schema: receivedLikesSwaggerSchema, onRequest: member },
+    { schema: receivedLikesSwaggerSchema, onRequest: member() },
     DatingMatchController.received,
   );
   fastify.get(
     '/dating/likes/sent',
-    { schema: sentLikesSwaggerSchema, onRequest: member },
+    { schema: sentLikesSwaggerSchema, onRequest: member() },
     DatingMatchController.sent,
   );
   fastify.get(
     '/dating/matches',
-    { schema: listMatchesSwaggerSchema, onRequest: member },
+    { schema: listMatchesSwaggerSchema, onRequest: member() },
     DatingMatchController.list,
   );
   fastify.get(
     '/dating/matches/:id',
-    { schema: getMatchSwaggerSchema, onRequest: member },
+    { schema: getMatchSwaggerSchema, onRequest: member() },
     DatingMatchController.get,
   );
   fastify.post(
     '/dating/matches/:id/unmatch',
-    { schema: unmatchSwaggerSchema, onRequest: member },
+    { schema: unmatchSwaggerSchema, onRequest: member() },
     DatingMatchController.unmatch,
   );
 
   fastify.get(
     '/dating/conversations',
-    { schema: listDatingConversationsSwaggerSchema, onRequest: member },
+    { schema: listDatingConversationsSwaggerSchema, onRequest: member() },
     DatingChatController.list,
   );
   fastify.get(
     '/dating/conversations/:id/messages',
-    { schema: listDatingMessagesSwaggerSchema, onRequest: member },
+    { schema: listDatingMessagesSwaggerSchema, onRequest: member() },
     DatingChatController.messages,
   );
   fastify.post(
     '/dating/conversations/:id/messages',
     {
       schema: sendDatingMessageSwaggerSchema,
-      onRequest: member,
+      onRequest: member(),
       config: { rateLimit: datingMessageRateLimit },
     },
     DatingChatController.send,
   );
   fastify.post(
     '/dating/conversations/:id/read',
-    { schema: readDatingConversationSwaggerSchema, onRequest: member },
+    { schema: readDatingConversationSwaggerSchema, onRequest: member() },
     DatingChatController.read,
   );
   fastify.post(
     '/dating/chat/attachments/presign',
-    { schema: presignDatingChatSwaggerSchema, onRequest: member },
+    { schema: presignDatingChatSwaggerSchema, onRequest: member() },
     DatingChatController.presign,
   );
   fastify.get(
     '/dating/chat/stream',
     {
       schema: datingStreamSwaggerSchema,
-      onRequest: member,
+      onRequest: member(),
       config: { rateLimit: datingStreamRateLimit },
     },
     DatingChatController.stream,
@@ -221,52 +224,52 @@ export async function registerDatingRoutes(fastify: FastifyInstance): Promise<vo
 
   fastify.post(
     '/dating/blocks',
-    { schema: blockDatingSwaggerSchema, onRequest: member },
+    { schema: blockDatingSwaggerSchema, onRequest: member() },
     DatingSafetyController.block,
   );
   fastify.delete(
     '/dating/blocks/:id',
-    { schema: unblockDatingSwaggerSchema, onRequest: member },
+    { schema: unblockDatingSwaggerSchema, onRequest: member() },
     DatingSafetyController.unblock,
   );
   fastify.get(
     '/dating/blocks',
-    { schema: listBlocksSwaggerSchema, onRequest: member },
+    { schema: listBlocksSwaggerSchema, onRequest: member() },
     DatingSafetyController.listBlocks,
   );
   fastify.post(
     '/dating/reports',
     {
       schema: reportDatingSwaggerSchema,
-      onRequest: member,
+      onRequest: member(),
       config: { rateLimit: datingReportRateLimit },
     },
     DatingSafetyController.report,
   );
   fastify.get(
     '/dating/notifications',
-    { schema: listDatingNotificationsSwaggerSchema, onRequest: member },
+    { schema: listDatingNotificationsSwaggerSchema, onRequest: member() },
     DatingSafetyController.listNotifications,
   );
   fastify.post(
     '/dating/notifications/read-all',
-    { schema: readAllDatingNotificationsSwaggerSchema, onRequest: member },
+    { schema: readAllDatingNotificationsSwaggerSchema, onRequest: member() },
     DatingSafetyController.readAllNotifications,
   );
   fastify.post(
     '/dating/notifications/:id/read',
-    { schema: readDatingNotificationSwaggerSchema, onRequest: member },
+    { schema: readDatingNotificationSwaggerSchema, onRequest: member() },
     DatingSafetyController.readNotification,
   );
 
   fastify.post(
     '/dating/verification/presign',
-    { schema: presignDatingVerificationSwaggerSchema, onRequest: member },
+    { schema: presignDatingVerificationSwaggerSchema, onRequest: member() },
     DatingProfileController.presignVerification,
   );
   fastify.post(
     '/dating/verification',
-    { schema: confirmDatingVerificationSwaggerSchema, onRequest: member },
+    { schema: confirmDatingVerificationSwaggerSchema, onRequest: member() },
     DatingProfileController.confirmVerification,
   );
 
