@@ -105,6 +105,8 @@ model User {
   zooteerReportsFiled        ZooteerAbuseReport[] @relation("ZooteerReportReporter")
   zooteerReportsReceived     ZooteerAbuseReport[] @relation("ZooteerReportSubject")
   zooteerReportsReviewed     ZooteerAbuseReport[] @relation("ZooteerReportReviewer")
+  datingProfile              DatingProfile?
+  datingReportsReviewed      DatingReport[]       @relation("DatingReportReviewer")
 
   // Private storage key for the creator profile image.
   // The API returns a short-lived presigned avatarUrl. That URL is not stored.
@@ -1064,4 +1066,313 @@ model ZooteerAbuseReport {
   @@index([roomId, createdAt])
   @@index([status, createdAt])
   @@map("zooteer_abuse_reports")
+}
+
+// ============================================================================
+// 420 Dating. One optional profile per Ripskis user. Dating rows do not
+// change User.name, avatarObjectKey, friendships, or contest data.
+// Exact coordinates are not columns. birthDate is never returned by the API.
+//
+// Prisma cannot model the CHECK constraints, photo-limit trigger, message
+// participant trigger, or partial unique primary-photo index. Those objects
+// are defined in prisma/custom/420-dating-protections.sql and created by
+// migration 20261120120000_add_420_dating_module. Do not drop them.
+// src/services/dating-sql-guard.ts rejects a later migration that drops one
+// without recreating it.
+// ============================================================================
+
+enum DatingGender {
+  MAN
+  WOMAN
+  NON_BINARY
+  TRANSGENDER
+  OTHER
+}
+
+enum DatingIntention {
+  LONG_TERM
+  CASUAL
+  PUFF_AND_PASS_FRIEND
+  NEW_FRIENDS
+  NOT_SURE
+}
+
+enum CannabisExperienceLevel {
+  CANNA_CURIOUS
+  CASUAL_PUFFER
+  CONNOISSEUR
+  BUDTENDER_PRO
+}
+
+enum DatingProfileStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  BANNED
+}
+
+enum DatingVerificationStatus {
+  UNVERIFIED
+  PENDING_SELFIE
+  VERIFIED
+  REJECTED
+}
+
+enum PhotoModerationStatus {
+  PENDING
+  APPROVED
+  FLAGGED
+  REJECTED
+}
+
+enum LikeTargetType {
+  PROFILE
+  PHOTO
+  PROMPT
+}
+
+enum DatingReportCategory {
+  UNDERAGE
+  HARASSMENT
+  SOLICITATION_OR_DRUG_DEALING
+  INAPPROPRIATE_CONTENT
+  FAKE_PROFILE
+  SPAM
+  OTHER
+}
+
+enum DatingReportStatus {
+  PENDING
+  INVESTIGATING
+  RESOLVED
+  DISMISSED
+}
+
+enum DatingNotificationType {
+  NEW_MATCH
+  NEW_LIKE
+  NEW_MESSAGE
+  VERIFICATION_APPROVED
+  VERIFICATION_REJECTED
+  SYSTEM_NOTICE
+}
+
+model DatingProfile {
+  id                        String                   @id @default(uuid())
+  userId                    String                   @unique
+  user                      User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName               String
+  birthDate                 DateTime
+  gender                    DatingGender
+  interestedIn              String[]
+  bio                       String?                  @db.Text
+  datingIntention           DatingIntention          @default(NOT_SURE)
+  consumptionHabits         String[]
+  favoriteStrains           String[]
+  cannabisExperienceLevel   CannabisExperienceLevel  @default(CASUAL_PUFFER)
+  favoriteMethods           String[]
+  lifestyleInterests        String[]
+  city                      String
+  state                     String
+  country                   String                   @default("USA")
+  latitudeFuzzy             Float?
+  longitudeFuzzy            Float?
+  voiceIntroObjectKey       String?                  @unique
+  voiceIntroDurationSeconds Int?
+  vibeAnswers               Json?
+  profilePrompts            Json?
+  verificationStatus        DatingVerificationStatus @default(UNVERIFIED)
+  verificationPhotoKey      String?
+  status                    DatingProfileStatus      @default(DRAFT)
+  isIncognito               Boolean                  @default(false)
+  isDistanceHidden          Boolean                  @default(false)
+  isAgeHidden               Boolean                  @default(false)
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+  photos                    DatingPhoto[]
+  preferences               DatingPreferences?
+  likesSent                 DatingLike[]             @relation("DatingLikesSent")
+  likesReceived             DatingLike[]             @relation("DatingLikesReceived")
+  matchesAsLow              DatingMatch[]            @relation("DatingMatchLow")
+  matchesAsHigh             DatingMatch[]            @relation("DatingMatchHigh")
+  unmatchedMatches          DatingMatch[]            @relation("DatingMatchUnmatcher")
+  messagesSent              DatingMessage[]          @relation("DatingMessageSender")
+  blocksInitiated           DatingBlock[]            @relation("DatingBlocker")
+  blocksReceived            DatingBlock[]            @relation("DatingBlocked")
+  reportsFiled              DatingReport[]           @relation("DatingReporter")
+  reportsReceived           DatingReport[]           @relation("DatingReported")
+  notifications             DatingNotification[]
+
+  @@index([status, gender])
+  @@index([status, city, state])
+  @@index([status, createdAt])
+  @@index([status, latitudeFuzzy])
+  @@index([status, longitudeFuzzy])
+  @@index([userId])
+  @@map("dating_profiles")
+}
+
+model DatingPhoto {
+  id               String                @id @default(uuid())
+  profileId        String
+  profile          DatingProfile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  objectKey        String                @unique
+  sortOrder        Int                   @default(0)
+  isPrimary        Boolean               @default(false)
+  caption          String?               @db.VarChar(140)
+  moderationStatus PhotoModerationStatus @default(APPROVED)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([profileId, sortOrder])
+  @@index([profileId, isPrimary])
+  @@map("dating_photos")
+}
+
+model DatingPreferences {
+  id                        String        @id @default(uuid())
+  profileId                 String        @unique
+  profile                   DatingProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  minAge                    Int           @default(18)
+  maxAge                    Int           @default(99)
+  ageDealbreaker            Boolean       @default(false)
+  maxDistanceMiles          Int           @default(50)
+  distanceDealbreaker       Boolean       @default(false)
+  targetGenders             String[]
+  genderDealbreaker         Boolean       @default(false)
+  cannabisHabitsFilter      String[]      @default([])
+  cannabisHabitsDealbreaker Boolean       @default(false)
+  intentionsFilter          String[]      @default([])
+  intentionsDealbreaker     Boolean       @default(false)
+  verifiedOnly              Boolean       @default(false)
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
+
+  @@map("dating_preferences")
+}
+
+model DatingLike {
+  id                String         @id @default(uuid())
+  senderProfileId   String
+  senderProfile     DatingProfile  @relation("DatingLikesSent", fields: [senderProfileId], references: [id], onDelete: Cascade)
+  receiverProfileId String
+  receiverProfile   DatingProfile  @relation("DatingLikesReceived", fields: [receiverProfileId], references: [id], onDelete: Cascade)
+  isPass            Boolean        @default(false)
+  comment           String?        @db.VarChar(500)
+  targetType        LikeTargetType @default(PROFILE)
+  targetId          String?
+  createdAt         DateTime       @default(now())
+  matchesOriginated DatingMatch[]
+
+  @@unique([senderProfileId, receiverProfileId])
+  @@index([receiverProfileId, isPass, createdAt])
+  @@index([senderProfileId, isPass, createdAt])
+  @@map("dating_likes")
+}
+
+model DatingMatch {
+  id                String              @id @default(uuid())
+  profileLowId      String
+  profileHighId     String
+  profileLow        DatingProfile       @relation("DatingMatchLow", fields: [profileLowId], references: [id], onDelete: Cascade)
+  profileHigh       DatingProfile       @relation("DatingMatchHigh", fields: [profileHighId], references: [id], onDelete: Cascade)
+  originatingLikeId String?
+  originatingLike   DatingLike?         @relation(fields: [originatingLikeId], references: [id], onDelete: SetNull)
+  matchedAt         DateTime            @default(now())
+  isActive          Boolean             @default(true)
+  unmatchedAt       DateTime?
+  unmatchedById     String?
+  unmatchedBy       DatingProfile?      @relation("DatingMatchUnmatcher", fields: [unmatchedById], references: [id], onDelete: SetNull)
+  unmatchReason     String?             @db.Text
+  conversation      DatingConversation?
+
+  @@unique([profileLowId, profileHighId])
+  @@index([profileLowId, isActive])
+  @@index([profileHighId, isActive])
+  @@map("dating_matches")
+}
+
+model DatingConversation {
+  id                 String          @id @default(uuid())
+  matchId            String          @unique
+  match              DatingMatch     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  lastMessageAt      DateTime?
+  lastMessageSnippet String?         @db.VarChar(255)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  messages           DatingMessage[]
+
+  @@index([lastMessageAt])
+  @@map("dating_conversations")
+}
+
+model DatingMessage {
+  id              String              @id @default(uuid())
+  conversationId  String
+  conversation    DatingConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderProfileId String
+  senderProfile   DatingProfile       @relation("DatingMessageSender", fields: [senderProfileId], references: [id], onDelete: Cascade)
+  body            String?             @db.Text
+  attachmentKey   String?             @unique
+  attachmentKind  ChatAttachmentKind?
+  attachmentMime  String?
+  attachmentBytes Int?
+  isRead          Boolean             @default(false)
+  readAt          DateTime?
+  createdAt       DateTime            @default(now())
+
+  @@index([conversationId, createdAt])
+  @@map("dating_messages")
+}
+
+model DatingBlock {
+  id               String        @id @default(uuid())
+  blockerProfileId String
+  blockerProfile   DatingProfile @relation("DatingBlocker", fields: [blockerProfileId], references: [id], onDelete: Cascade)
+  blockedProfileId String
+  blockedProfile   DatingProfile @relation("DatingBlocked", fields: [blockedProfileId], references: [id], onDelete: Cascade)
+  createdAt        DateTime      @default(now())
+
+  @@unique([blockerProfileId, blockedProfileId])
+  @@index([blockerProfileId])
+  @@index([blockedProfileId])
+  @@map("dating_blocks")
+}
+
+model DatingReport {
+  id                String               @id @default(uuid())
+  reporterProfileId String
+  reporterProfile   DatingProfile        @relation("DatingReporter", fields: [reporterProfileId], references: [id], onDelete: Restrict)
+  reportedProfileId String
+  reportedProfile   DatingProfile        @relation("DatingReported", fields: [reportedProfileId], references: [id], onDelete: Restrict)
+  reasonCategory    DatingReportCategory
+  details           String?              @db.Text
+  evidencePhotoKeys String[]             @default([])
+  status            DatingReportStatus   @default(PENDING)
+  resolutionNotes   String?              @db.Text
+  reviewedById      String?
+  reviewedBy        User?                @relation("DatingReportReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt        DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([status, createdAt])
+  @@index([reportedProfileId])
+  @@map("dating_reports")
+}
+
+model DatingNotification {
+  id              String                 @id @default(uuid())
+  profileId       String
+  profile         DatingProfile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  type            DatingNotificationType
+  title           String
+  body            String?                @db.Text
+  relatedEntityId String?
+  readAt          DateTime?
+  createdAt       DateTime               @default(now())
+
+  @@index([profileId, readAt])
+  @@index([profileId, createdAt])
+  @@map("dating_notifications")
 }

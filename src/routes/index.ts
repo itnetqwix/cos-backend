@@ -258,6 +258,7 @@ import {
   zooteerReportRateLimit,
   zooteerRelayRateLimit,
 } from '../plugins/rate-limit.js';
+import { registerDatingRoutes } from './dating.routes.js';
 
 export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // M12 rate limits. Registered here so the frozen M01 plugin order in
@@ -1575,4 +1576,6 @@ export const routes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     { schema: resolveZooteerReportSwaggerSchema, onRequest: adminOnlyGuards },
     ZooteerReportController.resolve,
   );
+
+  await registerDatingRoutes(fastify);
 };
