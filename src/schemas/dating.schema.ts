@@ -232,6 +232,15 @@ const errors = {
   429: swaggerErrorEnvelope('Too many requests'),
 };
 
+const objectData: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: true,
+};
+const arrayData: Record<string, unknown> = {
+  type: 'array',
+  items: { type: 'object', additionalProperties: true },
+};
+
 const idParams = {
   type: 'object',
   required: ['id'],
@@ -252,6 +261,7 @@ function datingRoute(
   summary: string,
   extras: Partial<FastifySchema> = {},
   message = 'OK',
+  dataSchema: Record<string, unknown> = objectData,
 ): FastifySchema {
   return {
     tags: ['420 Dating'],
@@ -260,14 +270,8 @@ function datingRoute(
       'Authenticated Ripskis member. Blocked creator accounts are rejected. Banned dating profiles are rejected on mutating dating actions. birthDate and exact coordinates are never returned. Single-process SSE does not cross API instances.',
     security: [{ bearerAuth: [] }],
     response: {
-      200: swaggerSuccessEnvelope(
-        { type: 'object', additionalProperties: true },
-        message,
-      ),
-      201: swaggerSuccessEnvelope(
-        { type: 'object', additionalProperties: true },
-        message,
-      ),
+      200: swaggerSuccessEnvelope(dataSchema, message),
+      201: swaggerSuccessEnvelope(dataSchema, message),
       ...errors,
     },
     ...extras,
@@ -348,7 +352,12 @@ export const receivedLikesSwaggerSchema = datingRoute('List likes you received',
 export const sentLikesSwaggerSchema = datingRoute('List likes you sent', {
   querystring: pageQuery,
 });
-export const listMatchesSwaggerSchema = datingRoute('List dating matches');
+export const listMatchesSwaggerSchema = datingRoute(
+  'List dating matches',
+  {},
+  'Matches retrieved',
+  arrayData,
+);
 export const getMatchSwaggerSchema = datingRoute('Get a dating match', {
   params: idParams,
 });
@@ -358,6 +367,9 @@ export const unmatchSwaggerSchema = datingRoute('Unmatch a dating connection', {
 });
 export const listDatingConversationsSwaggerSchema = datingRoute(
   'List dating conversations',
+  {},
+  'Conversations retrieved',
+  arrayData,
 );
 export const listDatingMessagesSwaggerSchema = datingRoute('List dating messages', {
   params: idParams,
