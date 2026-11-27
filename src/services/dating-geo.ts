@@ -12,7 +12,18 @@ export function ageFromBirthDate(birthDate: Date, now = new Date()): number {
   return age;
 }
 
-/** Server-side 18+ gate. The raw birth date stays in the database. */
+export const DATING_MIN_AGE = 18;
+export const DATING_MAX_STATED_AGE = 120;
+
+/** Whole-number age from onboarding. Does not invent a birth date. */
+export function assertStatedAge(age: number): number {
+  if (!Number.isInteger(age) || age < DATING_MIN_AGE || age > DATING_MAX_STATED_AGE) {
+    throw new ValidationError('Age must be a whole number from 18 to 120');
+  }
+  return age;
+}
+
+/** Server-side 18+ gate for profiles that already store a birth date. */
 export function assertLegalAge(birthDate: Date, now = new Date()): number {
   if (Number.isNaN(birthDate.getTime())) {
     throw new ValidationError('birthDate must be a valid date');

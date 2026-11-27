@@ -9,7 +9,12 @@ import {
   LikeTargetType,
 } from '@prisma/client';
 import { swaggerErrorEnvelope, swaggerSuccessEnvelope } from './auth.schema.js';
-import { DATING_IMAGE_CONTENT_TYPES } from '../services/storage.service.js';
+import {
+  DATING_IMAGE_CONTENT_TYPES,
+  DATING_VIDEO_CONTENT_TYPES,
+  DATING_VIDEO_MAX_BYTES,
+  DATING_VIDEO_MAX_SECONDS,
+} from '../services/storage.service.js';
 import {
   DATING_COMMENT_MAX,
   DATING_CONSUMPTION_HABITS,
@@ -42,6 +47,10 @@ const imageTypes = Object.keys(DATING_IMAGE_CONTENT_TYPES) as [
   keyof typeof DATING_IMAGE_CONTENT_TYPES,
   ...(keyof typeof DATING_IMAGE_CONTENT_TYPES)[],
 ];
+const mediaTypes = [
+  ...Object.keys(DATING_IMAGE_CONTENT_TYPES),
+  ...Object.keys(DATING_VIDEO_CONTENT_TYPES),
+] as [string, ...string[]];
 
 const promptSchema = z.object({
   promptId: z.string().trim().min(1).max(64),
@@ -49,10 +58,11 @@ const promptSchema = z.object({
   answer: z.string().trim().min(1).max(280),
 });
 
-export const datingOnboardingSchema = z
+const datingOnboardingObject = z
   .object({
     displayName: z.string().trim().min(1).max(40),
-    birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    age: z.number().int().min(18).max(120).optional(),
     ageConfirmed: z.literal(true),
     gender: z.enum(genderValues),
     interestedIn: z.array(z.enum(genderValues)).min(1).max(5),
@@ -94,7 +104,12 @@ export const datingOnboardingSchema = z
   })
   .strict();
 
-export const datingProfilePatchSchema = datingOnboardingSchema.partial().strict();
+export const datingOnboardingSchema = datingOnboardingObject.refine(
+  (data) => Boolean(data.birthDate) || data.age != null,
+  { message: 'Enter your age', path: ['age'] },
+);
+
+export const datingProfilePatchSchema = datingOnboardingObject.partial().strict();
 
 export const datingStatusSchema = z
   .object({ status: z.enum(['ACTIVE', 'PAUSED']) })
@@ -113,12 +128,9 @@ export const datingPageQuerySchema = z.object({
 
 export const datingPhotoPresignSchema = z
   .object({
-    contentType: z.enum(imageTypes),
-    fileSizeBytes: z
-      .number()
-      .int()
-      .positive()
-      .max(10 * 1024 * 1024),
+    contentType: z.enum(mediaTypes),
+    fileSizeBytes: z.number().int().positive().max(DATING_VIDEO_MAX_BYTES),
+    durationSeconds: z.number().int().min(1).max(DATING_VIDEO_MAX_SECONDS).optional(),
   })
   .strict();
 
@@ -126,12 +138,9 @@ export const datingPhotoConfirmSchema = z
   .object({
     objectKey: z.string().trim().min(1).max(300),
     caption: z.string().trim().max(140).nullable().optional(),
-    byteSize: z
-      .number()
-      .int()
-      .positive()
-      .max(10 * 1024 * 1024),
-    contentType: z.enum(imageTypes),
+    byteSize: z.number().int().positive().max(DATING_VIDEO_MAX_BYTES),
+    contentType: z.enum(mediaTypes),
+    durationSeconds: z.number().int().min(1).max(DATING_VIDEO_MAX_SECONDS).optional(),
   })
   .strict();
 

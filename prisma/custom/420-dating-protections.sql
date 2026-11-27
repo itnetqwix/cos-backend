@@ -84,7 +84,18 @@ END $$;
 
 DO $$
 BEGIN
-  ALTER TABLE "dating_profiles" ADD CONSTRAINT "chk_dating_profile_adult" CHECK ("birthDate" <= (CURRENT_DATE - INTERVAL '18 years'));
+  ALTER TABLE "dating_profiles" ADD CONSTRAINT "chk_dating_profile_adult" CHECK (
+    (
+      "birthDate" IS NOT NULL
+      AND "birthDate" <= (CURRENT_DATE - INTERVAL '18 years')
+      AND ("statedAge" IS NULL OR ("statedAge" >= 18 AND "statedAge" <= 120))
+    )
+    OR (
+      "birthDate" IS NULL
+      AND "statedAge" >= 18
+      AND "statedAge" <= 120
+    )
+  );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 

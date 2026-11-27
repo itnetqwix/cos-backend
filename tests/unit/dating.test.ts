@@ -137,6 +137,7 @@ describe('420 dating backend', { concurrency: false }, () => {
     photoFind: DatingPhotoRepository.findById,
     photoKey: DatingPhotoRepository.findByObjectKey,
     photoCount: DatingPhotoRepository.count,
+    photoList: DatingPhotoRepository.listByProfile,
     photoCreate: DatingPhotoRepository.create,
     likePair: DatingLikeRepository.findPair,
     likeCreate: DatingLikeRepository.create,
@@ -175,6 +176,7 @@ describe('420 dating backend', { concurrency: false }, () => {
     DatingPhotoRepository.findById = originals.photoFind;
     DatingPhotoRepository.findByObjectKey = originals.photoKey;
     DatingPhotoRepository.count = originals.photoCount;
+    DatingPhotoRepository.listByProfile = originals.photoList;
     DatingPhotoRepository.create = originals.photoCreate;
     DatingLikeRepository.findPair = originals.likePair;
     DatingLikeRepository.create = originals.likeCreate;
@@ -311,6 +313,7 @@ describe('420 dating backend', { concurrency: false }, () => {
     });
     DatingPhotoRepository.findByObjectKey = async () => null;
     DatingPhotoRepository.count = async () => 0;
+    DatingPhotoRepository.listByProfile = async () => [];
     DatingPhotoRepository.create = async (data) =>
       ({
         id: PHOTO,
@@ -328,7 +331,125 @@ describe('420 dating backend', { concurrency: false }, () => {
       caption: 'Red Rocks',
     });
     assert.equal(saved.isPrimary, true);
+    assert.equal(saved.mediaType, 'image');
     assert.match(String(saved.url), /dating-photos/);
+  });
+
+  it('stores a stated age and does not invent a birth date', async () => {
+    let created: { birthDate: Date | null; statedAge: number | null } | null = null;
+    DatingProfileRepository.findByUserId = async () => null;
+    DatingProfileRepository.create = async (data) => {
+      created = { birthDate: data.birthDate, statedAge: data.statedAge };
+      return profile({
+        birthDate: data.birthDate,
+        statedAge: data.statedAge,
+        displayName: data.displayName,
+      }) as never;
+    };
+    await assert.rejects(
+      () =>
+        DatingProfileService.onboard(USER, {
+          displayName: 'Teen',
+          age: 17,
+          ageConfirmed: true,
+          gender: DatingGender.WOMAN,
+          interestedIn: [DatingGender.MAN],
+          city: 'Boulder',
+          state: 'CO',
+        }),
+      /18/,
+    );
+    assert.equal(created, null);
+    const view = await DatingProfileService.onboard(USER, {
+      displayName: 'Ada',
+      age: 18,
+      ageConfirmed: true,
+      gender: DatingGender.WOMAN,
+      interestedIn: [DatingGender.MAN],
+      city: 'Boulder',
+      state: 'CO',
+    });
+    assert.equal(created?.birthDate, null);
+    assert.equal(created?.statedAge, 18);
+    assert.equal(view.vitals.age, 18);
+    assert.equal(JSON.stringify(view).includes('statedAge'), false);
+  });
+
+  it('keeps the first image as the profile photo when videos are uploaded', async () => {
+    setStorageService({
+      async createPresignedUpload(request) {
+        return {
+          uploadUrl: 'https://example.test/upload',
+          objectKey: request.objectKey,
+          headers: { 'Content-Type': request.contentType },
+          expiresInSeconds: 900,
+          method: 'PUT',
+        };
+      },
+      async createPresignedDownload(objectKey) {
+        return `https://example.test/${objectKey}`;
+      },
+    });
+    DatingProfileRepository.findByUserId = async () => profile() as never;
+    const rows: {
+      id: string;
+      objectKey: string;
+      isPrimary: boolean;
+      sortOrder: number;
+      caption: string | null;
+      moderationStatus: 'APPROVED';
+      profileId: string;
+    }[] = [];
+    DatingPhotoRepository.findByObjectKey = async () => null;
+    DatingPhotoRepository.listByProfile = async () => rows as never;
+    DatingPhotoRepository.create = async (data) => {
+      const row = {
+        id: data.objectKey,
+        profileId: data.profileId,
+        objectKey: data.objectKey,
+        sortOrder: data.sortOrder,
+        isPrimary: data.isPrimary,
+        caption: data.caption,
+        moderationStatus: 'APPROVED' as const,
+      };
+      rows.push(row);
+      return row as never;
+    };
+    const videoKey = buildDatingPhotoObjectKey({
+      profileId: PROFILE,
+      contentType: 'video/mp4',
+      objectId: PHOTO,
+    });
+    const video = await DatingPhotoService.confirm(USER, {
+      objectKey: videoKey,
+      byteSize: 1000,
+      contentType: 'video/mp4',
+      durationSeconds: 12,
+    });
+    assert.equal(video.isPrimary, false);
+    assert.equal(video.mediaType, 'video');
+    const imageKey = buildDatingPhotoObjectKey({
+      profileId: PROFILE,
+      contentType: 'image/jpeg',
+      objectId: '44444444-4444-4444-8444-444444444444',
+    });
+    const image = await DatingPhotoService.confirm(USER, {
+      objectKey: imageKey,
+      byteSize: 1000,
+      contentType: 'image/jpeg',
+    });
+    assert.equal(image.isPrimary, true);
+    const secondKey = buildDatingPhotoObjectKey({
+      profileId: PROFILE,
+      contentType: 'image/png',
+      objectId: '55555555-5555-4555-8555-555555555555',
+    });
+    const second = await DatingPhotoService.confirm(USER, {
+      objectKey: secondKey,
+      byteSize: 1000,
+      contentType: 'image/png',
+    });
+    assert.equal(second.isPrimary, false);
   });
 
   it('validates photo and prompt likes, creates one match, and does not duplicate it', async () => {

@@ -69,7 +69,10 @@ export function discoverCandidateQuery(input: {
       input.now ?? new Date(),
     );
     clauses.push(
-      Prisma.sql`p."birthDate" > ${bounds.earliestExclusive} AND p."birthDate" <= ${bounds.latestInclusive}`,
+      Prisma.sql`(
+        (p."birthDate" IS NOT NULL AND p."birthDate" > ${bounds.earliestExclusive} AND p."birthDate" <= ${bounds.latestInclusive})
+        OR (p."statedAge" IS NOT NULL AND p."statedAge" >= ${preferences.minAge} AND p."statedAge" <= ${preferences.maxAge})
+      )`,
     );
   }
   if (preferences.genderDealbreaker) {

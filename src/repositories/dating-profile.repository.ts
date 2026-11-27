@@ -36,7 +36,8 @@ export type DatingPreferencesWrite = {
 export type DatingProfileWrite = {
   userId: string;
   displayName: string;
-  birthDate: Date;
+  birthDate: Date | null;
+  statedAge: number | null;
   gender: DatingGender;
   interestedIn: string[];
   bio: string | null;
@@ -94,6 +95,7 @@ export class DatingProfileRepository {
         userId: data.userId,
         displayName: data.displayName,
         birthDate: data.birthDate,
+        statedAge: data.statedAge,
         gender: data.gender,
         interestedIn: data.interestedIn,
         bio: data.bio,

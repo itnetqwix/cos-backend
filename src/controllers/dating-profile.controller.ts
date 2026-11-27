@@ -115,6 +115,7 @@ export class DatingPhotoController {
       datingActorId(request),
       body.contentType,
       body.fileSizeBytes,
+      body.durationSeconds,
     );
     return sendSuccess(reply, data, 'Upload URL created', HTTP_STATUS.OK);
   }
