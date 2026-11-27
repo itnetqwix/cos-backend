@@ -38,7 +38,10 @@ export function buildDiscoverWhere(input: {
   if (preferences.ageDealbreaker) {
     const bounds = birthDateBounds(preferences.minAge, preferences.maxAge, now);
     and.push({
-      birthDate: { gt: bounds.earliestExclusive, lte: bounds.latestInclusive },
+      OR: [
+        { birthDate: { gt: bounds.earliestExclusive, lte: bounds.latestInclusive } },
+        { statedAge: { gte: preferences.minAge, lte: preferences.maxAge } },
+      ],
     });
   }
   if (preferences.genderDealbreaker) {

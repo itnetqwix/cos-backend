@@ -111,14 +111,24 @@ export const DATING_IMAGE_CONTENT_TYPES = {
   'image/webp': 'webp',
 } as const;
 
+/** Same formats and ceilings as the platform video rules. */
+export const DATING_VIDEO_CONTENT_TYPES = {
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+} as const;
+
 export type AllowedDatingImageContentType = keyof typeof DATING_IMAGE_CONTENT_TYPES;
+export type AllowedDatingVideoContentType = keyof typeof DATING_VIDEO_CONTENT_TYPES;
 
 export const DATING_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const DATING_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+export const DATING_VIDEO_MAX_SECONDS = 60;
 export const DATING_IMAGE_READ_TTL_SECONDS = 3600;
 
 const DATING_UUID = '[0-9a-f-]{36}';
 const DATING_PHOTO_KEY_PATTERN = new RegExp(
-  `^dating-photos/(${DATING_UUID})/(${DATING_UUID})\\.(jpg|png|webp)$`,
+  `^dating-photos/(${DATING_UUID})/(${DATING_UUID})\\.(jpg|png|webp|mp4|webm|mov)$`,
   'i',
 );
 const DATING_CHAT_KEY_PATTERN = new RegExp(
@@ -136,6 +146,16 @@ export function isAllowedDatingImageContentType(
   return Object.prototype.hasOwnProperty.call(DATING_IMAGE_CONTENT_TYPES, contentType);
 }
 
+export function isAllowedDatingVideoContentType(
+  contentType: string,
+): contentType is AllowedDatingVideoContentType {
+  return Object.prototype.hasOwnProperty.call(DATING_VIDEO_CONTENT_TYPES, contentType);
+}
+
+export function isDatingVideoObjectKey(objectKey: string): boolean {
+  return /\.(mp4|webm|mov)$/i.test(objectKey);
+}
+
 function datingImageExtension(contentType: string): string {
   if (!isAllowedDatingImageContentType(contentType)) {
     throw new ValidationError('Dating image must be a JPEG, PNG, or WebP');
@@ -143,12 +163,40 @@ function datingImageExtension(contentType: string): string {
   return DATING_IMAGE_CONTENT_TYPES[contentType];
 }
 
-export function assertDatingImageSize(fileSizeBytes: number): void {
+function datingMediaExtension(contentType: string): string {
+  if (isAllowedDatingImageContentType(contentType)) return DATING_IMAGE_CONTENT_TYPES[contentType];
+  if (isAllowedDatingVideoContentType(contentType)) return DATING_VIDEO_CONTENT_TYPES[contentType];
+  throw new ValidationError('Dating media must be a JPEG, PNG, WebP, MP4, WebM, or MOV');
+}
+
+function assertPositiveSize(fileSizeBytes: number): void {
   if (!Number.isInteger(fileSizeBytes) || fileSizeBytes <= 0) {
     throw new ValidationError('fileSizeBytes must be a positive integer');
   }
+}
+
+export function assertDatingImageSize(fileSizeBytes: number): void {
+  assertPositiveSize(fileSizeBytes);
   if (fileSizeBytes > DATING_IMAGE_MAX_BYTES) {
     throw new ValidationError('Dating images must be 10 MB or smaller');
+  }
+}
+
+export function assertDatingVideoSize(fileSizeBytes: number): void {
+  assertPositiveSize(fileSizeBytes);
+  if (fileSizeBytes > DATING_VIDEO_MAX_BYTES) {
+    throw new ValidationError('Dating videos must be 100 MB or smaller');
+  }
+}
+
+export function assertDatingVideoDuration(durationSeconds: number | undefined): void {
+  if (
+    durationSeconds == null ||
+    !Number.isInteger(durationSeconds) ||
+    durationSeconds < 1 ||
+    durationSeconds > DATING_VIDEO_MAX_SECONDS
+  ) {
+    throw new ValidationError('Dating videos must be 60 seconds or shorter');
   }
 }
 
@@ -157,7 +205,7 @@ export function buildDatingPhotoObjectKey(parts: {
   contentType: string;
   objectId?: string;
 }): string {
-  const extension = datingImageExtension(parts.contentType);
+  const extension = datingMediaExtension(parts.contentType);
   const objectId = parts.objectId ?? randomUUID();
   return `dating-photos/${parts.profileId}/${objectId}.${extension}`;
 }

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { ageFromBirthDate, distanceMiles } from './dating-geo.js';
+import { isDatingVideoObjectKey } from './storage.service.js';
 
 export interface DatingPrompt {
   promptId: string;
@@ -13,6 +14,7 @@ export interface DatingPhotoView {
   sortOrder: number;
   isPrimary: string | boolean;
   caption: string | null;
+  mediaType: 'image' | 'video';
 }
 
 export function readPrompts(value: Prisma.JsonValue | null | undefined): DatingPrompt[] {
@@ -71,23 +73,33 @@ export async function presentPhotos(
         sortOrder: photo.sortOrder,
         isPrimary: photo.isPrimary,
         caption: photo.caption,
+        mediaType: isDatingVideoObjectKey(photo.objectKey) ? 'video' : 'image',
       })),
   );
 }
 
 export function primaryPhoto(photos: PhotoLike[]): PhotoLike | null {
-  const approved = photos.filter((photo) => photo.moderationStatus === 'APPROVED');
+  const images = photos.filter(
+    (photo) => photo.moderationStatus === 'APPROVED' && !isDatingVideoObjectKey(photo.objectKey),
+  );
   return (
-    approved.find((photo) => photo.isPrimary) ??
-    approved.slice().sort((a, b) => a.sortOrder - b.sortOrder)[0] ??
+    images.find((photo) => photo.isPrimary) ??
+    images.slice().sort((a, b) => a.sortOrder - b.sortOrder)[0] ??
     null
   );
+}
+
+function displayedAge(profile: { birthDate: Date | null; statedAge?: number | null }): number | null {
+  if (profile.statedAge != null) return profile.statedAge;
+  if (profile.birthDate) return ageFromBirthDate(profile.birthDate);
+  return null;
 }
 
 type NarrativeSource = {
   id: string;
   displayName: string;
-  birthDate: Date;
+  birthDate: Date | null;
+  statedAge?: number | null;
   gender: string;
   city: string;
   state: string;
@@ -122,7 +134,7 @@ export async function presentNarrative(
     includeUnapprovedPhotos: boolean;
   },
 ) {
-  const age = options.revealAge ? ageFromBirthDate(profile.birthDate) : null;
+  const age = options.revealAge ? displayedAge(profile) : null;
   let distanceMilesValue: number | null = null;
   let distanceLabel: string | null = null;
   const viewer = options.viewer;
@@ -182,6 +194,7 @@ export async function presentNarrative(
 
 const SECRET_KEYS = new Set([
   'birthdate',
+  'statedage',
   'latitude',
   'longitude',
   'latitudefuzzy',

@@ -1071,7 +1071,8 @@ model ZooteerAbuseReport {
 // ============================================================================
 // 420 Dating. One optional profile per Ripskis user. Dating rows do not
 // change User.name, avatarObjectKey, friendships, or contest data.
-// Exact coordinates are not columns. birthDate is never returned by the API.
+// Exact coordinates are not columns. birthDate and statedAge are never returned
+// by the API. New profiles store statedAge. Existing profiles keep birthDate.
 //
 // Prisma cannot model the CHECK constraints, photo-limit trigger, message
 // participant trigger, or partial unique primary-photo index. Those objects
@@ -1162,7 +1163,8 @@ model DatingProfile {
   userId                    String                   @unique
   user                      User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   displayName               String
-  birthDate                 DateTime
+  birthDate                 DateTime?
+  statedAge                 Int?
   gender                    DatingGender
   interestedIn              String[]
   bio                       String?                  @db.Text

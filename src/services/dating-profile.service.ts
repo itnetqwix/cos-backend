@@ -27,13 +27,14 @@ import {
   DATING_MAX_PROMPTS,
   DATING_METHODS,
 } from './dating-constants.js';
-import { assertLegalAge, fuzzCoordinates, parseBirthDate } from './dating-geo.js';
+import { assertLegalAge, assertStatedAge, fuzzCoordinates, parseBirthDate } from './dating-geo.js';
 import { DatingNotificationRepository } from '../repositories/dating-safety.repository.js';
 import { assertDatingTextsAllowed } from './dating-policy.js';
 import {
   assertDatingImageSize,
   buildDatingVerificationPhotoKey,
   getStorageService,
+  isDatingVideoObjectKey,
   parseDatingVerificationPhotoKey,
   signedDatingPhotoUrl,
 } from './storage.service.js';
@@ -52,7 +53,8 @@ const METHODS = new Set<string>(DATING_METHODS);
 
 export interface DatingOnboardingInput {
   displayName: string;
-  birthDate: string;
+  birthDate?: string;
+  age?: number;
   ageConfirmed: boolean;
   gender: DatingGender;
   interestedIn: DatingGender[];
@@ -152,8 +154,12 @@ export function buildProfileWrite(
   if (input.ageConfirmed !== true) {
     throw new ValidationError('You must confirm that you are at least 18 years old');
   }
-  const birthDate = parseBirthDate(input.birthDate);
-  assertLegalAge(birthDate);
+  const birthDate = input.birthDate ? parseBirthDate(input.birthDate) : null;
+  const statedAge = input.age == null ? null : assertStatedAge(input.age);
+  if (birthDate) assertLegalAge(birthDate);
+  if (!birthDate && statedAge == null) {
+    throw new ValidationError('Enter your age');
+  }
   const displayName = input.displayName.trim();
   if (!displayName || displayName.length > DATING_DISPLAY_NAME_MAX) {
     throw new ValidationError('displayName must be 1 to 40 characters');
@@ -204,6 +210,7 @@ export function buildProfileWrite(
     userId,
     displayName,
     birthDate,
+    statedAge,
     gender: input.gender,
     interestedIn,
     bio,
@@ -326,7 +333,10 @@ export class DatingProfileService {
     }
     const merged: DatingOnboardingInput = {
       displayName: input.displayName ?? profile.displayName,
-      birthDate: input.birthDate ?? profile.birthDate.toISOString().slice(0, 10),
+      birthDate:
+        input.birthDate ??
+        (profile.birthDate ? profile.birthDate.toISOString().slice(0, 10) : undefined),
+      age: input.age ?? profile.statedAge ?? undefined,
       ageConfirmed: true,
       gender: input.gender ?? profile.gender,
       interestedIn: input.interestedIn ?? (profile.interestedIn as DatingGender[]),
@@ -352,6 +362,7 @@ export class DatingProfileService {
     const data: Prisma.DatingProfileUpdateInput = {
       displayName: write.displayName,
       birthDate: write.birthDate,
+      statedAge: write.statedAge,
       gender: write.gender,
       interestedIn: write.interestedIn,
       bio: write.bio,
@@ -383,8 +394,10 @@ export class DatingProfileService {
       throw new ForbiddenError('Your 420 Dating profile is banned');
     }
     if (status === 'ACTIVE') {
-      assertLegalAge(profile.birthDate);
-      if (profile.photos.length < 1) {
+      if (profile.statedAge != null) assertStatedAge(profile.statedAge);
+      else if (profile.birthDate) assertLegalAge(profile.birthDate);
+      else throw new ValidationError('Enter your age');
+      if (!profile.photos.some((photo) => !isDatingVideoObjectKey(photo.objectKey))) {
         throw new ValidationError('Add a photo before activating your dating profile');
       }
     }
