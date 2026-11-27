@@ -186,7 +186,10 @@ export class DatingMatchService {
       originatingLikeId: like.id,
       firstMessage: comment ? { senderProfileId: sender.id, body: comment } : null,
     });
-    const payload = await this.matchPayload(created, sender.id);
+    const [payload, receiverPayload] = await Promise.all([
+      this.matchPayload(created, sender.id),
+      this.matchPayload(created, receiver.id),
+    ]);
     await Promise.all([
       DatingNotificationRepository.create({
         profileId: sender.id,
@@ -203,7 +206,8 @@ export class DatingMatchService {
         relatedEntityId: created.id,
       }),
     ]);
-    publishDating([sender.userId, receiver.userId], { type: 'match', match: payload });
+    publishDating([sender.userId], { type: 'match', match: payload });
+    publishDating([receiver.userId], { type: 'match', match: receiverPayload });
     return { liked: true, isMatch: true, match: payload };
   }
 
